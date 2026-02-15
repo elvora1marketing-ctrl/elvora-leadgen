@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 
 const navItems = [
   {
-    label: 'Dashboard',
+    label: 'Übersicht',
     href: '/dashboard',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -14,7 +14,7 @@ const navItems = [
     ),
   },
   {
-    label: 'Review Leads',
+    label: 'Leads prüfen',
     href: '/review',
     badge: true,
     icon: (
@@ -24,7 +24,7 @@ const navItems = [
     ),
   },
   {
-    label: 'Qualified Leads',
+    label: 'Pipeline',
     href: '/leads',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -33,7 +33,7 @@ const navItems = [
     ),
   },
   {
-    label: 'Settings',
+    label: 'Einstellungen',
     href: '/settings',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -48,29 +48,35 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-64 bg-elvora-bg-alt border-r border-white/5 flex flex-col z-50">
-      {/* Logo */}
-      <div className="p-6 border-b border-white/5">
+    <aside className="fixed left-0 top-0 bottom-0 w-56 bg-elvora-bg-alt border-r border-white/5 flex flex-col z-50">
+      {/* Elvora Logo */}
+      <div className="p-5 border-b border-white/5">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-elvora-gradient flex items-center justify-center shadow-elvora">
-            <span className="text-white font-bold text-lg">E</span>
-          </div>
-          <div>
-            <h1 className="text-lg font-bold gradient-text tracking-tight">Elvora</h1>
-            <p className="text-xs text-elvora-text-dim">Lead Generator</p>
-          </div>
+          {/* Logo mark - gradient circle with E */}
+          <svg width="36" height="36" viewBox="0 0 100 100" className="flex-shrink-0">
+            <defs>
+              <linearGradient id="elvora-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#8B5CF6" />
+                <stop offset="50%" stopColor="#EC4899" />
+                <stop offset="100%" stopColor="#F97316" />
+              </linearGradient>
+            </defs>
+            <circle cx="50" cy="50" r="48" fill="url(#elvora-grad)" />
+            <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fill="white" fontSize="42" fontWeight="700" fontFamily="Inter, sans-serif">E</text>
+          </svg>
+          <span className="text-lg font-bold gradient-text tracking-tight">ELVORA</span>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className="flex-1 p-3 space-y-1">
         {navItems.map((item) => {
           const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                 isActive
                   ? 'bg-elvora-gradient text-white shadow-elvora'
                   : 'text-elvora-text-muted hover:text-white hover:bg-white/5'
@@ -88,22 +94,12 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* OpenClaw Status */}
-      <div className="p-4 border-t border-white/5">
-        <div className="glass rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-2 h-2 rounded-full bg-elvora-success pulse-dot" />
-            <span className="text-xs font-medium text-elvora-text-muted">OpenClaw Active</span>
-          </div>
-          <p className="text-xs text-elvora-text-dim">Next scan: 03:00</p>
-          <p className="text-xs text-elvora-text-dim mt-1">Last: 47 leads found</p>
+      {/* Scanner Status - minimal */}
+      <div className="p-3 border-t border-white/5">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <div className="w-2 h-2 rounded-full bg-elvora-success pulse-dot" />
+          <span className="text-xs text-elvora-text-dim">Scanner aktiv</span>
         </div>
-      </div>
-
-      <div className="p-4 pt-0">
-        <p className="text-[10px] text-elvora-text-dim text-center">
-          Elvora v1.0 &middot; Local Only
-        </p>
       </div>
     </aside>
   );

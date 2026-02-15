@@ -6,8 +6,8 @@ import Sidebar from '@/components/Sidebar';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Elvora Lead Generator',
-  description: 'Local lead generation panel for SHK businesses in NRW',
+  title: 'Elvora - Lead Generator',
+  description: 'Lead-Generierung für SHK-Betriebe in NRW',
 };
 
 export default function RootLayout({
@@ -20,7 +20,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <div className="flex min-h-screen bg-elvora-bg">
           <Sidebar />
-          <main className="flex-1 ml-64 p-8 overflow-auto">
+          <main className="flex-1 ml-56 p-6 overflow-auto">
             {children}
           </main>
         </div>
