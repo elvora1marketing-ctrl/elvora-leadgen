@@ -181,6 +181,9 @@ export default function ReviewPage() {
   const [animating, setAnimating] = useState<'left' | 'right' | null>(null);
   const [auditLinks, setAuditLinks] = useState<Record<number, string>>({});
   const [auditLoading, setAuditLoading] = useState<number | null>(null);
+  const [emailSending, setEmailSending] = useState<number | null>(null);
+  const [emailStatus, setEmailStatus] = useState<Record<number, 'sent' | 'error'>>({});
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const currentLead = leads[currentIndex];
   const totalLeads = leads.length;
@@ -204,6 +207,50 @@ export default function ReviewPage() {
       console.error('Audit generation failed:', err);
     } finally {
       setAuditLoading(null);
+    }
+  };
+
+  const sendEmail = async (lead: ReviewLead) => {
+    if (!lead.email) {
+      setEmailError('Keine E-Mail-Adresse bei diesem Lead vorhanden');
+      setTimeout(() => setEmailError(null), 3000);
+      return;
+    }
+
+    setEmailSending(lead.id);
+    setEmailError(null);
+
+    try {
+      const res = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead_name: lead.name,
+          lead_email: lead.email,
+          ansprechpartner: lead.ansprechpartner,
+          website: lead.website,
+          city: lead.city,
+          score: lead.score,
+          problems: lead.problems,
+          seo_issues: lead.seoIssues,
+          audit_url: auditLinks[lead.id] ? window.location.origin + auditLinks[lead.id] : undefined,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setEmailStatus(prev => ({ ...prev, [lead.id]: 'sent' }));
+      } else {
+        setEmailError(data.error || 'Fehler beim Senden');
+        setEmailStatus(prev => ({ ...prev, [lead.id]: 'error' }));
+        setTimeout(() => setEmailError(null), 5000);
+      }
+    } catch {
+      setEmailError('Netzwerkfehler – bitte erneut versuchen');
+      setTimeout(() => setEmailError(null), 3000);
+    } finally {
+      setEmailSending(null);
     }
   };
 
@@ -437,6 +484,57 @@ export default function ReviewPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               {auditLoading === currentLead.id ? 'Wird erstellt...' : 'Audit-Seite erstellen'}
+            </button>
+          )}
+        </div>
+
+        {/* Mail senden Button */}
+        <div className="mx-5 mb-4">
+          {emailError && (
+            <div className="mb-2 p-2 rounded-lg bg-elvora-danger/10 border border-elvora-danger/20 text-elvora-danger text-xs animate-fade-in">
+              {emailError}
+            </div>
+          )}
+          {emailStatus[currentLead.id] === 'sent' ? (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-elvora-success/10 border border-elvora-success/20">
+              <svg className="w-4 h-4 text-elvora-success flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="text-sm text-elvora-success font-medium">Pitch-Mail gesendet an {currentLead.email}</span>
+            </div>
+          ) : (
+            <button
+              onClick={() => sendEmail(currentLead)}
+              disabled={emailSending === currentLead.id || !currentLead.email}
+              className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 ${
+                !currentLead.email
+                  ? 'bg-white/5 border border-white/10 text-elvora-text-dim cursor-not-allowed'
+                  : 'bg-elvora-pink/10 border border-elvora-pink/20 text-elvora-pink-light hover:bg-elvora-pink/20'
+              }`}
+            >
+              {emailSending === currentLead.id ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Mail wird gesendet...
+                </>
+              ) : !currentLead.email ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  Keine E-Mail vorhanden
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  Pitch-Mail senden an {currentLead.email}
+                </>
+              )}
             </button>
           )}
         </div>
