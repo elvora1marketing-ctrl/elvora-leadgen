@@ -72,6 +72,27 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL,
   updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS audit_pages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id INTEGER NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  business_name TEXT NOT NULL,
+  city TEXT NOT NULL,
+  website TEXT NOT NULL,
+  score INTEGER DEFAULT 0,
+  problems TEXT DEFAULT '[]',
+  seo_issues TEXT DEFAULT '[]',
+  calendly_url TEXT,
+  views INTEGER DEFAULT 0,
+  cta_clicks INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  expires_at TEXT,
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_slug ON audit_pages(slug);
+CREATE INDEX IF NOT EXISTS idx_audit_lead ON audit_pages(lead_id);
 `;
 
 // Execute schema

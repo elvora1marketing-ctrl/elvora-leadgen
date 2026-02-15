@@ -179,12 +179,33 @@ export default function ReviewPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [decisions, setDecisions] = useState<Record<number, 'qualified' | 'skipped'>>({});
   const [animating, setAnimating] = useState<'left' | 'right' | null>(null);
+  const [auditLinks, setAuditLinks] = useState<Record<number, string>>({});
+  const [auditLoading, setAuditLoading] = useState<number | null>(null);
 
   const currentLead = leads[currentIndex];
   const totalLeads = leads.length;
   const qualifiedCount = Object.values(decisions).filter((d) => d === 'qualified').length;
   const skippedCount = Object.values(decisions).filter((d) => d === 'skipped').length;
   const isComplete = currentIndex >= totalLeads;
+
+  const generateAudit = async (leadId: number) => {
+    setAuditLoading(leadId);
+    try {
+      const res = await fetch('/api/audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: leadId }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        setAuditLinks(prev => ({ ...prev, [leadId]: data.url }));
+      }
+    } catch (err) {
+      console.error('Audit generation failed:', err);
+    } finally {
+      setAuditLoading(null);
+    }
+  };
 
   const handleDecision = useCallback(
     (decision: 'qualified' | 'skipped') => {
@@ -387,6 +408,37 @@ export default function ReviewPage() {
               <p className="text-white font-medium">{currentLead.callScript.cta}</p>
             </div>
           </div>
+        </div>
+
+        {/* Audit Link Generator */}
+        <div className="mx-5 mb-4">
+          {auditLinks[currentLead.id] ? (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-elvora-success/10 border border-elvora-success/20">
+              <svg className="w-4 h-4 text-elvora-success flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="text-sm text-elvora-success font-medium truncate">Audit-Link erstellt</span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.origin + auditLinks[currentLead.id]);
+                }}
+                className="ml-auto px-3 py-1 rounded-lg bg-elvora-success/20 text-elvora-success text-xs font-semibold hover:bg-elvora-success/30 transition-all flex-shrink-0"
+              >
+                Link kopieren
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => generateAudit(currentLead.id)}
+              disabled={auditLoading === currentLead.id}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-elvora-primary/10 border border-elvora-primary/20 text-elvora-primary-light text-sm font-semibold hover:bg-elvora-primary/20 transition-all disabled:opacity-50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              {auditLoading === currentLead.id ? 'Wird erstellt...' : 'Audit-Seite erstellen'}
+            </button>
+          )}
         </div>
 
         {/* Action Buttons - extra tall on mobile for easy thumb tap */}

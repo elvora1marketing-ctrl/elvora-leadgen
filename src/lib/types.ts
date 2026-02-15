@@ -59,3 +59,20 @@ export interface ParsedSeoIssue {
   label: string;
   impact: 'high' | 'medium' | 'low';
 }
+
+export interface AuditPage {
+  id: number;
+  lead_id: number;
+  slug: string;
+  business_name: string;
+  city: string;
+  website: string;
+  score: number;
+  problems: string; // JSON array of ParsedProblems
+  seo_issues: string; // JSON array of ParsedSeoIssue
+  calendly_url: string | null;
+  views: number;
+  cta_clicks: number;
+  created_at: string;
+  expires_at: string | null;
+}
