@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       lead.score,
       lead.problems || '[]',
       lead.seo_issues || '[]',
-      calendly_url || null,
+      calendly_url || (db.prepare("SELECT value FROM settings WHERE key = 'calendly_url'").get() as { value: string } | undefined)?.value || null,
     );
 
     return NextResponse.json({

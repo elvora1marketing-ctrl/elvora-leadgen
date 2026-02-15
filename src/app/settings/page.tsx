@@ -18,7 +18,7 @@ export default function SettingsPage() {
   const [smtpPass, setSmtpPass] = useState('');
   const [smtpFromName, setSmtpFromName] = useState('');
   const [smtpFromEmail, setSmtpFromEmail] = useState('');
-  const [calendlyUrl, setCalendlyUrl] = useState('');
+  const [calendlyUrl, setCalendlyUrl] = useState('https://calendly.com/elvora-meeting/30min');
   const [testEmailTo, setTestEmailTo] = useState('');
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);

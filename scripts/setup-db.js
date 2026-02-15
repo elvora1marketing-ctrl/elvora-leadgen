@@ -109,6 +109,7 @@ const defaults = {
   keywords: JSON.stringify(['Sanitär', 'Heizung', 'Klempner', 'SHK']),
   score_threshold: '85',
   scan_schedule: 'daily_3am',
+  calendly_url: 'https://calendly.com/elvora-meeting/30min',
 };
 
 const insertMany = db.transaction((settings) => {
