@@ -11,29 +11,41 @@ const config: Config = {
       colors: {
         elvora: {
           bg: '#0a0a0f',
-          'bg-alt': '#12121a',
-          card: '#1a1a2e',
-          'card-alt': '#16162a',
-          purple: '#6c5ce7',
-          'purple-light': '#a78bfa',
-          gold: '#f0c040',
+          'bg-alt': '#111118',
+          card: '#18181f',
+          'card-alt': '#1e1e28',
+          // Primary - Elvora Violet
+          primary: '#8B5CF6',
+          'primary-light': '#A78BFA',
+          'primary-dark': '#7C3AED',
+          // Secondary - Elvora Pink
+          pink: '#EC4899',
+          'pink-light': '#F472B6',
+          // Accent - Elvora Orange
+          accent: '#F97316',
+          'accent-light': '#FB923C',
+          // Text
           text: '#ffffff',
           'text-muted': '#94a3b8',
           'text-dim': '#64748b',
+          // Status
           success: '#10b981',
           danger: '#ef4444',
-          warning: '#f97316',
+          warning: '#F97316',
         },
       },
       backgroundImage: {
-        'elvora-gradient': 'linear-gradient(135deg, #6c5ce7, #a78bfa)',
-        'elvora-gradient-hover': 'linear-gradient(135deg, #7c6cf7, #b79bff)',
-        'elvora-gold-gradient': 'linear-gradient(135deg, #f0c040, #f5d060)',
+        'elvora-gradient': 'linear-gradient(135deg, #8B5CF6, #EC4899)',
+        'elvora-gradient-hover': 'linear-gradient(135deg, #9D6FFF, #F472B6)',
+        'elvora-gradient-warm': 'linear-gradient(135deg, #EC4899, #F97316)',
+        'elvora-gradient-hot': 'linear-gradient(135deg, #ef4444, #F97316)',
+        'elvora-gradient-cold': 'linear-gradient(135deg, #3b82f6, #8B5CF6)',
       },
       boxShadow: {
-        'elvora': '0 4px 24px rgba(108, 92, 231, 0.15)',
-        'elvora-lg': '0 8px 40px rgba(108, 92, 231, 0.25)',
-        'elvora-gold': '0 4px 24px rgba(240, 192, 64, 0.15)',
+        'elvora': '0 4px 24px rgba(139, 92, 246, 0.15)',
+        'elvora-lg': '0 8px 40px rgba(139, 92, 246, 0.25)',
+        'elvora-pink': '0 4px 24px rgba(236, 72, 153, 0.15)',
+        'elvora-glow': '0 0 20px rgba(139, 92, 246, 0.3)',
       },
       animation: {
         'slide-left': 'slideLeft 0.4s ease-out',
