@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
 
 const navItems = [
   {
@@ -46,61 +47,130 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  // Close sidebar on route change (mobile)
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  // Prevent body scroll when sidebar open on mobile
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [open]);
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-56 bg-elvora-bg-alt border-r border-white/5 flex flex-col z-50">
-      {/* Elvora Logo */}
-      <div className="p-5 border-b border-white/5">
-        <div className="flex items-center gap-3">
-          {/* Logo mark - gradient circle with E */}
-          <svg width="36" height="36" viewBox="0 0 100 100" className="flex-shrink-0">
+    <>
+      {/* Mobile top bar */}
+      <div className="fixed top-0 left-0 right-0 h-14 bg-elvora-bg-alt border-b border-white/5 flex items-center px-4 z-50 lg:hidden safe-area-top">
+        <button
+          onClick={() => setOpen(true)}
+          className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-white/5 transition-colors"
+        >
+          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <div className="flex items-center gap-2 ml-3">
+          <svg width="24" height="24" viewBox="0 0 100 100" className="flex-shrink-0">
             <defs>
-              <linearGradient id="elvora-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="elvora-grad-mobile" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#8B5CF6" />
                 <stop offset="50%" stopColor="#EC4899" />
                 <stop offset="100%" stopColor="#F97316" />
               </linearGradient>
             </defs>
-            <circle cx="50" cy="50" r="48" fill="url(#elvora-grad)" />
+            <circle cx="50" cy="50" r="48" fill="url(#elvora-grad-mobile)" />
             <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fill="white" fontSize="42" fontWeight="700" fontFamily="Inter, sans-serif">E</text>
           </svg>
-          <span className="text-lg font-bold gradient-text tracking-tight">ELVORA</span>
+          <span className="text-sm font-bold gradient-text">ELVORA</span>
         </div>
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 p-3 space-y-1">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                isActive
-                  ? 'bg-elvora-gradient text-white shadow-elvora'
-                  : 'text-elvora-text-muted hover:text-white hover:bg-white/5'
-              }`}
-            >
-              {item.icon}
-              {item.label}
-              {item.badge && (
-                <span className="ml-auto bg-elvora-pink/20 text-elvora-pink text-xs font-semibold px-2 py-0.5 rounded-full">
-                  12
-                </span>
-              )}
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Scanner Status - minimal */}
-      <div className="p-3 border-t border-white/5">
-        <div className="flex items-center gap-2 px-3 py-2">
+        <div className="ml-auto flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-elvora-success pulse-dot" />
-          <span className="text-xs text-elvora-text-dim">Scanner aktiv</span>
+          <span className="text-[10px] text-elvora-text-dim">Aktiv</span>
         </div>
       </div>
-    </aside>
+
+      {/* Mobile overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 lg:hidden"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`fixed left-0 top-0 bottom-0 w-56 bg-elvora-bg-alt border-r border-white/5 flex flex-col z-50 transition-transform duration-300 ${
+        open ? 'translate-x-0' : '-translate-x-full'
+      } lg:translate-x-0`}>
+        {/* Elvora Logo */}
+        <div className="p-5 border-b border-white/5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <svg width="36" height="36" viewBox="0 0 100 100" className="flex-shrink-0">
+                <defs>
+                  <linearGradient id="elvora-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#8B5CF6" />
+                    <stop offset="50%" stopColor="#EC4899" />
+                    <stop offset="100%" stopColor="#F97316" />
+                  </linearGradient>
+                </defs>
+                <circle cx="50" cy="50" r="48" fill="url(#elvora-grad)" />
+                <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fill="white" fontSize="42" fontWeight="700" fontFamily="Inter, sans-serif">E</text>
+              </svg>
+              <span className="text-lg font-bold gradient-text tracking-tight">ELVORA</span>
+            </div>
+            {/* Close button on mobile */}
+            <button
+              onClick={() => setOpen(false)}
+              className="lg:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5"
+            >
+              <svg className="w-5 h-5 text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-3 space-y-1">
+          {navItems.map((item) => {
+            const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  isActive
+                    ? 'bg-elvora-gradient text-white shadow-elvora'
+                    : 'text-elvora-text-muted hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {item.icon}
+                {item.label}
+                {item.badge && (
+                  <span className="ml-auto bg-elvora-pink/20 text-elvora-pink text-xs font-semibold px-2 py-0.5 rounded-full">
+                    12
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Scanner Status */}
+        <div className="p-3 border-t border-white/5">
+          <div className="flex items-center gap-2 px-3 py-2">
+            <div className="w-2 h-2 rounded-full bg-elvora-success pulse-dot" />
+            <span className="text-xs text-elvora-text-dim">Scanner aktiv</span>
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }

@@ -20,12 +20,12 @@ export default function DashboardPage() {
   return (
     <div className="max-w-5xl mx-auto animate-fade-in">
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-5 lg:mb-6">
         {stats.map((s) => (
-          <div key={s.label} className="glass rounded-xl p-4">
-            <div className="text-xs text-elvora-text-dim mb-1">{s.label}</div>
-            <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
-            <div className="text-xs text-elvora-text-dim mt-1">{s.sub}</div>
+          <div key={s.label} className="glass rounded-xl p-3 lg:p-4">
+            <div className="text-[11px] lg:text-xs text-elvora-text-dim mb-1">{s.label}</div>
+            <div className={`text-xl lg:text-2xl font-bold ${s.color}`}>{s.value}</div>
+            <div className="text-[11px] lg:text-xs text-elvora-text-dim mt-1">{s.sub}</div>
           </div>
         ))}
       </div>
@@ -33,11 +33,11 @@ export default function DashboardPage() {
       {/* Quick action */}
       <Link
         href="/review"
-        className="block mb-6 glass rounded-xl p-4 hover:bg-white/[0.04] transition-all group"
+        className="block mb-5 lg:mb-6 glass rounded-xl p-4 hover:bg-white/[0.04] transition-all group"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-elvora-gradient flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-elvora-gradient flex items-center justify-center flex-shrink-0">
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
               </svg>
@@ -49,37 +49,39 @@ export default function DashboardPage() {
               <div className="text-xs text-elvora-text-dim">8 davon mit Score &gt; 85</div>
             </div>
           </div>
-          <svg className="w-5 h-5 text-elvora-text-dim group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-elvora-text-dim group-hover:text-white transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
           </svg>
         </div>
       </Link>
 
       {/* Recent Scans */}
-      <div className="glass rounded-xl p-5">
+      <div className="glass rounded-xl p-4 lg:p-5">
         <h2 className="text-sm font-semibold text-white mb-3">Letzte Scans</h2>
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-white/5">
-              <th className="text-left text-xs text-elvora-text-dim pb-2">Keyword</th>
-              <th className="text-left text-xs text-elvora-text-dim pb-2">Stadt</th>
-              <th className="text-left text-xs text-elvora-text-dim pb-2">Gefunden</th>
-              <th className="text-left text-xs text-elvora-text-dim pb-2">Neu</th>
-              <th className="text-left text-xs text-elvora-text-dim pb-2">Uhrzeit</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {recentScans.map((scan, i) => (
-              <tr key={i}>
-                <td className="py-2.5 text-sm"><span className="tag">{scan.keyword}</span></td>
-                <td className="py-2.5 text-sm text-elvora-text-muted">{scan.city}</td>
-                <td className="py-2.5 text-sm text-white font-medium">{scan.found}</td>
-                <td className="py-2.5 text-sm text-elvora-success font-medium">+{scan.newLeads}</td>
-                <td className="py-2.5 text-xs text-elvora-text-dim font-mono">{scan.time}</td>
+        <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0">
+          <table className="w-full min-w-[400px]">
+            <thead>
+              <tr className="border-b border-white/5">
+                <th className="text-left text-xs text-elvora-text-dim pb-2">Keyword</th>
+                <th className="text-left text-xs text-elvora-text-dim pb-2">Stadt</th>
+                <th className="text-left text-xs text-elvora-text-dim pb-2">Gefunden</th>
+                <th className="text-left text-xs text-elvora-text-dim pb-2">Neu</th>
+                <th className="text-left text-xs text-elvora-text-dim pb-2">Zeit</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {recentScans.map((scan, i) => (
+                <tr key={i}>
+                  <td className="py-2.5 text-sm"><span className="tag">{scan.keyword}</span></td>
+                  <td className="py-2.5 text-sm text-elvora-text-muted">{scan.city}</td>
+                  <td className="py-2.5 text-sm text-white font-medium">{scan.found}</td>
+                  <td className="py-2.5 text-sm text-elvora-success font-medium">+{scan.newLeads}</td>
+                  <td className="py-2.5 text-xs text-elvora-text-dim font-mono">{scan.time}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

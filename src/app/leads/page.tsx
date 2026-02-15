@@ -75,18 +75,18 @@ export default function LeadsPage() {
   return (
     <div className="animate-fade-in">
       {/* Header with summary */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4 lg:mb-5">
         <h1 className="text-lg font-bold text-white">Pipeline</h1>
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-3 lg:gap-4 text-xs sm:text-sm">
           <span className="text-elvora-text-dim">{totalDeals} Deals</span>
           <span className="text-elvora-accent font-semibold">{totalValue.toLocaleString('de-DE')} EUR</span>
         </div>
       </div>
 
-      {/* Kanban */}
-      <div className="grid grid-cols-4 gap-3">
+      {/* Kanban - horizontal scroll on mobile */}
+      <div className="flex lg:grid lg:grid-cols-4 gap-3 overflow-x-auto pb-4 -mx-4 px-4 lg:mx-0 lg:px-0 snap-x snap-mandatory lg:snap-none">
         {columns.map((col) => (
-          <div key={col.id}>
+          <div key={col.id} className="min-w-[280px] lg:min-w-0 snap-start">
             <div className="flex items-center gap-2 mb-3 px-1">
               <div className={`w-2 h-2 rounded-full ${col.color}`} />
               <span className="text-xs font-semibold text-white">{col.title}</span>

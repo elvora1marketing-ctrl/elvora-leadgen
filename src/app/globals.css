@@ -134,3 +134,24 @@ a, button, input, select, textarea {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+
+/* Safe area for iPhone Dynamic Island / notch */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-area-pad {
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Touch-friendly: prevent double-tap zoom on buttons */
+button, a {
+  touch-action: manipulation;
+}
+
+/* Smooth momentum scrolling on iOS */
+.overflow-auto, .overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
