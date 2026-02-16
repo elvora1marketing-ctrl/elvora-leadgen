@@ -206,8 +206,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const fromName = settings.email_from_name || 'Elvora';
-    const fromEmail = settings.email_from_email || 'onboarding@resend.dev';
+    const fromName = settings.email_from_name || 'Luan von Elvora';
+    const fromEmail = settings.email_from_email || 'luan@elvora.me';
     const calendlyUrl = settings.calendly_url || '';
 
     const subject = `Website-Analyse für ${body.lead_name} – ${body.score}/100 Punkte`;

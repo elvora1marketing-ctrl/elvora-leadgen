@@ -244,7 +244,7 @@ export default function SettingsPage() {
                   type="text"
                   value={emailFromName}
                   onChange={(e) => setEmailFromName(e.target.value)}
-                  placeholder="Max von Elvora"
+                  placeholder="Luan von Elvora"
                   className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
                 />
               </div>
@@ -254,10 +254,10 @@ export default function SettingsPage() {
                   type="email"
                   value={emailFromEmail}
                   onChange={(e) => setEmailFromEmail(e.target.value)}
-                  placeholder="onboarding@resend.dev"
+                  placeholder="luan@elvora.me"
                   className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
                 />
-                <p className="text-[11px] text-elvora-text-dim mt-1">Nutze onboarding@resend.dev zum Testen, eigene Domain später bei Resend verifizieren</p>
+                <p className="text-[11px] text-elvora-text-dim mt-1">Verifizierte Domain: elvora.me</p>
               </div>
             </div>
 
