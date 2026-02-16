@@ -20,6 +20,10 @@ export default function SettingsPage() {
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // API / OpenClaw settings
+  const [apiKey, setApiKey] = useState('');
+  const [openclawUrl, setOpenclawUrl] = useState('');
+
   // Template settings
   const [tplSubject, setTplSubject] = useState('Website-Analyse für {firmenname} – {score}/100 Punkte');
   const [tplIntro, setTplIntro] = useState('mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.');
@@ -44,6 +48,7 @@ export default function SettingsPage() {
         if (data.tpl_pitch) setTplPitch(data.tpl_pitch);
         if (data.tpl_leistungen) setTplLeistungen(data.tpl_leistungen);
         if (data.tpl_cta) setTplCta(data.tpl_cta);
+        if (data.api_key) setApiKey(data.api_key);
       })
       .catch(() => {});
   }, []);
@@ -83,6 +88,7 @@ export default function SettingsPage() {
           tpl_pitch: tplPitch,
           tpl_leistungen: tplLeistungen,
           tpl_cta: tplCta,
+          api_key: apiKey,
         }),
       });
       if (res.ok) {
@@ -379,6 +385,88 @@ export default function SettingsPage() {
                 onChange={(e) => setTplCta(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
               />
+            </div>
+          </div>
+        </div>
+
+        {/* OpenClaw Integration */}
+        <div className="glass rounded-xl p-5 border border-elvora-success/20">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-lg">🦞</span>
+            <span className="text-sm font-semibold text-white">OpenClaw Integration</span>
+            <span className="px-2 py-0.5 rounded-full bg-elvora-success/15 text-elvora-success text-[10px] font-bold border border-elvora-success/20">API</span>
+          </div>
+          <p className="text-xs text-elvora-text-dim mb-4">
+            Verbinde Elvora mit OpenClaw für WhatsApp-Nachfass, automatische Lead-Qualifizierung und AI-gestütztes Gespräch mit Leads.
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">API-Key (für externe Zugriffe)</label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Einen sicheren Key eingeben..."
+                  className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-success/50 transition-all font-mono"
+                />
+                <button
+                  onClick={() => setApiKey(crypto.randomUUID())}
+                  className="px-3 py-2 rounded-lg bg-elvora-success/15 border border-elvora-success/30 text-elvora-success text-xs font-semibold hover:bg-elvora-success/25 transition-all flex-shrink-0"
+                >
+                  Generieren
+                </button>
+              </div>
+              <p className="text-[11px] text-elvora-text-dim mt-1">Wird für alle API-Zugriffe von OpenClaw benötigt</p>
+            </div>
+
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">OpenClaw Gateway URL (optional)</label>
+              <input
+                type="url"
+                value={openclawUrl}
+                onChange={(e) => setOpenclawUrl(e.target.value)}
+                placeholder="http://localhost:3100"
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-success/50 transition-all"
+              />
+            </div>
+
+            {/* API Endpoints Reference */}
+            <div className="pt-3 mt-3 border-t border-white/5">
+              <div className="text-[10px] font-semibold text-elvora-text-dim uppercase tracking-wider mb-2">API-Endpoints für OpenClaw</div>
+              <div className="space-y-1 text-xs font-mono">
+                <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 rounded bg-elvora-success/20 text-elvora-success text-[10px]">GET</span>
+                  <span className="text-elvora-text-muted">/api/leads</span>
+                  <span className="text-elvora-text-dim ml-auto">Lead-Liste</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 rounded bg-elvora-warning/20 text-elvora-warning text-[10px]">PATCH</span>
+                  <span className="text-elvora-text-muted">/api/leads/:id/status</span>
+                  <span className="text-elvora-text-dim ml-auto">Status ändern</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 rounded bg-elvora-pink/20 text-elvora-pink-light text-[10px]">POST</span>
+                  <span className="text-elvora-text-muted">/api/webhooks/openclaw</span>
+                  <span className="text-elvora-text-dim ml-auto">Webhook</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 rounded bg-elvora-pink/20 text-elvora-pink-light text-[10px]">POST</span>
+                  <span className="text-elvora-text-muted">/api/email/send</span>
+                  <span className="text-elvora-text-dim ml-auto">Mail senden</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 rounded bg-elvora-pink/20 text-elvora-pink-light text-[10px]">POST</span>
+                  <span className="text-elvora-text-muted">/api/email/bulk</span>
+                  <span className="text-elvora-text-dim ml-auto">Bulk-Versand</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 rounded bg-elvora-purple/20 text-elvora-purple-light text-[10px]">POST</span>
+                  <span className="text-elvora-text-muted">/api/cron/scan</span>
+                  <span className="text-elvora-text-dim ml-auto">Scan + Follow-Ups</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

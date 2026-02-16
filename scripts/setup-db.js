@@ -137,6 +137,7 @@ const defaults = {
   score_threshold: '85',
   scan_schedule: 'daily_3am',
   calendly_url: 'https://calendly.com/elvora-meeting/30min',
+  api_key: '',
 };
 
 const insertMany = db.transaction((settings) => {
