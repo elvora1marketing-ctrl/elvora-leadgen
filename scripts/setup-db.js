@@ -93,6 +93,33 @@ CREATE TABLE IF NOT EXISTS audit_pages (
 
 CREATE INDEX IF NOT EXISTS idx_audit_slug ON audit_pages(slug);
 CREATE INDEX IF NOT EXISTS idx_audit_lead ON audit_pages(lead_id);
+
+CREATE TABLE IF NOT EXISTS follow_ups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id INTEGER NOT NULL,
+  step INTEGER NOT NULL DEFAULT 1,
+  scheduled_at TEXT NOT NULL,
+  sent_at TEXT,
+  status TEXT DEFAULT 'pending' CHECK(status IN ('pending','sent','cancelled')),
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_followups_scheduled ON follow_ups(scheduled_at, status);
+CREATE INDEX IF NOT EXISTS idx_followups_lead ON follow_ups(lead_id);
+
+CREATE TABLE IF NOT EXISTS email_tracking (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id INTEGER NOT NULL,
+  tracking_id TEXT UNIQUE NOT NULL,
+  opened_at TEXT,
+  open_count INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracking_id ON email_tracking(tracking_id);
+CREATE INDEX IF NOT EXISTS idx_tracking_lead ON email_tracking(lead_id);
 `;
 
 // Execute schema

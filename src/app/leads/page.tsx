@@ -74,6 +74,8 @@ export default function LeadsPage() {
   const [emailSending, setEmailSending] = useState<number | null>(null);
   const [emailStatus, setEmailStatus] = useState<Record<number, 'sent' | 'error'>>({});
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ sent: number; errors: number } | null>(null);
 
   const totalDeals = columns.reduce((sum, col) => sum + col.leads.length, 0);
   const totalValue = columns.reduce(
@@ -123,6 +125,53 @@ export default function LeadsPage() {
     }
   };
 
+  const sendBulkEmails = async () => {
+    const notContactedLeads = columns
+      .find(c => c.id === 'not_contacted')?.leads || [];
+
+    if (notContactedLeads.length === 0) return;
+
+    setBulkSending(true);
+    setBulkResult(null);
+
+    let sent = 0;
+    let errors = 0;
+
+    for (const lead of notContactedLeads) {
+      if (!lead.email || emailStatus[lead.id] === 'sent') continue;
+
+      try {
+        const res = await fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lead_name: lead.name,
+            lead_email: lead.email,
+            ansprechpartner: lead.ansprechpartner,
+            website: lead.website,
+            city: lead.city,
+            score: lead.score,
+            problems: lead.problems,
+            seo_issues: lead.seoIssues,
+          }),
+        });
+
+        if (res.ok) {
+          sent++;
+          setEmailStatus(prev => ({ ...prev, [lead.id]: 'sent' }));
+        } else {
+          errors++;
+        }
+      } catch {
+        errors++;
+      }
+    }
+
+    setBulkResult({ sent, errors });
+    setBulkSending(false);
+    setTimeout(() => setBulkResult(null), 5000);
+  };
+
   return (
     <div className="animate-fade-in">
       {/* Header with summary */}
@@ -131,8 +180,26 @@ export default function LeadsPage() {
         <div className="flex items-center gap-3 lg:gap-4 text-xs sm:text-sm">
           <span className="text-elvora-text-dim">{totalDeals} Deals</span>
           <span className="text-elvora-accent font-semibold">{totalValue.toLocaleString('de-DE')} EUR</span>
+          <button
+            onClick={sendBulkEmails}
+            disabled={bulkSending}
+            className="px-3 py-1.5 rounded-lg bg-elvora-gradient text-white text-xs font-semibold hover:shadow-elvora-lg transition-all disabled:opacity-50"
+          >
+            {bulkSending ? 'Sende...' : 'Alle pitchen'}
+          </button>
         </div>
       </div>
+
+      {/* Bulk Result Toast */}
+      {bulkResult && (
+        <div className={`mb-4 p-3 rounded-xl text-sm animate-fade-in ${
+          bulkResult.errors === 0
+            ? 'bg-elvora-success/10 border border-elvora-success/20 text-elvora-success'
+            : 'bg-elvora-warning/10 border border-elvora-warning/20 text-elvora-warning'
+        }`}>
+          {bulkResult.sent} Mails gesendet{bulkResult.errors > 0 ? `, ${bulkResult.errors} Fehler` : ' – Follow-Ups geplant!'}
+        </div>
+      )}
 
       {/* Error Toast */}
       {emailError && (

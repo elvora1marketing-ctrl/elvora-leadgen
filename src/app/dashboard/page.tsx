@@ -1,11 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 
 const stats = [
   { label: 'Zu prüfen', value: 47, sub: '+12 heute', color: 'text-elvora-warning' },
   { label: 'Qualifiziert', value: 23, sub: '+3 diese Woche', color: 'text-elvora-success' },
-  { label: 'Konvertierung', value: '34%', sub: '+2.1% vs. Vorwoche', color: 'text-elvora-pink' },
+  { label: 'Mails geöffnet', value: '68%', sub: '15 von 22 geöffnet', color: 'text-elvora-pink' },
   { label: 'Pipeline', value: '18.4k', sub: '6 aktive Deals', color: 'text-elvora-accent' },
 ];
 
@@ -17,6 +18,49 @@ const recentScans = [
 ];
 
 export default function DashboardPage() {
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<string | null>(null);
+  const [processingFollowUps, setProcessingFollowUps] = useState(false);
+  const [followUpResult, setFollowUpResult] = useState<string | null>(null);
+
+  const triggerScan = async () => {
+    setScanning(true);
+    setScanResult(null);
+    try {
+      const res = await fetch('/api/cron/scan', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setScanResult(`${data.totalScans} Scans durchgeführt`);
+      } else {
+        setScanResult('Scan fehlgeschlagen');
+      }
+    } catch {
+      setScanResult('Netzwerkfehler');
+    } finally {
+      setScanning(false);
+      setTimeout(() => setScanResult(null), 4000);
+    }
+  };
+
+  const processFollowUps = async () => {
+    setProcessingFollowUps(true);
+    setFollowUpResult(null);
+    try {
+      const res = await fetch('/api/followups/process', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setFollowUpResult(`${data.sent} Follow-Ups gesendet`);
+      } else {
+        setFollowUpResult('Fehler');
+      }
+    } catch {
+      setFollowUpResult('Netzwerkfehler');
+    } finally {
+      setProcessingFollowUps(false);
+      setTimeout(() => setFollowUpResult(null), 4000);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto animate-fade-in">
       {/* Stats */}
@@ -54,6 +98,49 @@ export default function DashboardPage() {
           </svg>
         </div>
       </Link>
+
+      {/* Auto Actions */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5 lg:mb-6">
+        <button
+          onClick={triggerScan}
+          disabled={scanning}
+          className="glass rounded-xl p-4 hover:bg-white/[0.04] transition-all text-left group disabled:opacity-50"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-elvora-purple/20 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-white">
+                {scanning ? 'Scanne...' : scanResult || 'Jetzt scannen'}
+              </div>
+              <div className="text-xs text-elvora-text-dim">Neue Leads in allen Städten finden</div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          onClick={processFollowUps}
+          disabled={processingFollowUps}
+          className="glass rounded-xl p-4 hover:bg-white/[0.04] transition-all text-left group disabled:opacity-50"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-elvora-pink/20 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-elvora-pink-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-white">
+                {processingFollowUps ? 'Verarbeite...' : followUpResult || 'Follow-Ups senden'}
+              </div>
+              <div className="text-xs text-elvora-text-dim">Fällige Nachfass-Mails verschicken</div>
+            </div>
+          </div>
+        </button>
+      </div>
 
       {/* Recent Scans */}
       <div className="glass rounded-xl p-4 lg:p-5">

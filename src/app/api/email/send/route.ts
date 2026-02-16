@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import getDb from '@/lib/db';
 
-interface EmailPayload {
+export interface EmailPayload {
   lead_id?: number;
   lead_name: string;
   lead_email: string;
@@ -12,6 +13,8 @@ interface EmailPayload {
   problems: { label: string; severity: string }[];
   seo_issues: { label: string; impact: string }[];
   audit_url?: string;
+  is_followup?: boolean;
+  followup_step?: number;
 }
 
 function getEmailSettings() {
@@ -250,6 +253,22 @@ export async function POST(request: NextRequest) {
     const html = buildEmailHtml(body, calendlyUrl, fromName, tpl);
     const text = buildPlainText(body, calendlyUrl, fromName, tpl);
 
+    // Create tracking pixel if lead_id exists
+    let trackingId: string | null = null;
+    if (body.lead_id) {
+      trackingId = crypto.randomUUID();
+      const db = getDb();
+      db.prepare(
+        'INSERT INTO email_tracking (lead_id, tracking_id) VALUES (?, ?)'
+      ).run(body.lead_id, trackingId);
+    }
+
+    // Inject tracking pixel into HTML
+    const trackingPixel = trackingId
+      ? `<img src="${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/track/open?t=${trackingId}" width="1" height="1" style="display:none;" alt="" />`
+      : '';
+    const htmlWithTracking = html.replace('</body>', `${trackingPixel}</body>`);
+
     // Send via Resend REST API
     const resendResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -261,7 +280,7 @@ export async function POST(request: NextRequest) {
         from: `${fromName} <${fromEmail}>`,
         to: [body.lead_email],
         subject,
-        html,
+        html: htmlWithTracking,
         text,
       }),
     });
@@ -275,12 +294,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const db = getDb();
+
     // Update contact_status in DB if lead exists
     if (body.lead_id) {
-      const db = getDb();
       db.prepare(
         "UPDATE leads SET contact_status = 'email_sent', contacted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
       ).run(body.lead_id);
+
+      // Schedule follow-up emails (3 days, 7 days, 14 days) - only for initial email
+      if (!body.is_followup) {
+        const followUpDays = [3, 7, 14];
+        const insertFollowUp = db.prepare(
+          "INSERT INTO follow_ups (lead_id, step, scheduled_at) VALUES (?, ?, datetime('now', ? || ' days'))"
+        );
+        for (let i = 0; i < followUpDays.length; i++) {
+          insertFollowUp.run(body.lead_id, i + 1, String(followUpDays[i]));
+        }
+      }
     }
 
     return NextResponse.json({ success: true, message: `E-Mail an ${body.lead_email} gesendet` });
