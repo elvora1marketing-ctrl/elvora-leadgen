@@ -11,13 +11,10 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Email settings
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState('587');
-  const [smtpUser, setSmtpUser] = useState('');
-  const [smtpPass, setSmtpPass] = useState('');
-  const [smtpFromName, setSmtpFromName] = useState('');
-  const [smtpFromEmail, setSmtpFromEmail] = useState('');
+  // Email settings (Resend)
+  const [resendApiKey, setResendApiKey] = useState('');
+  const [emailFromName, setEmailFromName] = useState('');
+  const [emailFromEmail, setEmailFromEmail] = useState('');
   const [calendlyUrl, setCalendlyUrl] = useState('https://calendly.com/elvora-meeting/30min');
   const [testEmailTo, setTestEmailTo] = useState('');
   const [testSending, setTestSending] = useState(false);
@@ -31,12 +28,9 @@ export default function SettingsPage() {
         if (data.target_cities) setCities(JSON.parse(data.target_cities));
         if (data.keywords) setKeywords(JSON.parse(data.keywords));
         if (data.score_threshold) setScoreThreshold(parseInt(data.score_threshold));
-        if (data.smtp_host) setSmtpHost(data.smtp_host);
-        if (data.smtp_port) setSmtpPort(data.smtp_port);
-        if (data.smtp_user) setSmtpUser(data.smtp_user);
-        if (data.smtp_pass) setSmtpPass(data.smtp_pass);
-        if (data.smtp_from_name) setSmtpFromName(data.smtp_from_name);
-        if (data.smtp_from_email) setSmtpFromEmail(data.smtp_from_email);
+        if (data.resend_api_key) setResendApiKey(data.resend_api_key);
+        if (data.email_from_name) setEmailFromName(data.email_from_name);
+        if (data.email_from_email) setEmailFromEmail(data.email_from_email);
         if (data.calendly_url) setCalendlyUrl(data.calendly_url);
       })
       .catch(() => {});
@@ -68,12 +62,9 @@ export default function SettingsPage() {
           target_cities: JSON.stringify(cities),
           keywords: JSON.stringify(keywords),
           score_threshold: scoreThreshold.toString(),
-          smtp_host: smtpHost,
-          smtp_port: smtpPort,
-          smtp_user: smtpUser,
-          smtp_pass: smtpPass,
-          smtp_from_name: smtpFromName,
-          smtp_from_email: smtpFromEmail,
+          resend_api_key: resendApiKey,
+          email_from_name: emailFromName,
+          email_from_email: emailFromEmail,
           calendly_url: calendlyUrl,
         }),
       });
@@ -221,63 +212,29 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* E-Mail Konfiguration */}
+        {/* E-Mail Konfiguration (Resend) */}
         <div className="glass rounded-xl p-5 border border-elvora-pink/20">
           <div className="flex items-center gap-2 mb-4">
             <svg className="w-5 h-5 text-elvora-pink-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
             <span className="text-sm font-semibold text-white">E-Mail Konfiguration</span>
+            <span className="px-2 py-0.5 rounded-full bg-elvora-success/15 text-elvora-success text-[10px] font-bold border border-elvora-success/20">RESEND</span>
           </div>
           <p className="text-xs text-elvora-text-dim mb-4">
-            SMTP-Zugangsdaten für den automatischen Pitch-Mailversand. Funktioniert mit Gmail, Outlook, oder jedem SMTP-Anbieter.
+            E-Mail-Versand über Resend.com – 100 Mails/Tag kostenlos. Hol dir deinen API-Key auf resend.com.
           </p>
 
           <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-elvora-text-dim mb-1">SMTP Host</label>
-                <input
-                  type="text"
-                  value={smtpHost}
-                  onChange={(e) => setSmtpHost(e.target.value)}
-                  placeholder="smtp.gmail.com"
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-elvora-text-dim mb-1">SMTP Port</label>
-                <input
-                  type="text"
-                  value={smtpPort}
-                  onChange={(e) => setSmtpPort(e.target.value)}
-                  placeholder="587"
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-elvora-text-dim mb-1">SMTP Benutzer</label>
-                <input
-                  type="text"
-                  value={smtpUser}
-                  onChange={(e) => setSmtpUser(e.target.value)}
-                  placeholder="dein@email.com"
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-elvora-text-dim mb-1">SMTP Passwort</label>
-                <input
-                  type="password"
-                  value={smtpPass}
-                  onChange={(e) => setSmtpPass(e.target.value)}
-                  placeholder="App-Passwort"
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
-                />
-              </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Resend API-Key</label>
+              <input
+                type="password"
+                value={resendApiKey}
+                onChange={(e) => setResendApiKey(e.target.value)}
+                placeholder="re_xxxxxxxxx..."
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all font-mono"
+              />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -285,8 +242,8 @@ export default function SettingsPage() {
                 <label className="block text-xs text-elvora-text-dim mb-1">Absendername</label>
                 <input
                   type="text"
-                  value={smtpFromName}
-                  onChange={(e) => setSmtpFromName(e.target.value)}
+                  value={emailFromName}
+                  onChange={(e) => setEmailFromName(e.target.value)}
                   placeholder="Max von Elvora"
                   className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
                 />
@@ -295,11 +252,12 @@ export default function SettingsPage() {
                 <label className="block text-xs text-elvora-text-dim mb-1">Absender E-Mail</label>
                 <input
                   type="email"
-                  value={smtpFromEmail}
-                  onChange={(e) => setSmtpFromEmail(e.target.value)}
-                  placeholder="max@elvora.de"
+                  value={emailFromEmail}
+                  onChange={(e) => setEmailFromEmail(e.target.value)}
+                  placeholder="onboarding@resend.dev"
                   className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
                 />
+                <p className="text-[11px] text-elvora-text-dim mt-1">Nutze onboarding@resend.dev zum Testen, eigene Domain später bei Resend verifizieren</p>
               </div>
             </div>
 
@@ -312,7 +270,7 @@ export default function SettingsPage() {
                 placeholder="https://calendly.com/dein-name/15min"
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
               />
-              <p className="text-[11px] text-elvora-text-dim mt-1">Wird als "Termin vereinbaren" Button in der Pitch-Mail angezeigt</p>
+              <p className="text-[11px] text-elvora-text-dim mt-1">Wird als &quot;Termin vereinbaren&quot; Button in der Pitch-Mail angezeigt</p>
             </div>
 
             {/* Test E-Mail */}
@@ -328,7 +286,7 @@ export default function SettingsPage() {
                 />
                 <button
                   onClick={sendTestEmail}
-                  disabled={testSending || !testEmailTo || !smtpHost}
+                  disabled={testSending || !testEmailTo || !resendApiKey}
                   className="px-4 py-2 rounded-lg bg-elvora-pink/15 border border-elvora-pink/30 text-elvora-pink-light text-xs font-semibold hover:bg-elvora-pink/25 transition-all disabled:opacity-50 flex-shrink-0"
                 >
                   {testSending ? 'Sende...' : 'Testen'}

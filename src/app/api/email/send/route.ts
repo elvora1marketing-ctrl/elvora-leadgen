@@ -3,7 +3,6 @@ import getDb from '@/lib/db';
 
 interface EmailPayload {
   lead_id?: number;
-  // For leads not in DB (sample data from frontend)
   lead_name: string;
   lead_email: string;
   ansprechpartner: string;
@@ -15,9 +14,9 @@ interface EmailPayload {
   audit_url?: string;
 }
 
-function getSmtpSettings() {
+function getEmailSettings() {
   const db = getDb();
-  const keys = ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from_name', 'smtp_from_email', 'calendly_url'];
+  const keys = ['resend_api_key', 'email_from_name', 'email_from_email', 'calendly_url'];
   const settings: Record<string, string> = {};
 
   for (const key of keys) {
@@ -198,51 +197,47 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Lead-Daten unvollständig' }, { status: 400 });
     }
 
-    const settings = getSmtpSettings();
+    const settings = getEmailSettings();
 
-    if (!settings.smtp_host || !settings.smtp_user || !settings.smtp_pass) {
+    if (!settings.resend_api_key) {
       return NextResponse.json(
-        { error: 'SMTP nicht konfiguriert. Bitte zuerst unter Einstellungen die E-Mail-Zugangsdaten hinterlegen.' },
+        { error: 'Resend API-Key nicht konfiguriert. Bitte unter Einstellungen hinterlegen.' },
         { status: 422 }
       );
     }
 
-    const fromName = settings.smtp_from_name || 'Elvora';
-    const fromEmail = settings.smtp_from_email || settings.smtp_user;
+    const fromName = settings.email_from_name || 'Elvora';
+    const fromEmail = settings.email_from_email || 'onboarding@resend.dev';
     const calendlyUrl = settings.calendly_url || '';
 
     const subject = `Website-Analyse für ${body.lead_name} – ${body.score}/100 Punkte`;
     const html = buildEmailHtml(body, calendlyUrl, fromName);
     const text = buildPlainText(body, calendlyUrl, fromName);
 
-    // Dynamic import nodemailer (server-side only)
-    let nodemailer;
-    try {
-      nodemailer = await import('nodemailer');
-    } catch {
+    // Send via Resend REST API
+    const resendResponse = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${settings.resend_api_key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: `${fromName} <${fromEmail}>`,
+        to: [body.lead_email],
+        subject,
+        html,
+        text,
+      }),
+    });
+
+    if (!resendResponse.ok) {
+      const errorData = await resendResponse.json().catch(() => ({}));
+      const errorMsg = (errorData as { message?: string }).message || `HTTP ${resendResponse.status}`;
       return NextResponse.json(
-        { error: 'Nodemailer nicht installiert. Bitte `npm install nodemailer` ausführen.' },
+        { error: `Resend Fehler: ${errorMsg}` },
         { status: 500 }
       );
     }
-
-    const transporter = nodemailer.createTransport({
-      host: settings.smtp_host,
-      port: parseInt(settings.smtp_port || '587'),
-      secure: parseInt(settings.smtp_port || '587') === 465,
-      auth: {
-        user: settings.smtp_user,
-        pass: settings.smtp_pass,
-      },
-    });
-
-    await transporter.sendMail({
-      from: `"${fromName}" <${fromEmail}>`,
-      to: body.lead_email,
-      subject,
-      text,
-      html,
-    });
 
     // Update contact_status in DB if lead exists
     if (body.lead_id) {
