@@ -16,7 +16,7 @@ interface EmailPayload {
 
 function getEmailSettings() {
   const db = getDb();
-  const keys = ['resend_api_key', 'email_from_name', 'email_from_email', 'calendly_url'];
+  const keys = ['resend_api_key', 'email_from_name', 'email_from_email', 'calendly_url', 'tpl_subject', 'tpl_intro', 'tpl_pitch', 'tpl_leistungen', 'tpl_cta'];
   const settings: Record<string, string> = {};
 
   for (const key of keys) {
@@ -27,10 +27,41 @@ function getEmailSettings() {
   return settings;
 }
 
-function buildEmailHtml(data: EmailPayload, calendlyUrl: string, fromName: string): string {
+interface TemplateVars {
+  tpl_subject: string;
+  tpl_intro: string;
+  tpl_pitch: string;
+  tpl_leistungen: string;
+  tpl_cta: string;
+}
+
+const DEFAULTS: TemplateVars = {
+  tpl_subject: 'Website-Analyse für {firmenname} – {score}/100 Punkte',
+  tpl_intro: 'mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.',
+  tpl_pitch: 'Ich habe mir Ihre Website {website} angeschaut und dabei ein paar Punkte gefunden, die Sie vermutlich Kunden kosten:',
+  tpl_leistungen: 'Moderne, mobiloptimierte Website\nGoogle-Optimierung für {stadt}\nSSL-Zertifikat & Sicherheits-Setup\nGoogle Business Profil optimieren\nAutomatische Kundenanfragen generieren',
+  tpl_cta: 'Lassen Sie uns kurz sprechen – 15 Minuten, die sich lohnen.',
+};
+
+function replacePlaceholders(text: string, data: EmailPayload, fromName: string): string {
+  return text
+    .replace(/\{firmenname\}/g, data.lead_name)
+    .replace(/\{ansprechpartner\}/g, data.ansprechpartner)
+    .replace(/\{website\}/g, data.website)
+    .replace(/\{stadt\}/g, data.city)
+    .replace(/\{score\}/g, String(data.score))
+    .replace(/\{absender\}/g, fromName);
+}
+
+function buildEmailHtml(data: EmailPayload, calendlyUrl: string, fromName: string, tpl: TemplateVars): string {
   const topProblems = data.problems.slice(0, 3);
   const topSeo = data.seo_issues.slice(0, 2);
   const auditLink = data.audit_url ? `${data.audit_url}` : null;
+
+  const intro = replacePlaceholders(tpl.tpl_intro, data, fromName);
+  const pitch = replacePlaceholders(tpl.tpl_pitch, data, fromName);
+  const leistungen = replacePlaceholders(tpl.tpl_leistungen, data, fromName).split('\n').filter(l => l.trim());
+  const cta = replacePlaceholders(tpl.tpl_cta, data, fromName);
 
   return `<!DOCTYPE html>
 <html lang="de">
@@ -56,11 +87,11 @@ function buildEmailHtml(data: EmailPayload, calendlyUrl: string, fromName: strin
       </p>
 
       <p style="color:#94a3b8;font-size:15px;line-height:1.7;margin:0 0 16px 0;">
-        mein Name ist ${fromName} von <strong style="color:#8B5CF6;">Elvora</strong>. Wir helfen SHK-Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.
+        ${intro}
       </p>
 
       <p style="color:#94a3b8;font-size:15px;line-height:1.7;margin:0 0 24px 0;">
-        Ich habe mir Ihre Website <strong style="color:#e2e8f0;">${data.website}</strong> angeschaut und dabei ein paar Punkte gefunden, die Sie vermutlich Kunden kosten:
+        ${pitch}
       </p>
 
       <!-- Score Badge -->
@@ -102,11 +133,7 @@ function buildEmailHtml(data: EmailPayload, calendlyUrl: string, fromName: strin
           Was wir f&uuml;r Sie tun k&ouml;nnen
         </div>
         <div style="color:#94a3b8;font-size:14px;line-height:1.7;">
-          <div style="margin-bottom:6px;">&#10003; Moderne, mobiloptimierte Website</div>
-          <div style="margin-bottom:6px;">&#10003; Google-Optimierung f&uuml;r ${data.city}</div>
-          <div style="margin-bottom:6px;">&#10003; SSL-Zertifikat &amp; Sicherheits-Setup</div>
-          <div style="margin-bottom:6px;">&#10003; Google Business Profil optimieren</div>
-          <div>&#10003; Automatische Kundenanfragen generieren</div>
+          ${leistungen.map((l, i) => `<div${i < leistungen.length - 1 ? ' style="margin-bottom:6px;"' : ''}>&#10003; ${l}</div>`).join('\n          ')}
         </div>
       </div>
 
@@ -124,7 +151,7 @@ function buildEmailHtml(data: EmailPayload, calendlyUrl: string, fromName: strin
       <!-- CTA -->
       <div style="text-align:center;padding-top:8px;">
         <p style="color:#e2e8f0;font-size:15px;font-weight:600;margin:0 0 12px 0;">
-          Lassen Sie uns kurz sprechen &ndash; 15 Minuten, die sich lohnen.
+          ${cta}
         </p>
         ${calendlyUrl ? `
         <a href="${calendlyUrl}" style="display:inline-block;background:linear-gradient(135deg,#10b981,#059669);color:#fff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 32px;border-radius:12px;">
@@ -153,15 +180,20 @@ function buildEmailHtml(data: EmailPayload, calendlyUrl: string, fromName: strin
 </html>`;
 }
 
-function buildPlainText(data: EmailPayload, calendlyUrl: string, fromName: string): string {
+function buildPlainText(data: EmailPayload, calendlyUrl: string, fromName: string, tpl: TemplateVars): string {
   const problems = data.problems.slice(0, 3).map(p => `- ${p.label}`).join('\n');
   const seo = data.seo_issues.slice(0, 2).map(s => `- ${s.label}`).join('\n');
 
+  const intro = replacePlaceholders(tpl.tpl_intro, data, fromName);
+  const pitch = replacePlaceholders(tpl.tpl_pitch, data, fromName);
+  const leistungen = replacePlaceholders(tpl.tpl_leistungen, data, fromName).split('\n').filter(l => l.trim()).map(l => `- ${l}`).join('\n');
+  const cta = replacePlaceholders(tpl.tpl_cta, data, fromName);
+
   return `Guten Tag ${data.ansprechpartner},
 
-mein Name ist ${fromName} von Elvora. Wir helfen SHK-Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.
+${intro}
 
-Ich habe mir Ihre Website ${data.website} angeschaut und dabei ein paar Punkte gefunden, die Sie vermutlich Kunden kosten:
+${pitch}
 
 Website-Score: ${data.score}/100
 
@@ -170,14 +202,10 @@ ${problems}
 
 ${seo ? `SEO-PROBLEME:\n${seo}\n` : ''}
 WAS WIR FÜR SIE TUN KÖNNEN:
-- Moderne, mobiloptimierte Website
-- Google-Optimierung für ${data.city}
-- SSL-Zertifikat & Sicherheits-Setup
-- Google Business Profil optimieren
-- Automatische Kundenanfragen generieren
+${leistungen}
 
 ${data.audit_url ? `Ihren vollständigen Website-Audit finden Sie hier: ${data.audit_url}\n` : ''}
-Lassen Sie uns kurz sprechen – 15 Minuten, die sich lohnen.
+${cta}
 ${calendlyUrl ? `Termin vereinbaren: ${calendlyUrl}` : 'Antworten Sie einfach auf diese E-Mail – ich melde mich innerhalb von 24 Stunden.'}
 
 Mit freundlichen Grüßen,
@@ -210,9 +238,17 @@ export async function POST(request: NextRequest) {
     const fromEmail = settings.email_from_email || 'luan@elvora.me';
     const calendlyUrl = settings.calendly_url || '';
 
-    const subject = `Website-Analyse für ${body.lead_name} – ${body.score}/100 Punkte`;
-    const html = buildEmailHtml(body, calendlyUrl, fromName);
-    const text = buildPlainText(body, calendlyUrl, fromName);
+    const tpl: TemplateVars = {
+      tpl_subject: settings.tpl_subject || DEFAULTS.tpl_subject,
+      tpl_intro: settings.tpl_intro || DEFAULTS.tpl_intro,
+      tpl_pitch: settings.tpl_pitch || DEFAULTS.tpl_pitch,
+      tpl_leistungen: settings.tpl_leistungen || DEFAULTS.tpl_leistungen,
+      tpl_cta: settings.tpl_cta || DEFAULTS.tpl_cta,
+    };
+
+    const subject = replacePlaceholders(tpl.tpl_subject, body, fromName);
+    const html = buildEmailHtml(body, calendlyUrl, fromName, tpl);
+    const text = buildPlainText(body, calendlyUrl, fromName, tpl);
 
     // Send via Resend REST API
     const resendResponse = await fetch('https://api.resend.com/emails', {

@@ -20,6 +20,13 @@ export default function SettingsPage() {
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // Template settings
+  const [tplSubject, setTplSubject] = useState('Website-Analyse für {firmenname} – {score}/100 Punkte');
+  const [tplIntro, setTplIntro] = useState('mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.');
+  const [tplPitch, setTplPitch] = useState('Ich habe mir Ihre Website {website} angeschaut und dabei ein paar Punkte gefunden, die Sie vermutlich Kunden kosten:');
+  const [tplLeistungen, setTplLeistungen] = useState('Moderne, mobiloptimierte Website\nGoogle-Optimierung für {stadt}\nSSL-Zertifikat & Sicherheits-Setup\nGoogle Business Profil optimieren\nAutomatische Kundenanfragen generieren');
+  const [tplCta, setTplCta] = useState('Lassen Sie uns kurz sprechen – 15 Minuten, die sich lohnen.');
+
   // Load settings from DB
   useEffect(() => {
     fetch('/api/settings')
@@ -32,6 +39,11 @@ export default function SettingsPage() {
         if (data.email_from_name) setEmailFromName(data.email_from_name);
         if (data.email_from_email) setEmailFromEmail(data.email_from_email);
         if (data.calendly_url) setCalendlyUrl(data.calendly_url);
+        if (data.tpl_subject) setTplSubject(data.tpl_subject);
+        if (data.tpl_intro) setTplIntro(data.tpl_intro);
+        if (data.tpl_pitch) setTplPitch(data.tpl_pitch);
+        if (data.tpl_leistungen) setTplLeistungen(data.tpl_leistungen);
+        if (data.tpl_cta) setTplCta(data.tpl_cta);
       })
       .catch(() => {});
   }, []);
@@ -66,6 +78,11 @@ export default function SettingsPage() {
           email_from_name: emailFromName,
           email_from_email: emailFromEmail,
           calendly_url: calendlyUrl,
+          tpl_subject: tplSubject,
+          tpl_intro: tplIntro,
+          tpl_pitch: tplPitch,
+          tpl_leistungen: tplLeistungen,
+          tpl_cta: tplCta,
         }),
       });
       if (res.ok) {
@@ -297,6 +314,71 @@ export default function SettingsPage() {
                   {testResult.message}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+
+        {/* E-Mail Template Editor */}
+        <div className="glass rounded-xl p-5 border border-elvora-purple/20">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-5 h-5 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            <span className="text-sm font-semibold text-white">E-Mail Template</span>
+          </div>
+          <p className="text-xs text-elvora-text-dim mb-4">
+            Passe den E-Mail-Text an. Platzhalter: <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{firmenname}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{ansprechpartner}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{website}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{stadt}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{score}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{absender}'}</code>
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Betreff</label>
+              <input
+                type="text"
+                value={tplSubject}
+                onChange={(e) => setTplSubject(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Intro-Text <span className="text-elvora-text-dim/50">(nach &quot;Guten Tag {'{ansprechpartner}'},...&quot;)</span></label>
+              <textarea
+                value={tplIntro}
+                onChange={(e) => setTplIntro(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all resize-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Pitch-Text <span className="text-elvora-text-dim/50">(Überleitung zu den Problemen)</span></label>
+              <textarea
+                value={tplPitch}
+                onChange={(e) => setTplPitch(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all resize-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Leistungen <span className="text-elvora-text-dim/50">(eine pro Zeile)</span></label>
+              <textarea
+                value={tplLeistungen}
+                onChange={(e) => setTplLeistungen(e.target.value)}
+                rows={5}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all resize-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">CTA-Text <span className="text-elvora-text-dim/50">(Call to Action)</span></label>
+              <input
+                type="text"
+                value={tplCta}
+                onChange={(e) => setTplCta(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
+              />
             </div>
           </div>
         </div>
