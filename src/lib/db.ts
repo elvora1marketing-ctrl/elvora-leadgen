@@ -111,6 +111,19 @@ CREATE TABLE IF NOT EXISTS email_tracking (
 
 CREATE INDEX IF NOT EXISTS idx_tracking_id ON email_tracking(tracking_id);
 CREATE INDEX IF NOT EXISTS idx_tracking_lead ON email_tracking(lead_id);
+
+CREATE TABLE IF NOT EXISTS lead_activities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id INTEGER NOT NULL,
+  type TEXT NOT NULL CHECK(type IN ('note','call','email','meeting','status_change','whatsapp')),
+  content TEXT NOT NULL,
+  metadata TEXT DEFAULT '{}',
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_activities_lead ON lead_activities(lead_id);
+CREATE INDEX IF NOT EXISTS idx_activities_type ON lead_activities(type);
 `;
 
 const DEFAULT_SETTINGS: Record<string, string> = {

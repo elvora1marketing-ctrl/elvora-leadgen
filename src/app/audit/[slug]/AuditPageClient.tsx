@@ -85,6 +85,7 @@ export default function AuditPageClient({
   createdAt,
 }: AuditPageClientProps) {
   const [ctaClicked, setCtaClicked] = useState(false);
+  const [showCalendly, setShowCalendly] = useState(false);
   const totalIssues = problems.length + seoIssues.length;
   const criticalCount = problems.filter(p => p.severity === 'critical').length;
   const scorePercent = Math.min(100, score);
@@ -286,18 +287,30 @@ export default function AuditPageClient({
           </p>
 
           {calendlyUrl ? (
-            <a
-              href={calendlyUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleCtaClick}
-              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-elvora-gradient text-white font-semibold text-base hover:shadow-elvora-lg transition-all hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              Kostenloses Erstgespräch buchen
-            </a>
+            <>
+              {!showCalendly ? (
+                <button
+                  onClick={() => { setShowCalendly(true); handleCtaClick(); }}
+                  className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-elvora-gradient text-white font-semibold text-base hover:shadow-elvora-lg transition-all hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Kostenloses Erstgespräch buchen
+                </button>
+              ) : (
+                <div className="mt-4 rounded-xl overflow-hidden border border-white/10 animate-fade-in">
+                  <iframe
+                    src={calendlyUrl}
+                    width="100%"
+                    height="650"
+                    frameBorder="0"
+                    className="bg-white rounded-xl"
+                    title="Termin buchen"
+                  />
+                </div>
+              )}
+            </>
           ) : (
             <div className="space-y-3">
               <a
@@ -313,7 +326,7 @@ export default function AuditPageClient({
             </div>
           )}
 
-          {ctaClicked && (
+          {ctaClicked && !showCalendly && (
             <p className="text-xs text-elvora-success mt-4 animate-fade-in">
               Wir melden uns innerhalb von 24 Stunden bei Ihnen!
             </p>
