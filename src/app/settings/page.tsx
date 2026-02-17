@@ -24,6 +24,12 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [openclawUrl, setOpenclawUrl] = useState('');
 
+  // Password change
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [pwChanging, setPwChanging] = useState(false);
+  const [pwResult, setPwResult] = useState<{ ok: boolean; message: string } | null>(null);
+
   // Template settings
   const [tplSubject, setTplSubject] = useState('Website-Analyse für {firmenname} – {score}/100 Punkte');
   const [tplIntro, setTplIntro] = useState('mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.');
@@ -468,6 +474,69 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Passwort ändern */}
+        <div className="glass rounded-xl p-5 border border-white/10">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span className="text-sm font-semibold text-white">Panel-Passwort ändern</span>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Neues Passwort</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Min. 8 Zeichen"
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-white/30 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Bestätigen</label>
+              <input
+                type="password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                placeholder="Nochmal eingeben"
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-white/30 transition-all"
+              />
+            </div>
+            {pwResult && (
+              <div className={`text-xs font-medium ${pwResult.ok ? 'text-elvora-success' : 'text-elvora-danger'}`}>
+                {pwResult.message}
+              </div>
+            )}
+            <button
+              onClick={async () => {
+                if (newPassword.length < 8) { setPwResult({ ok: false, message: 'Min. 8 Zeichen' }); return; }
+                if (newPassword !== confirmNewPassword) { setPwResult({ ok: false, message: 'Passwörter stimmen nicht überein' }); return; }
+                setPwChanging(true);
+                try {
+                  const res = await fetch('/api/auth/password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newPassword }),
+                  });
+                  if (res.ok) {
+                    setPwResult({ ok: true, message: 'Passwort geändert!' });
+                    setNewPassword(''); setConfirmNewPassword('');
+                  } else {
+                    const data = await res.json();
+                    setPwResult({ ok: false, message: data.error || 'Fehler' });
+                  }
+                } catch { setPwResult({ ok: false, message: 'Netzwerkfehler' }); }
+                finally { setPwChanging(false); setTimeout(() => setPwResult(null), 4000); }
+              }}
+              disabled={pwChanging || !newPassword || !confirmNewPassword}
+              className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs font-medium hover:bg-white/10 transition-all disabled:opacity-50"
+            >
+              {pwChanging ? 'Ändere...' : 'Passwort ändern'}
+            </button>
           </div>
         </div>
 
