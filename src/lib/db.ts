@@ -124,6 +124,22 @@ CREATE TABLE IF NOT EXISTS lead_activities (
 
 CREATE INDEX IF NOT EXISTS idx_activities_lead ON lead_activities(lead_id);
 CREATE INDEX IF NOT EXISTS idx_activities_type ON lead_activities(type);
+
+CREATE TABLE IF NOT EXISTS scraper_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  keyword TEXT NOT NULL,
+  max_pages INTEGER DEFAULT 5,
+  status TEXT DEFAULT 'running' CHECK(status IN ('running','completed','error')),
+  businesses_found INTEGER DEFAULT 0,
+  businesses_imported INTEGER DEFAULT 0,
+  businesses_duplicate INTEGER DEFAULT 0,
+  errors TEXT DEFAULT '[]',
+  results TEXT DEFAULT '[]',
+  started_at TEXT DEFAULT (datetime('now')),
+  completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_scraper_status ON scraper_jobs(status);
 `;
 
 const DEFAULT_SETTINGS: Record<string, string> = {
