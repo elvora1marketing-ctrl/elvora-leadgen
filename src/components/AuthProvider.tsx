@@ -137,17 +137,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     return (
       <div className="min-h-screen bg-elvora-bg flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <svg width="48" height="48" viewBox="0 0 100 100">
-            <defs>
-              <linearGradient id="elvora-load" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#8B5CF6" />
-                <stop offset="50%" stopColor="#EC4899" />
-                <stop offset="100%" stopColor="#F97316" />
-              </linearGradient>
-            </defs>
-            <circle cx="50" cy="50" r="48" fill="url(#elvora-load)" />
-            <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fill="white" fontSize="42" fontWeight="700" fontFamily="Inter, sans-serif">E</text>
-          </svg>
+          <img src="/elvora-icon.svg" alt="Elvora" width={48} height={48} />
           <div className="w-5 h-5 border-2 border-elvora-purple border-t-transparent rounded-full animate-spin" />
         </div>
       </div>
@@ -169,17 +159,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       <div className="min-h-screen bg-elvora-bg flex items-center justify-center p-4">
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
-            <svg width="56" height="56" viewBox="0 0 100 100" className="mb-3">
-              <defs>
-                <linearGradient id="elvora-setup" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#8B5CF6" />
-                  <stop offset="50%" stopColor="#EC4899" />
-                  <stop offset="100%" stopColor="#F97316" />
-                </linearGradient>
-              </defs>
-              <circle cx="50" cy="50" r="48" fill="url(#elvora-setup)" />
-              <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fill="white" fontSize="42" fontWeight="700" fontFamily="Inter, sans-serif">E</text>
-            </svg>
+            <img src="/elvora-icon.svg" alt="Elvora" width={56} height={56} className="mb-3" />
             <h1 className="text-lg font-bold text-white">Panel einrichten</h1>
             <p className="text-sm text-elvora-text-dim text-center mt-1">Lege dein Passwort fest, um dein Panel zu schützen.</p>
           </div>
@@ -237,17 +217,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-elvora-bg flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <svg width="56" height="56" viewBox="0 0 100 100" className="mb-3">
-            <defs>
-              <linearGradient id="elvora-login" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#8B5CF6" />
-                <stop offset="50%" stopColor="#EC4899" />
-                <stop offset="100%" stopColor="#F97316" />
-              </linearGradient>
-            </defs>
-            <circle cx="50" cy="50" r="48" fill="url(#elvora-login)" />
-            <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fill="white" fontSize="42" fontWeight="700" fontFamily="Inter, sans-serif">E</text>
-          </svg>
+          <img src="/elvora-icon.svg" alt="Elvora" width={56} height={56} className="mb-3" />
           <h1 className="text-lg font-bold text-white">Elvora Panel</h1>
           <p className="text-sm text-elvora-text-dim">Melde dich an, um fortzufahren.</p>
         </div>

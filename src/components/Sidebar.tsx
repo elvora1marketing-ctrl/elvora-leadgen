@@ -98,17 +98,7 @@ export default function Sidebar() {
           </svg>
         </button>
         <div className="flex items-center gap-2 ml-3">
-          <svg width="24" height="24" viewBox="0 0 100 100" className="flex-shrink-0">
-            <defs>
-              <linearGradient id="elvora-grad-mobile" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#8B5CF6" />
-                <stop offset="50%" stopColor="#EC4899" />
-                <stop offset="100%" stopColor="#F97316" />
-              </linearGradient>
-            </defs>
-            <circle cx="50" cy="50" r="48" fill="url(#elvora-grad-mobile)" />
-            <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fill="white" fontSize="42" fontWeight="700" fontFamily="Inter, sans-serif">E</text>
-          </svg>
+          <img src="/elvora-icon.svg" alt="Elvora" width={24} height={24} className="flex-shrink-0" />
           <span className="text-sm font-bold gradient-text">ELVORA</span>
         </div>
         <div className="ml-auto flex items-center gap-1">
@@ -133,17 +123,7 @@ export default function Sidebar() {
         <div className="p-5 border-b border-white/5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <svg width="36" height="36" viewBox="0 0 100 100" className="flex-shrink-0">
-                <defs>
-                  <linearGradient id="elvora-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#8B5CF6" />
-                    <stop offset="50%" stopColor="#EC4899" />
-                    <stop offset="100%" stopColor="#F97316" />
-                  </linearGradient>
-                </defs>
-                <circle cx="50" cy="50" r="48" fill="url(#elvora-grad)" />
-                <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fill="white" fontSize="42" fontWeight="700" fontFamily="Inter, sans-serif">E</text>
-              </svg>
+              <img src="/elvora-icon.svg" alt="Elvora" width={36} height={36} className="flex-shrink-0" />
               <span className="text-lg font-bold gradient-text tracking-tight">ELVORA</span>
             </div>
             {/* Close button on mobile */}
