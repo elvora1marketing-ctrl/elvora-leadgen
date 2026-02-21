@@ -41,7 +41,7 @@ interface ScraperJob {
 
 export default function ScraperPage() {
   const [keyword, setKeyword] = useState('');
-  const [maxPages, setMaxPages] = useState(5);
+  const [maxPages, setMaxPages] = useState(3);
   const [scraping, setScraping] = useState(false);
   const [result, setResult] = useState<ScrapeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -238,21 +238,21 @@ export default function ScraperPage() {
               Seiten scrapen
             </label>
             <span className="text-sm font-bold text-white">
-              {maxPages} Seiten <span className="text-elvora-text-dim font-normal">(~{maxPages * 20} Ergebnisse)</span>
+              {maxPages} {maxPages === 1 ? 'Seite' : 'Seiten'} <span className="text-elvora-text-dim font-normal">(~{maxPages * 20} Ergebnisse)</span>
             </span>
           </div>
           <input
             type="range"
             min={1}
-            max={20}
+            max={3}
             value={maxPages}
             onChange={(e) => setMaxPages(Number(e.target.value))}
             className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-elvora-primary"
           />
           <div className="flex justify-between text-[10px] text-elvora-text-dim mt-1">
-            <span>1 Seite</span>
-            <span>10 Seiten</span>
-            <span>20 Seiten</span>
+            <span>20 Ergebnisse</span>
+            <span>40 Ergebnisse</span>
+            <span>60 Ergebnisse</span>
           </div>
         </div>
 
@@ -294,7 +294,14 @@ export default function ScraperPage() {
             <svg className="w-5 h-5 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="text-red-300 text-sm">{error}</span>
+            <div>
+              <span className="text-red-300 text-sm">{error}</span>
+              {error.toLowerCase().includes('api-key') && (
+                <a href="/settings" className="block text-elvora-primary text-xs mt-1 hover:underline">
+                  Jetzt in den Einstellungen hinterlegen &rarr;
+                </a>
+              )}
+            </div>
           </div>
         </div>
       )}

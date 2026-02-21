@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
   try {
     const db = getDb();
     const body = await request.json();
-    const { keyword, maxPages = 5 } = body;
+    const { keyword, maxPages = 3 } = body;
 
     if (!keyword || typeof keyword !== 'string' || keyword.trim().length < 2) {
       return NextResponse.json(
@@ -50,8 +50,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Load Google Maps API key from settings
+    const apiKeySetting = db.prepare("SELECT value FROM settings WHERE key = 'google_maps_api_key'").get() as { value: string } | undefined;
+    const googleApiKey = apiKeySetting?.value || '';
+
+    if (!googleApiKey) {
+      return NextResponse.json(
+        { error: 'Google Maps API-Key fehlt. Bitte unter Einstellungen hinterlegen.' },
+        { status: 400 }
+      );
+    }
+
     const cleanKeyword = keyword.trim();
-    const pages = Math.min(Math.max(1, Number(maxPages) || 5), 20);
+    const pages = Math.min(Math.max(1, Number(maxPages) || 3), 3);
 
     // Create job entry
     const jobResult = db.prepare(
@@ -59,11 +70,10 @@ export async function POST(request: NextRequest) {
     ).run(cleanKeyword, pages);
     const jobId = Number(jobResult.lastInsertRowid);
 
-    // Start scraping (runs in the same request for simplicity)
-    // For very large scrapes, you'd want to use a background worker
+    // Start scraping
     let scrapeResult;
     try {
-      scrapeResult = await scrapeGoogleMaps(cleanKeyword, pages);
+      scrapeResult = await scrapeGoogleMaps(cleanKeyword, pages, undefined, googleApiKey);
     } catch (err) {
       db.prepare(
         "UPDATE scraper_jobs SET status = 'error', errors = ?, completed_at = datetime('now') WHERE id = ?"
