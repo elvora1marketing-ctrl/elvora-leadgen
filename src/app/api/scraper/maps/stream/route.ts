@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import getDb from '@/lib/db';
 import { scrapeGoogleMaps, normalizeWebsite, deduplicateBusinesses, type ScrapedBusiness } from '@/lib/maps-scraper';
+import { expandCityToStadtteile } from '@/lib/stadtteile';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,10 +15,11 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { keywords, cities, maxPages = 3 } = body as {
+  const { keywords, cities, maxPages = 3, deepScan = false } = body as {
     keywords: string[];
     cities: string[];
     maxPages?: number;
+    deepScan?: boolean;
   };
 
   if (!keywords?.length || !cities?.length) {
@@ -26,6 +28,11 @@ export async function POST(request: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Tiefenscan: expand cities into their Stadtteile
+  const searchLocations: string[] = deepScan
+    ? cities.flatMap(city => expandCityToStadtteile(city))
+    : cities;
 
   const db = getDb();
 
@@ -41,7 +48,7 @@ export async function POST(request: NextRequest) {
   }
 
   const pages = Math.min(Math.max(1, Number(maxPages) || 3), 3);
-  const totalSearches = keywords.length * cities.length;
+  const totalSearches = keywords.length * searchLocations.length;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -63,9 +70,12 @@ export async function POST(request: NextRequest) {
       const startTime = Date.now();
 
       // Create a batch job entry
+      const jobLabel = deepScan
+        ? `Tiefenscan: ${keywords.join(', ')} × ${cities.join(', ')} (${searchLocations.length} Stadtteile)`
+        : `Batch: ${keywords.join(', ')} × ${cities.join(', ')}`;
       const jobResult = db.prepare(
         "INSERT INTO scraper_jobs (keyword, max_pages, status, started_at) VALUES (?, ?, 'running', datetime('now'))"
-      ).run(`Batch: ${keywords.join(', ')} × ${cities.join(', ')}`, pages);
+      ).run(jobLabel, pages);
       const jobId = Number(jobResult.lastInsertRowid);
 
       send({
@@ -74,13 +84,15 @@ export async function POST(request: NextRequest) {
         totalSearches,
         keywords,
         cities,
+        searchLocations,
+        deepScan,
         maxPages: pages,
       });
 
       for (const kw of keywords) {
-        for (const city of cities) {
+        for (const location of searchLocations) {
           searchIndex++;
-          const fullKeyword = `${kw.trim()} ${city}`;
+          const fullKeyword = `${kw.trim()} ${location}`;
 
           send({
             type: 'search_start',

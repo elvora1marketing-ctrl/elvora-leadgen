@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { STADTTEILE, countStadtteile } from '@/lib/stadtteile';
 
 interface ScrapedBusiness {
   name: string;
@@ -70,6 +71,9 @@ export default function ScraperPage() {
 
   // Multi-city selection
   const [selectedCities, setSelectedCities] = useState<string[]>(['Essen']);
+
+  // Tiefenscan (deep scan) mode
+  const [deepScan, setDeepScan] = useState(false);
 
   // Live progress state
   const [liveProgress, setLiveProgress] = useState<LiveProgress | null>(null);
@@ -148,6 +152,7 @@ export default function ScraperPage() {
           keywords,
           cities: selectedCities,
           maxPages,
+          deepScan,
         }),
         signal: abortController.signal,
       });
@@ -261,7 +266,9 @@ export default function ScraperPage() {
     URL.revokeObjectURL(url);
   };
 
-  const totalSearches = keyword.split(/[,\n]+/).filter(k => k.trim().length > 0).length * selectedCities.length;
+  const keywordCount = keyword.split(/[,\n]+/).filter(k => k.trim().length > 0).length;
+  const cityOrDistrictCount = deepScan ? countStadtteile(selectedCities) : selectedCities.length;
+  const totalSearches = keywordCount * cityOrDistrictCount;
   const showingResults = jobResults.length > 0;
 
   return (
@@ -388,6 +395,31 @@ export default function ScraperPage() {
           </div>
         </div>
 
+        {/* Tiefenscan Toggle */}
+        <div className="flex items-center justify-between bg-white/[0.03] rounded-xl p-4 border border-white/5">
+          <div className="flex-1 mr-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-white">Tiefenscan</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-elvora-accent/20 text-elvora-accent uppercase tracking-wider">Mehr Ergebnisse</span>
+            </div>
+            <p className="text-xs text-elvora-text-dim mt-1">
+              Durchsucht jeden Stadtteil einzeln statt nur die ganze Stadt. Liefert deutlich mehr Firmen, dauert aber länger.
+            </p>
+          </div>
+          <button
+            onClick={() => setDeepScan(!deepScan)}
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${
+              deepScan ? 'bg-elvora-accent' : 'bg-white/10'
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-sm ${
+                deepScan ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+
         {/* Search Info */}
         {keyword.trim() && selectedCities.length > 0 && (
           <div className="bg-elvora-primary/5 border border-elvora-primary/20 rounded-xl px-4 py-3">
@@ -397,8 +429,9 @@ export default function ScraperPage() {
               </svg>
               <span className="text-elvora-text-muted">
                 <span className="text-white font-semibold">{totalSearches}</span> Suchanfragen
-                <span className="text-elvora-text-dim"> ({keyword.split(/[,\n]+/).filter(k => k.trim()).length} Keywords × {selectedCities.length} Städte × {maxPages} Seiten)</span>
+                <span className="text-elvora-text-dim"> ({keywordCount} Keywords × {deepScan ? `${cityOrDistrictCount} Stadtteile` : `${selectedCities.length} Städte`} × {maxPages} Seiten)</span>
                 {' = '}bis zu <span className="text-white font-semibold">{totalSearches * maxPages * 20}</span> Ergebnisse
+                {deepScan && <span className="text-elvora-accent ml-1 font-medium">(Tiefenscan)</span>}
               </span>
             </div>
           </div>
