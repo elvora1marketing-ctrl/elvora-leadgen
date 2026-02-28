@@ -6,6 +6,10 @@
  *
  * Required: Google Maps API Key with "Places API (New)" enabled.
  * Get one at: https://console.cloud.google.com/apis/credentials
+ *
+ * NOTE: Google Places Text Search returns max 20 results per page,
+ * and supports up to 3 pages (60 results) per search query.
+ * To get more results, use batch scraping with multiple keyword/city combinations.
  */
 
 export interface ScrapedBusiness {
@@ -38,6 +42,20 @@ export interface ScrapeResult {
   errors: string[];
 }
 
+export interface BatchProgress {
+  type: 'search_start' | 'page_complete' | 'search_complete' | 'batch_complete' | 'error';
+  keyword: string;
+  currentSearch: number;
+  totalSearches: number;
+  currentPage: number;
+  totalPages: number;
+  pageResults: number;
+  totalFound: number;
+  totalImported: number;
+  totalDuplicates: number;
+  errors: string[];
+}
+
 const PLACES_API_URL = 'https://places.googleapis.com/v1/places:searchText';
 
 // Fields we request from the API (controls billing)
@@ -52,6 +70,7 @@ const FIELD_MASK = [
   'places.userRatingCount',
   'places.primaryTypeDisplayName',
   'places.shortFormattedAddress',
+  'nextPageToken',
 ].join(',');
 
 /**
@@ -79,7 +98,6 @@ function extractCity(address: string, fallbackCity: string): string {
   // Try city from comma-separated parts (second-to-last part often is the city)
   const parts = address.split(',').map(p => p.trim());
   if (parts.length >= 2) {
-    // Last part is usually "Deutschland", second-to-last is "PLZ Stadt"
     const cityPart = parts[parts.length - 2] || parts[parts.length - 1];
     const cityFromPart = cityPart.replace(/^\d{5}\s*/, '').trim();
     if (cityFromPart.length >= 2 && cityFromPart !== 'Deutschland') {
@@ -93,7 +111,7 @@ function extractCity(address: string, fallbackCity: string): string {
 /**
  * Deduplicate businesses by website or name
  */
-function deduplicateBusinesses(businesses: ScrapedBusiness[]): ScrapedBusiness[] {
+export function deduplicateBusinesses(businesses: ScrapedBusiness[]): ScrapedBusiness[] {
   const seen = new Set<string>();
   const unique: ScrapedBusiness[] = [];
 
@@ -136,10 +154,10 @@ function parsePlaceResult(place: Record<string, unknown>, searchCity: string): S
 }
 
 /**
- * Main scraping function using Google Places API (Text Search)
+ * Scrape a single keyword using Google Places API (Text Search)
  *
  * @param keyword - Search term (e.g. "Heizungsinstallateur Essen")
- * @param maxPages - Number of result pages (each page = up to 20 results, max 3 pages = 60 results)
+ * @param maxPages - Number of result pages (max 3 per API limitation, each up to 20 results)
  * @param onProgress - Optional callback for progress updates
  * @param apiKey - Google Maps API Key
  */
@@ -152,6 +170,7 @@ export async function scrapeGoogleMaps(
   const startTime = Date.now();
   const allBusinesses: ScrapedBusiness[] = [];
   const errors: string[] = [];
+  let actualPagesScraped = 0;
 
   if (!apiKey) {
     return {
@@ -168,8 +187,7 @@ export async function scrapeGoogleMaps(
   const cityMatch = keyword.match(/\b([\wäöüÄÖÜß]{3,})\s*$/);
   const searchCity = cityMatch ? cityMatch[1] : '';
 
-  // Google Places Text Search returns max 20 results per request
-  // Pagination via nextPageToken (max 3 pages = 60 results)
+  // Google Places Text Search: max 20 results per page, max 3 pages = 60 results
   const effectiveMaxPages = Math.min(maxPages, 3);
   let nextPageToken: string | null = null;
 
@@ -196,7 +214,7 @@ export async function scrapeGoogleMaps(
         requestBody.pageToken = nextPageToken;
       }
 
-      console.log(`[Scraper] Page ${page + 1}: Searching "${keyword}"...`);
+      console.log(`[Scraper] "${keyword}" - Seite ${page + 1}/${effectiveMaxPages}...`);
 
       const response = await fetch(PLACES_API_URL, {
         method: 'POST',
@@ -224,8 +242,37 @@ export async function scrapeGoogleMaps(
           break;
         }
         if (response.status === 429) {
-          errors.push('Rate-Limit erreicht. Bitte später erneut versuchen.');
-          break;
+          // Rate limit - wait and retry once
+          console.log(`[Scraper] Rate limit auf Seite ${page + 1}, warte 2s...`);
+          await delay(2000);
+          const retryResponse = await fetch(PLACES_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Goog-Api-Key': apiKey,
+              'X-Goog-FieldMask': FIELD_MASK,
+            },
+            body: JSON.stringify(requestBody),
+          });
+          if (!retryResponse.ok) {
+            errors.push('Rate-Limit erreicht. Bitte später erneut versuchen.');
+            break;
+          }
+          // Process retry response below by reassigning
+          const retryData = await retryResponse.json() as {
+            places?: Record<string, unknown>[];
+            nextPageToken?: string;
+          };
+          const retryPlaces = retryData.places || [];
+          actualPagesScraped++;
+          console.log(`[Scraper] "${keyword}" Seite ${page + 1} (retry): ${retryPlaces.length} Ergebnisse`);
+          for (const place of retryPlaces) {
+            allBusinesses.push(parsePlaceResult(place, searchCity));
+          }
+          nextPageToken = retryData.nextPageToken || null;
+          if (!nextPageToken) break;
+          if (page < effectiveMaxPages - 1) await delay(800);
+          continue;
         }
         if (response.status === 400) {
           errors.push(`Ungültige Anfrage: ${errorMessage}`);
@@ -242,7 +289,8 @@ export async function scrapeGoogleMaps(
       };
 
       const places = data.places || [];
-      console.log(`[Scraper] Page ${page + 1}: ${places.length} Ergebnisse`);
+      actualPagesScraped++;
+      console.log(`[Scraper] "${keyword}" Seite ${page + 1}: ${places.length} Ergebnisse`);
 
       if (places.length === 0) {
         if (page === 0) {
@@ -256,16 +304,16 @@ export async function scrapeGoogleMaps(
         allBusinesses.push(business);
       }
 
-      // Check for next page
+      // Check for next page token
       nextPageToken = data.nextPageToken || null;
       if (!nextPageToken) {
-        console.log(`[Scraper] No more pages available.`);
+        console.log(`[Scraper] "${keyword}" - Keine weiteren Seiten verfügbar.`);
         break;
       }
 
-      // Short delay between pages
+      // Delay between pages to avoid rate limiting
       if (page < effectiveMaxPages - 1) {
-        await delay(500);
+        await delay(800);
       }
     } catch (err) {
       const errMsg = `Seite ${page + 1}: ${err instanceof Error ? err.message : 'Unbekannter Fehler'}`;
@@ -281,7 +329,7 @@ export async function scrapeGoogleMaps(
     keyword,
     businesses: uniqueBusinesses,
     totalFound: uniqueBusinesses.length,
-    pagesScraped: Math.max(1, Math.ceil(allBusinesses.length / 20)),
+    pagesScraped: actualPagesScraped,
     duration: Date.now() - startTime,
     errors,
   };
@@ -289,7 +337,7 @@ export async function scrapeGoogleMaps(
   onProgress?.({
     status: errors.length > 0 && uniqueBusinesses.length === 0 ? 'error' : 'completed',
     keyword,
-    currentPage: effectiveMaxPages,
+    currentPage: actualPagesScraped,
     totalPages: effectiveMaxPages,
     businessesFound: uniqueBusinesses.length,
     errors,

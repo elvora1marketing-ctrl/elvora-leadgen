@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface ScrapedBusiness {
   name: string;
@@ -11,19 +11,6 @@ interface ScrapedBusiness {
   rating: number | null;
   reviews: number | null;
   category: string | null;
-}
-
-interface ScrapeResponse {
-  jobId: number;
-  keyword: string;
-  pagesScraped: number;
-  businessesFound: number;
-  imported: number;
-  duplicates: number;
-  skipped: number;
-  duration: number;
-  errors: string[];
-  businesses: ScrapedBusiness[];
 }
 
 interface ScraperJob {
@@ -39,15 +26,56 @@ interface ScraperJob {
   completed_at: string | null;
 }
 
+interface LiveProgress {
+  type: string;
+  keyword?: string;
+  currentSearch?: number;
+  totalSearches?: number;
+  currentPage?: number;
+  totalPages?: number;
+  pageResults?: number;
+  totalFound?: number;
+  totalImported?: number;
+  totalDuplicates?: number;
+  searchFound?: number;
+  searchImported?: number;
+  searchDuplicates?: number;
+  searchPages?: number;
+  searchDuration?: number;
+  duration?: number;
+  totalSkipped?: number;
+  totalPages2?: number;
+  error?: string;
+  errors?: string[];
+  jobId?: number;
+}
+
+interface CompletedSearch {
+  keyword: string;
+  found: number;
+  imported: number;
+  duplicates: number;
+  pages: number;
+  duration: number;
+}
+
 export default function ScraperPage() {
   const [keyword, setKeyword] = useState('');
   const [maxPages, setMaxPages] = useState(3);
   const [scraping, setScraping] = useState(false);
-  const [result, setResult] = useState<ScrapeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ScraperJob[]>([]);
   const [selectedJob, setSelectedJob] = useState<number | null>(null);
   const [jobResults, setJobResults] = useState<ScrapedBusiness[]>([]);
+
+  // Multi-city selection
+  const [selectedCities, setSelectedCities] = useState<string[]>(['Essen']);
+
+  // Live progress state
+  const [liveProgress, setLiveProgress] = useState<LiveProgress | null>(null);
+  const [completedSearches, setCompletedSearches] = useState<CompletedSearch[]>([]);
+  const [finalResult, setFinalResult] = useState<LiveProgress | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Quick presets for common searches
   const presets = [
@@ -66,7 +94,19 @@ export default function ScraperPage() {
     'Köln', 'Gelsenkirchen', 'Oberhausen', 'Mülheim', 'Herne',
   ];
 
-  const [selectedCity, setSelectedCity] = useState('Essen');
+  const toggleCity = (city: string) => {
+    setSelectedCities(prev =>
+      prev.includes(city)
+        ? prev.filter(c => c !== city)
+        : [...prev, city]
+    );
+  };
+
+  const selectAllCities = () => {
+    setSelectedCities(prev =>
+      prev.length === cities.length ? [] : [...cities]
+    );
+  };
 
   const loadJobs = useCallback(async () => {
     try {
@@ -83,33 +123,106 @@ export default function ScraperPage() {
   }, [loadJobs]);
 
   const startScraping = async () => {
-    if (!keyword.trim()) return;
+    if (!keyword.trim() || selectedCities.length === 0) return;
 
-    const fullKeyword = `${keyword.trim()} ${selectedCity}`;
     setScraping(true);
-    setResult(null);
+    setFinalResult(null);
     setError(null);
+    setLiveProgress(null);
+    setCompletedSearches([]);
+
+    // Parse multiple keywords (comma or newline separated)
+    const keywords = keyword
+      .split(/[,\n]+/)
+      .map(k => k.trim())
+      .filter(k => k.length > 0);
+
+    const abortController = new AbortController();
+    abortRef.current = abortController;
 
     try {
-      const res = await fetch('/api/scraper/maps', {
+      const res = await fetch('/api/scraper/maps/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyword: fullKeyword, maxPages }),
+        body: JSON.stringify({
+          keywords,
+          cities: selectedCities,
+          maxPages,
+        }),
+        signal: abortController.signal,
       });
 
-      const data = await res.json();
-
-      if (res.ok) {
-        setResult(data);
-      } else {
+      if (!res.ok) {
+        const data = await res.json();
         setError(data.error || 'Scraping fehlgeschlagen');
+        setScraping(false);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setError('Stream nicht verfügbar');
+        setScraping(false);
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process all complete SSE messages in buffer
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6)) as LiveProgress;
+
+              if (data.type === 'search_complete') {
+                setCompletedSearches(prev => [...prev, {
+                  keyword: data.keyword || '',
+                  found: data.searchFound || 0,
+                  imported: data.searchImported || 0,
+                  duplicates: data.searchDuplicates || 0,
+                  pages: data.searchPages || 0,
+                  duration: data.searchDuration || 0,
+                }]);
+              }
+
+              if (data.type === 'batch_complete') {
+                setFinalResult(data);
+                setScraping(false);
+              }
+
+              setLiveProgress(data);
+            } catch {
+              // Invalid JSON, skip
+            }
+          }
+        }
       }
     } catch (err) {
-      setError('Netzwerkfehler - Server nicht erreichbar');
+      if (err instanceof Error && err.name === 'AbortError') {
+        // User cancelled
+      } else {
+        setError('Netzwerkfehler - Server nicht erreichbar');
+      }
     } finally {
       setScraping(false);
+      abortRef.current = null;
       loadJobs();
     }
+  };
+
+  const cancelScraping = () => {
+    abortRef.current?.abort();
+    setScraping(false);
   };
 
   const viewJobResults = async (jobId: number) => {
@@ -148,8 +261,8 @@ export default function ScraperPage() {
     URL.revokeObjectURL(url);
   };
 
-  const displayBusinesses = result?.businesses || jobResults;
-  const showingResults = (result && result.businesses.length > 0) || jobResults.length > 0;
+  const totalSearches = keyword.split(/[,\n]+/).filter(k => k.trim().length > 0).length * selectedCities.length;
+  const showingResults = jobResults.length > 0;
 
   return (
     <div className="space-y-6">
@@ -163,7 +276,7 @@ export default function ScraperPage() {
         </div>
         {showingResults && (
           <button
-            onClick={() => exportCsv(displayBusinesses)}
+            onClick={() => exportCsv(jobResults)}
             className="px-4 py-2 rounded-xl bg-elvora-success/20 text-elvora-success hover:bg-elvora-success/30 transition-colors text-sm font-medium flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -176,51 +289,40 @@ export default function ScraperPage() {
 
       {/* Search Form */}
       <div className="card-glass p-6 space-y-5">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Keyword Input */}
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-elvora-text-muted mb-2">
-              Suchbegriff
-            </label>
-            <input
-              type="text"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="z.B. Heizungsinstallateur, Sanitär, Klempner..."
-              className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-elvora-primary/50 focus:border-elvora-primary/50 transition-all"
-              onKeyDown={(e) => e.key === 'Enter' && !scraping && startScraping()}
-            />
-          </div>
-
-          {/* City Select */}
-          <div>
-            <label className="block text-sm font-medium text-elvora-text-muted mb-2">
-              Stadt
-            </label>
-            <select
-              value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-elvora-primary/50 transition-all"
-            >
-              {cities.map(city => (
-                <option key={city} value={city}>{city}</option>
-              ))}
-            </select>
-          </div>
+        {/* Keyword Input */}
+        <div>
+          <label className="block text-sm font-medium text-elvora-text-muted mb-2">
+            Suchbegriffe <span className="text-elvora-text-dim font-normal">(mehrere mit Komma trennen)</span>
+          </label>
+          <input
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="z.B. Heizungsinstallateur, Sanitär, Klempner..."
+            className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-elvora-primary/50 focus:border-elvora-primary/50 transition-all"
+            onKeyDown={(e) => e.key === 'Enter' && !scraping && startScraping()}
+          />
         </div>
 
         {/* Quick Presets */}
         <div>
           <label className="block text-xs font-medium text-elvora-text-dim mb-2">
-            Schnellauswahl
+            Schnellauswahl Keywords
           </label>
           <div className="flex flex-wrap gap-2">
             {presets.map(preset => (
               <button
                 key={preset}
-                onClick={() => setKeyword(preset)}
+                onClick={() => {
+                  const current = keyword.split(/,/).map(k => k.trim()).filter(Boolean);
+                  if (current.includes(preset)) {
+                    setKeyword(current.filter(k => k !== preset).join(', '));
+                  } else {
+                    setKeyword(current.length > 0 ? `${keyword}, ${preset}` : preset);
+                  }
+                }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  keyword === preset
+                  keyword.includes(preset)
                     ? 'bg-elvora-primary/30 text-elvora-primary border border-elvora-primary/40'
                     : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
                 }`}
@@ -231,14 +333,44 @@ export default function ScraperPage() {
           </div>
         </div>
 
+        {/* City Selection - Multi-select */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-elvora-text-muted">
+              Städte <span className="text-elvora-text-dim font-normal">({selectedCities.length} ausgewählt)</span>
+            </label>
+            <button
+              onClick={selectAllCities}
+              className="text-xs text-elvora-primary hover:text-elvora-primary/80 transition-colors"
+            >
+              {selectedCities.length === cities.length ? 'Keine' : 'Alle'} auswählen
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {cities.map(city => (
+              <button
+                key={city}
+                onClick={() => toggleCity(city)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  selectedCities.includes(city)
+                    ? 'bg-elvora-accent/30 text-elvora-accent border border-elvora-accent/40'
+                    : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
+                }`}
+              >
+                {city}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Pages Slider */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-medium text-elvora-text-muted">
-              Seiten scrapen
+              Seiten pro Suche
             </label>
             <span className="text-sm font-bold text-white">
-              {maxPages} {maxPages === 1 ? 'Seite' : 'Seiten'} <span className="text-elvora-text-dim font-normal">(~{maxPages * 20} Ergebnisse)</span>
+              {maxPages} {maxPages === 1 ? 'Seite' : 'Seiten'} <span className="text-elvora-text-dim font-normal">(~{maxPages * 20} pro Suche)</span>
             </span>
           </div>
           <input
@@ -250,41 +382,55 @@ export default function ScraperPage() {
             className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-elvora-primary"
           />
           <div className="flex justify-between text-[10px] text-elvora-text-dim mt-1">
-            <span>20 Ergebnisse</span>
-            <span>40 Ergebnisse</span>
-            <span>60 Ergebnisse</span>
+            <span>~20 Ergebnisse</span>
+            <span>~40 Ergebnisse</span>
+            <span>~60 Ergebnisse</span>
           </div>
         </div>
 
-        {/* Start Button */}
-        <button
-          onClick={startScraping}
-          disabled={scraping || !keyword.trim()}
-          className={`w-full py-3.5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-3 ${
-            scraping
-              ? 'bg-elvora-primary/20 text-elvora-primary cursor-wait'
-              : keyword.trim()
+        {/* Search Info */}
+        {keyword.trim() && selectedCities.length > 0 && (
+          <div className="bg-elvora-primary/5 border border-elvora-primary/20 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-2 text-sm">
+              <svg className="w-4 h-4 text-elvora-primary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-elvora-text-muted">
+                <span className="text-white font-semibold">{totalSearches}</span> Suchanfragen
+                <span className="text-elvora-text-dim"> ({keyword.split(/[,\n]+/).filter(k => k.trim()).length} Keywords × {selectedCities.length} Städte × {maxPages} Seiten)</span>
+                {' = '}bis zu <span className="text-white font-semibold">{totalSearches * maxPages * 20}</span> Ergebnisse
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Start / Cancel Button */}
+        {!scraping ? (
+          <button
+            onClick={startScraping}
+            disabled={!keyword.trim() || selectedCities.length === 0}
+            className={`w-full py-3.5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-3 ${
+              keyword.trim() && selectedCities.length > 0
                 ? 'bg-elvora-gradient text-white hover:shadow-elvora hover:scale-[1.01] active:scale-[0.99]'
                 : 'bg-white/5 text-elvora-text-dim cursor-not-allowed'
-          }`}
-        >
-          {scraping ? (
-            <>
-              <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Scraping l&auml;uft... Bitte warten
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              Scraping starten: &quot;{keyword.trim() || '...'} {selectedCity}&quot;
-            </>
-          )}
-        </button>
+            }`}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            Batch-Scraping starten ({totalSearches} Suchanfragen)
+          </button>
+        ) : (
+          <button
+            onClick={cancelScraping}
+            className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-3 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/20"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Scraping abbrechen
+          </button>
+        )}
       </div>
 
       {/* Error Message */}
@@ -306,62 +452,174 @@ export default function ScraperPage() {
         </div>
       )}
 
-      {/* Results Summary */}
-      {result && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div className="card-glass p-4 text-center">
-            <div className="text-2xl font-bold text-white">{result.businessesFound}</div>
-            <div className="text-xs text-elvora-text-dim mt-1">Gefunden</div>
+      {/* Live Progress Ticker */}
+      {scraping && liveProgress && (
+        <div className="card-glass p-5 space-y-4 border border-elvora-primary/20">
+          {/* Overall Progress Bar */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-white flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-elvora-primary opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-elvora-primary"></span>
+                </span>
+                Live Scraping
+              </span>
+              <span className="text-xs text-elvora-text-dim">
+                {liveProgress.currentSearch || 0} / {liveProgress.totalSearches || 0} Suchanfragen
+              </span>
+            </div>
+            <div className="w-full h-2.5 bg-white/5 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-elvora-gradient rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width: `${Math.round(((liveProgress.currentSearch || 0) / (liveProgress.totalSearches || 1)) * 100)}%`,
+                }}
+              />
+            </div>
           </div>
-          <div className="card-glass p-4 text-center">
-            <div className="text-2xl font-bold text-elvora-success">{result.imported}</div>
-            <div className="text-xs text-elvora-text-dim mt-1">Importiert</div>
+
+          {/* Current Search Info */}
+          {liveProgress.keyword && liveProgress.type !== 'batch_complete' && (
+            <div className="bg-white/[0.03] rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white font-medium truncate mr-4">
+                  {liveProgress.keyword}
+                </span>
+                {liveProgress.currentPage && liveProgress.totalPages && (
+                  <span className="text-xs text-elvora-text-dim whitespace-nowrap">
+                    Seite {liveProgress.currentPage}/{liveProgress.totalPages}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Live Counters */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="text-center">
+              <div className="text-xl font-bold text-white tabular-nums">{liveProgress.totalFound || 0}</div>
+              <div className="text-[10px] text-elvora-text-dim mt-0.5">Gefunden</div>
+            </div>
+            <div className="text-center">
+              <div className="text-xl font-bold text-elvora-success tabular-nums">{liveProgress.totalImported || 0}</div>
+              <div className="text-[10px] text-elvora-text-dim mt-0.5">Importiert</div>
+            </div>
+            <div className="text-center">
+              <div className="text-xl font-bold text-elvora-warning tabular-nums">{liveProgress.totalDuplicates || 0}</div>
+              <div className="text-[10px] text-elvora-text-dim mt-0.5">Duplikate</div>
+            </div>
           </div>
-          <div className="card-glass p-4 text-center">
-            <div className="text-2xl font-bold text-elvora-warning">{result.duplicates}</div>
-            <div className="text-xs text-elvora-text-dim mt-1">Duplikate</div>
-          </div>
-          <div className="card-glass p-4 text-center">
-            <div className="text-2xl font-bold text-elvora-text-muted">{result.pagesScraped}</div>
-            <div className="text-xs text-elvora-text-dim mt-1">Seiten</div>
-          </div>
-          <div className="card-glass p-4 text-center">
-            <div className="text-2xl font-bold text-elvora-text-muted">{(result.duration / 1000).toFixed(1)}s</div>
-            <div className="text-xs text-elvora-text-dim mt-1">Dauer</div>
-          </div>
+
+          {/* Completed Searches Log */}
+          {completedSearches.length > 0 && (
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {completedSearches.map((search, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-1.5 bg-white/[0.02] rounded-lg text-xs">
+                  <span className="text-elvora-text-muted truncate mr-3 flex items-center gap-2">
+                    <svg className="w-3 h-3 text-elvora-success flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                    {search.keyword}
+                  </span>
+                  <span className="text-elvora-text-dim whitespace-nowrap">
+                    {search.found} gefunden, {search.imported} neu, {search.duplicates} doppelt
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Warnings/Errors from scraping */}
-      {result && result.errors.length > 0 && (
-        <div className="card-glass border border-elvora-warning/20 bg-elvora-warning/5 p-4 rounded-xl">
-          <h3 className="text-sm font-semibold text-elvora-warning mb-2">Hinweise</h3>
-          <ul className="space-y-1">
-            {result.errors.map((err, i) => (
-              <li key={i} className="text-xs text-elvora-text-dim flex items-start gap-2">
-                <span className="text-elvora-warning mt-0.5">!</span>
-                {err}
-              </li>
-            ))}
-          </ul>
+      {/* Final Results Summary */}
+      {finalResult && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="card-glass p-4 text-center">
+              <div className="text-2xl font-bold text-white">{finalResult.totalFound || 0}</div>
+              <div className="text-xs text-elvora-text-dim mt-1">Gefunden</div>
+            </div>
+            <div className="card-glass p-4 text-center">
+              <div className="text-2xl font-bold text-elvora-success">{finalResult.totalImported || 0}</div>
+              <div className="text-xs text-elvora-text-dim mt-1">Importiert</div>
+            </div>
+            <div className="card-glass p-4 text-center">
+              <div className="text-2xl font-bold text-elvora-warning">{finalResult.totalDuplicates || 0}</div>
+              <div className="text-xs text-elvora-text-dim mt-1">Duplikate</div>
+            </div>
+            <div className="card-glass p-4 text-center">
+              <div className="text-2xl font-bold text-elvora-text-muted">{completedSearches.length}</div>
+              <div className="text-xs text-elvora-text-dim mt-1">Suchanfragen</div>
+            </div>
+            <div className="card-glass p-4 text-center">
+              <div className="text-2xl font-bold text-elvora-text-muted">{((finalResult.duration || 0) / 1000).toFixed(1)}s</div>
+              <div className="text-xs text-elvora-text-dim mt-1">Dauer</div>
+            </div>
+          </div>
+
+          {/* Search Breakdown */}
+          {completedSearches.length > 0 && (
+            <div className="card-glass overflow-hidden">
+              <div className="p-4 border-b border-white/5">
+                <h2 className="text-sm font-semibold text-white">Ergebnisse pro Suche</h2>
+              </div>
+              <div className="divide-y divide-white/5 max-h-60 overflow-y-auto">
+                {completedSearches.map((search, i) => (
+                  <div key={i} className="px-4 py-2.5 flex items-center justify-between text-xs">
+                    <span className="text-white font-medium">{search.keyword}</span>
+                    <div className="flex items-center gap-4">
+                      <span className="text-elvora-text-muted">{search.found} gefunden</span>
+                      <span className="text-elvora-success">{search.imported} neu</span>
+                      {search.duplicates > 0 && (
+                        <span className="text-elvora-warning">{search.duplicates} doppelt</span>
+                      )}
+                      <span className="text-elvora-text-dim">{(search.duration / 1000).toFixed(1)}s</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Errors from scraping */}
+          {finalResult.errors && finalResult.errors.length > 0 && (
+            <div className="card-glass border border-elvora-warning/20 bg-elvora-warning/5 p-4 rounded-xl">
+              <h3 className="text-sm font-semibold text-elvora-warning mb-2">Hinweise</h3>
+              <ul className="space-y-1 max-h-32 overflow-y-auto">
+                {finalResult.errors.map((err, i) => (
+                  <li key={i} className="text-xs text-elvora-text-dim flex items-start gap-2">
+                    <span className="text-elvora-warning mt-0.5">!</span>
+                    {err}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Results Table */}
+      {/* Job Results Table (from history) */}
       {showingResults && (
         <div className="card-glass overflow-hidden">
           <div className="p-4 border-b border-white/5 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-white">
-              {displayBusinesses.length} Firmen gefunden
+              {jobResults.length} Firmen gefunden
             </h2>
-            {selectedJob && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => exportCsv(jobResults)}
+                className="text-xs text-elvora-primary hover:text-elvora-primary/80 transition-colors"
+              >
+                CSV Export
+              </button>
               <button
                 onClick={() => { setSelectedJob(null); setJobResults([]); }}
                 className="text-xs text-elvora-text-dim hover:text-white transition-colors"
               >
                 Schliessen
               </button>
-            )}
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -377,7 +635,7 @@ export default function ScraperPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {displayBusinesses.map((biz, i) => (
+                {jobResults.map((biz, i) => (
                   <tr key={i} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-4 py-3 text-elvora-text-dim text-xs">{i + 1}</td>
                     <td className="px-4 py-3">
@@ -451,7 +709,7 @@ export default function ScraperPage() {
                   <div className="flex items-center gap-4">
                     <div className={`w-2 h-2 rounded-full ${
                       job.status === 'completed' ? 'bg-elvora-success' :
-                      job.status === 'running' ? 'bg-elvora-primary pulse-dot' :
+                      job.status === 'running' ? 'bg-elvora-primary animate-pulse' :
                       'bg-red-500'
                     }`} />
                     <div>
