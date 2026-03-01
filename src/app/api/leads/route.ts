@@ -49,6 +49,8 @@ export async function GET(request: NextRequest) {
     }
     if (hasWebsite === '1') {
       conditions.push("l.website_original IS NOT NULL AND l.website_original != ''");
+    } else if (hasWebsite === '0') {
+      conditions.push("(l.website_original IS NULL OR l.website_original = '')");
     }
     if (hasPhone === '1') {
       conditions.push("l.phone IS NOT NULL AND l.phone != ''");

@@ -26,7 +26,7 @@ export async function PATCH(request: NextRequest) {
     const values: (string | number)[] = [];
 
     if (body.status) {
-      const valid = ['pending', 'qualified', 'rejected', 'archived'];
+      const valid = ['pending', 'qualified', 'rejected', 'archived', 'akquise'];
       if (!valid.includes(body.status)) {
         return NextResponse.json({ error: 'Ungültiger Status' }, { status: 400 });
       }

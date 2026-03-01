@@ -45,7 +45,7 @@ export async function PATCH(
     }
 
     if (body.status) {
-      const validStatuses = ['pending', 'qualified', 'rejected', 'archived'];
+      const validStatuses = ['pending', 'qualified', 'rejected', 'archived', 'akquise'];
       if (!validStatuses.includes(body.status)) {
         return NextResponse.json({ error: `Ungültiger status. Erlaubt: ${validStatuses.join(', ')}` }, { status: 400 });
       }

@@ -33,7 +33,7 @@ export default function LeadPoolPage() {
   const [search, setSearch] = useState('');
   const [filterCity, setFilterCity] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [filterHasWebsite, setFilterHasWebsite] = useState(false);
+  const [filterWebsite, setFilterWebsite] = useState<'' | 'yes' | 'no'>('');
   const [filterHasPhone, setFilterHasPhone] = useState(false);
   const [filterHasEmail, setFilterHasEmail] = useState(false);
   const [sortBy, setSortBy] = useState<SortField>('created_at');
@@ -71,7 +71,8 @@ export default function LeadPoolPage() {
       if (debouncedSearch) params.set('search', debouncedSearch);
       if (filterCity) params.set('city', filterCity);
       if (filterStatus) params.set('status', filterStatus);
-      if (filterHasWebsite) params.set('has_website', '1');
+      if (filterWebsite === 'yes') params.set('has_website', '1');
+      if (filterWebsite === 'no') params.set('has_website', '0');
       if (filterHasPhone) params.set('has_phone', '1');
       if (filterHasEmail) params.set('has_email', '1');
 
@@ -84,7 +85,7 @@ export default function LeadPoolPage() {
       }
     } catch { /* silent */ }
     finally { setLoading(false); }
-  }, [page, sortBy, sortDir, debouncedSearch, filterCity, filterStatus, filterHasWebsite, filterHasPhone, filterHasEmail]);
+  }, [page, sortBy, sortDir, debouncedSearch, filterCity, filterStatus, filterWebsite, filterHasPhone, filterHasEmail]);
 
   useEffect(() => { loadLeads(); }, [loadLeads]);
 
@@ -200,13 +201,14 @@ export default function LeadPoolPage() {
 
   const statusLabels: Record<string, { label: string; color: string }> = {
     pending: { label: 'Neu', color: 'bg-white/10 text-elvora-text-muted' },
+    akquise: { label: 'Akquise', color: 'bg-elvora-accent/15 text-elvora-accent' },
     qualified: { label: 'Qualifiziert', color: 'bg-elvora-success/15 text-elvora-success' },
     rejected: { label: 'Abgelehnt', color: 'bg-red-500/15 text-red-400' },
     archived: { label: 'Archiviert', color: 'bg-white/5 text-elvora-text-dim' },
   };
 
   const totalPages = Math.ceil(total / pageSize);
-  const hasFilters = debouncedSearch || filterCity || filterStatus || filterHasWebsite || filterHasPhone || filterHasEmail;
+  const hasFilters = debouncedSearch || filterCity || filterStatus || filterWebsite || filterHasPhone || filterHasEmail;
 
   return (
     <div className="space-y-4">
@@ -272,21 +274,32 @@ export default function LeadPoolPage() {
           >
             <option value="">Alle Status</option>
             <option value="pending">Neu</option>
+            <option value="akquise">Akquise</option>
             <option value="qualified">Qualifiziert</option>
             <option value="rejected">Abgelehnt</option>
             <option value="archived">Archiviert</option>
           </select>
 
-          {/* Toggle filters */}
+          {/* Website filter */}
           <button
-            onClick={() => { setFilterHasWebsite(!filterHasWebsite); setPage(0); }}
+            onClick={() => { setFilterWebsite(filterWebsite === 'yes' ? '' : 'yes'); setPage(0); }}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
-              filterHasWebsite
+              filterWebsite === 'yes'
                 ? 'bg-elvora-primary/20 text-elvora-primary border-elvora-primary/30'
                 : 'bg-white/5 text-elvora-text-dim border-white/10 hover:text-white'
             }`}
           >
             Mit Website
+          </button>
+          <button
+            onClick={() => { setFilterWebsite(filterWebsite === 'no' ? '' : 'no'); setPage(0); }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+              filterWebsite === 'no'
+                ? 'bg-elvora-warning/20 text-elvora-warning border-elvora-warning/30'
+                : 'bg-white/5 text-elvora-text-dim border-white/10 hover:text-white'
+            }`}
+          >
+            Ohne Website
           </button>
           <button
             onClick={() => { setFilterHasPhone(!filterHasPhone); setPage(0); }}
@@ -313,7 +326,7 @@ export default function LeadPoolPage() {
             <button
               onClick={() => {
                 setSearch(''); setFilterCity(''); setFilterStatus('');
-                setFilterHasWebsite(false); setFilterHasPhone(false); setFilterHasEmail(false);
+                setFilterWebsite(''); setFilterHasPhone(false); setFilterHasEmail(false);
                 setPage(0);
               }}
               className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-400 hover:text-red-300 bg-red-500/10 border border-red-500/20 transition-all"
@@ -329,6 +342,13 @@ export default function LeadPoolPage() {
         <div className="card-glass p-3 border border-elvora-primary/20 flex items-center gap-3 animate-fade-in">
           <span className="text-sm font-semibold text-white">{selected.size} ausgewählt</span>
           <div className="flex-1" />
+          <button
+            onClick={() => bulkUpdateStatus('akquise')}
+            disabled={bulkLoading}
+            className="px-3 py-1.5 rounded-lg bg-elvora-accent/15 text-elvora-accent text-xs font-semibold border border-elvora-accent/20 hover:bg-elvora-accent/25 transition-all disabled:opacity-50"
+          >
+            In Akquise
+          </button>
           <button
             onClick={() => bulkUpdateStatus('qualified')}
             disabled={bulkLoading}
@@ -542,15 +562,15 @@ export default function LeadPoolPage() {
                                 await fetch('/api/leads/bulk', {
                                   method: 'PATCH',
                                   headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ ids: [lead.id], status: 'qualified' }),
+                                  body: JSON.stringify({ ids: [lead.id], status: 'akquise' }),
                                 });
                                 loadLeads();
                               }}
-                              className="px-2 py-1 rounded-lg bg-elvora-success/10 text-elvora-success text-[11px] font-semibold border border-elvora-success/20 hover:bg-elvora-success/20 transition-all"
-                              title="Qualifizieren"
+                              className="px-2 py-1 rounded-lg bg-elvora-accent/10 text-elvora-accent text-[11px] font-semibold border border-elvora-accent/20 hover:bg-elvora-accent/20 transition-all"
+                              title="In Akquise verschieben"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                               </svg>
                             </button>
                           )}
