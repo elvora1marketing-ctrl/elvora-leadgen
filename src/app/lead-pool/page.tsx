@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 interface PoolLead {
   id: number;
@@ -13,6 +13,8 @@ interface PoolLead {
   status: string;
   contact_status: string;
   rating: string;
+  problems: string | null;
+  seo_issues: string | null;
   found_via_keywords: string | null;
   times_found: number;
   created_at: string;
@@ -47,6 +49,12 @@ export default function LeadPoolPage() {
   // Bulk action feedback
   const [bulkMessage, setBulkMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Website analysis
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState<{ current: number; total: number } | null>(null);
+  const [analyzingLeadId, setAnalyzingLeadId] = useState<number | null>(null);
+  const [expandedLead, setExpandedLead] = useState<number | null>(null);
 
   // Debounce search
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
@@ -189,6 +197,70 @@ export default function LeadPoolPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Analyze all unscored leads
+  const analyzeAll = async () => {
+    if (analyzing) return;
+    setAnalyzing(true);
+    setBulkMessage(null);
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batch: true, limit: 50 }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBulkMessage({
+          type: 'success',
+          text: `${data.analyzed} Websites analysiert (Durchschnitt: ${data.averageScore}/100)${data.errors > 0 ? ` - ${data.errors} Fehler` : ''}`,
+        });
+        loadLeads();
+      } else {
+        setBulkMessage({ type: 'error', text: data.error || 'Analyse fehlgeschlagen' });
+      }
+    } catch { setBulkMessage({ type: 'error', text: 'Netzwerkfehler bei Analyse' }); }
+    finally {
+      setAnalyzing(false);
+      setAnalyzeProgress(null);
+      setTimeout(() => setBulkMessage(null), 8000);
+    }
+  };
+
+  // Analyze single lead
+  const analyzeSingle = async (leadId: number) => {
+    if (analyzingLeadId) return;
+    setAnalyzingLeadId(leadId);
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBulkMessage({ type: 'success', text: `${data.lead.name}: Score ${data.analysis.score}/100` });
+        loadLeads();
+      } else {
+        setBulkMessage({ type: 'error', text: data.error || 'Analyse fehlgeschlagen' });
+      }
+    } catch { setBulkMessage({ type: 'error', text: 'Netzwerkfehler' }); }
+    finally {
+      setAnalyzingLeadId(null);
+      setTimeout(() => setBulkMessage(null), 5000);
+    }
+  };
+
+  // Parse problems JSON for display
+  const parseProblems = (problemsJson: string | null): { id: string; label: string; severity: string }[] => {
+    if (!problemsJson) return [];
+    try { return JSON.parse(problemsJson); } catch { return []; }
+  };
+
+  const parseSeoIssues = (seoJson: string | null): { id: string; label: string; impact: string }[] => {
+    if (!seoJson) return [];
+    try { return JSON.parse(seoJson); } catch { return []; }
+  };
+
   const handleSort = (field: SortField) => {
     if (sortBy === field) {
       setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -225,15 +297,41 @@ export default function LeadPoolPage() {
             Alle gescrapten Firmen - {total.toLocaleString('de-DE')} Leads gesamt
           </p>
         </div>
-        <button
-          onClick={exportCsv}
-          className="px-4 py-2 rounded-xl bg-elvora-success/20 text-elvora-success hover:bg-elvora-success/30 transition-colors text-sm font-medium flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          CSV Export
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={analyzeAll}
+            disabled={analyzing}
+            className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all ${
+              analyzing
+                ? 'bg-elvora-primary/10 text-elvora-primary/50 cursor-wait'
+                : 'bg-elvora-primary/20 text-elvora-primary hover:bg-elvora-primary/30 border border-elvora-primary/20'
+            }`}
+          >
+            {analyzing ? (
+              <>
+                <div className="w-4 h-4 border-2 border-elvora-primary/30 border-t-elvora-primary rounded-full animate-spin" />
+                Analysiere...
+                {analyzeProgress && <span className="text-xs opacity-70">{analyzeProgress.current}/{analyzeProgress.total}</span>}
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Websites analysieren
+              </>
+            )}
+          </button>
+          <button
+            onClick={exportCsv}
+            className="px-4 py-2 rounded-xl bg-elvora-success/20 text-elvora-success hover:bg-elvora-success/30 transition-colors text-sm font-medium flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            CSV Export
+          </button>
+        </div>
       </div>
 
       {/* Search + Filters */}
@@ -492,7 +590,8 @@ export default function LeadPoolPage() {
                 leads.map((lead) => {
                   const st = statusLabels[lead.status] || statusLabels.pending;
                   return (
-                    <tr key={lead.id} className={`hover:bg-white/[0.02] transition-colors ${selected.has(lead.id) ? 'bg-elvora-primary/5' : ''}`}>
+                    <React.Fragment key={lead.id}>
+                    <tr className={`hover:bg-white/[0.02] transition-colors ${selected.has(lead.id) ? 'bg-elvora-primary/5' : ''}`}>
                       <td className="px-3 py-2.5">
                         <input
                           type="checkbox"
@@ -534,14 +633,32 @@ export default function LeadPoolPage() {
                       <td className="px-3 py-2.5 text-elvora-text-muted text-xs">{lead.city}</td>
                       <td className="px-3 py-2.5">
                         {lead.score > 0 ? (
-                          <div className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${
-                            lead.score >= 85 ? 'bg-red-500/15 text-red-400' :
-                            lead.score >= 70 ? 'bg-elvora-warning/15 text-elvora-warning' :
-                            lead.score >= 50 ? 'bg-elvora-primary/15 text-elvora-primary' :
-                            'bg-white/5 text-elvora-text-dim'
-                          }`}>
+                          <button
+                            onClick={() => setExpandedLead(expandedLead === lead.id ? null : lead.id)}
+                            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all hover:scale-105 ${
+                              lead.score >= 70 ? 'bg-elvora-success/15 text-elvora-success' :
+                              lead.score >= 50 ? 'bg-elvora-warning/15 text-elvora-warning' :
+                              lead.score >= 30 ? 'bg-orange-500/15 text-orange-400' :
+                              'bg-red-500/15 text-red-400'
+                            }`}
+                            title={lead.score >= 70 ? 'Gute Website - braucht uns eher nicht' : lead.score >= 50 ? 'Durchschnittliche Website' : 'Schlechte Website - heißer Lead!'}
+                          >
                             {lead.score}
-                          </div>
+                            {lead.score < 40 && <span className="text-[9px]">HOT</span>}
+                          </button>
+                        ) : lead.website ? (
+                          <button
+                            onClick={() => analyzeSingle(lead.id)}
+                            disabled={analyzingLeadId === lead.id}
+                            className="px-2 py-1 rounded-lg bg-elvora-primary/10 text-elvora-primary text-[10px] font-semibold border border-elvora-primary/20 hover:bg-elvora-primary/20 transition-all disabled:opacity-50"
+                            title="Website analysieren"
+                          >
+                            {analyzingLeadId === lead.id ? (
+                              <div className="w-3 h-3 border-2 border-elvora-primary/30 border-t-elvora-primary rounded-full animate-spin" />
+                            ) : (
+                              'Prüfen'
+                            )}
+                          </button>
                         ) : (
                           <span className="text-elvora-text-dim text-xs">-</span>
                         )}
@@ -645,6 +762,54 @@ export default function LeadPoolPage() {
                         </div>
                       </td>
                     </tr>
+                    {/* Expandable detail row */}
+                    {expandedLead === lead.id && lead.score > 0 && (
+                      <tr className="bg-white/[0.02]">
+                        <td colSpan={10} className="px-4 py-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {/* Problems */}
+                            <div>
+                              <h4 className="text-[11px] font-semibold text-elvora-text-dim uppercase tracking-wider mb-2">Probleme</h4>
+                              {parseProblems(lead.problems).length > 0 ? (
+                                <div className="space-y-1">
+                                  {parseProblems(lead.problems).map((p, i) => (
+                                    <div key={i} className="flex items-center gap-2 text-xs">
+                                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                        p.severity === 'critical' ? 'bg-red-400' :
+                                        p.severity === 'major' ? 'bg-orange-400' : 'bg-yellow-400'
+                                      }`} />
+                                      <span className="text-elvora-text-muted">{p.label}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-elvora-success">Keine Probleme gefunden</span>
+                              )}
+                            </div>
+                            {/* SEO Issues */}
+                            <div>
+                              <h4 className="text-[11px] font-semibold text-elvora-text-dim uppercase tracking-wider mb-2">SEO</h4>
+                              {parseSeoIssues(lead.seo_issues).length > 0 ? (
+                                <div className="space-y-1">
+                                  {parseSeoIssues(lead.seo_issues).map((s, i) => (
+                                    <div key={i} className="flex items-center gap-2 text-xs">
+                                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                        s.impact === 'high' ? 'bg-red-400' :
+                                        s.impact === 'medium' ? 'bg-orange-400' : 'bg-yellow-400'
+                                      }`} />
+                                      <span className="text-elvora-text-muted">{s.label}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-elvora-success">Keine SEO-Probleme</span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                   );
                 })
               )}
