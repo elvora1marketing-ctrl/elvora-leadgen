@@ -14,6 +14,12 @@ export async function GET(request: NextRequest) {
     const contactStatus = url.searchParams.get('contact_status');
     const city = url.searchParams.get('city');
     const minScore = url.searchParams.get('min_score');
+    const search = url.searchParams.get('search');
+    const hasWebsite = url.searchParams.get('has_website');
+    const hasPhone = url.searchParams.get('has_phone');
+    const hasEmail = url.searchParams.get('has_email');
+    const sortBy = url.searchParams.get('sort') || 'score';
+    const sortDir = url.searchParams.get('dir') === 'asc' ? 'ASC' : 'DESC';
     const limit = parseInt(url.searchParams.get('limit') || '50');
     const offset = parseInt(url.searchParams.get('offset') || '0');
 
@@ -21,44 +27,70 @@ export async function GET(request: NextRequest) {
     const values: (string | number)[] = [];
 
     if (status) {
-      conditions.push('status = ?');
+      conditions.push('l.status = ?');
       values.push(status);
     }
     if (contactStatus) {
-      conditions.push('contact_status = ?');
+      conditions.push('l.contact_status = ?');
       values.push(contactStatus);
     }
     if (city) {
-      conditions.push('city = ?');
+      conditions.push('l.city = ?');
       values.push(city);
     }
     if (minScore) {
-      conditions.push('score >= ?');
+      conditions.push('l.score >= ?');
       values.push(parseInt(minScore));
+    }
+    if (search) {
+      conditions.push("(l.name LIKE ? OR l.city LIKE ? OR l.website_original LIKE ? OR l.phone LIKE ? OR l.found_via_keywords LIKE ?)");
+      const term = `%${search}%`;
+      values.push(term, term, term, term, term);
+    }
+    if (hasWebsite === '1') {
+      conditions.push("l.website_original IS NOT NULL AND l.website_original != ''");
+    }
+    if (hasPhone === '1') {
+      conditions.push("l.phone IS NOT NULL AND l.phone != ''");
+    }
+    if (hasEmail === '1') {
+      conditions.push("l.email IS NOT NULL AND l.email != ''");
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const validSorts: Record<string, string> = {
+      score: 'l.score', name: 'l.name', city: 'l.city',
+      created_at: 'l.created_at', updated_at: 'l.updated_at',
+      times_found: 'l.times_found',
+    };
+    const orderCol = validSorts[sortBy] || 'l.score';
 
     const leads = db.prepare(`
       SELECT l.id, l.name, l.email, l.phone, l.city, l.website_original as website,
              l.score, l.status, l.contact_status, l.priority, l.deal_value,
              l.notes, l.followup_date, l.problems, l.seo_issues,
+             l.found_via_keywords, l.times_found, l.rating,
              l.created_at, l.contacted_at, l.updated_at,
              (SELECT COUNT(*) FROM follow_ups f WHERE f.lead_id = l.id AND f.status = 'pending') as pending_followups,
              (SELECT MAX(open_count) FROM email_tracking et WHERE et.lead_id = l.id) as email_opens
       FROM leads l
       ${where}
-      ORDER BY l.score DESC
+      ORDER BY ${orderCol} ${sortDir}
       LIMIT ? OFFSET ?
     `).all(...values, limit, offset);
 
-    const total = db.prepare(`SELECT COUNT(*) as count FROM leads ${where}`).get(...values) as { count: number };
+    const total = db.prepare(`SELECT COUNT(*) as count FROM leads l ${where}`).get(...values) as { count: number };
+
+    // Get distinct cities for filter dropdown
+    const citiesList = db.prepare("SELECT DISTINCT city FROM leads WHERE city IS NOT NULL AND city != '' ORDER BY city").all() as { city: string }[];
 
     return NextResponse.json({
       leads,
       total: total.count,
       limit,
       offset,
+      cities: citiesList.map(c => c.city),
     });
   } catch (error: unknown) {
     console.error('Leads list error:', error);
