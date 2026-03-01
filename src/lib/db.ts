@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS leads (
   problems TEXT,
   seo_issues TEXT,
   sales_pitch TEXT,
-  status TEXT DEFAULT 'pending' CHECK(status IN ('pending','qualified','rejected','archived')),
+  status TEXT DEFAULT 'pending' CHECK(status IN ('pending','qualified','rejected','archived','akquise')),
   contact_status TEXT DEFAULT 'not_contacted' CHECK(contact_status IN ('not_contacted','email_sent','called','meeting','proposal','won','lost')),
   priority TEXT DEFAULT 'medium' CHECK(priority IN ('low','medium','high')),
   notes TEXT,
@@ -166,6 +166,61 @@ export function getDb(): Database.Database {
 
     // Auto-create tables if they don't exist
     db.exec(SCHEMA);
+
+    // Migration: Update CHECK constraint to allow 'akquise' status
+    // SQLite can't ALTER CHECK constraints, so we recreate the table
+    try {
+      const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='leads'").get() as { sql: string } | undefined;
+      if (tableInfo?.sql && !tableInfo.sql.includes("'akquise'")) {
+        db.pragma('foreign_keys = OFF');
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS leads_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            website_original TEXT,
+            website_normalized TEXT UNIQUE NOT NULL,
+            phone TEXT,
+            phone_normalized TEXT,
+            email TEXT,
+            city TEXT NOT NULL,
+            score INTEGER DEFAULT 0,
+            rating TEXT DEFAULT 'pending',
+            screenshot_desktop TEXT,
+            screenshot_mobile TEXT,
+            problems TEXT,
+            seo_issues TEXT,
+            sales_pitch TEXT,
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending','qualified','rejected','archived','akquise')),
+            contact_status TEXT DEFAULT 'not_contacted' CHECK(contact_status IN ('not_contacted','email_sent','called','meeting','proposal','won','lost')),
+            priority TEXT DEFAULT 'medium' CHECK(priority IN ('low','medium','high')),
+            notes TEXT,
+            found_via_keywords TEXT,
+            times_found INTEGER DEFAULT 1,
+            is_chain BOOLEAN DEFAULT FALSE,
+            deal_value REAL,
+            followup_date TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            reviewed_at TEXT,
+            contacted_at TEXT,
+            updated_at TEXT DEFAULT (datetime('now')),
+            last_seen_at TEXT DEFAULT (datetime('now'))
+          );
+          INSERT INTO leads_new SELECT * FROM leads;
+          DROP TABLE leads;
+          ALTER TABLE leads_new RENAME TO leads;
+          CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+          CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(score);
+          CREATE INDEX IF NOT EXISTS idx_leads_city ON leads(city);
+          CREATE INDEX IF NOT EXISTS idx_leads_contact_status ON leads(contact_status);
+          CREATE INDEX IF NOT EXISTS idx_leads_website ON leads(website_normalized);
+        `);
+        db.pragma('foreign_keys = ON');
+        console.log('[DB] Migration: akquise status added to leads table');
+      }
+    } catch (e) {
+      console.error('[DB] Migration error:', e);
+      db.pragma('foreign_keys = ON');
+    }
 
     // Insert default settings (only if not already set)
     const insertSetting = db.prepare(

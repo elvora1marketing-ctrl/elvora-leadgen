@@ -27,6 +27,7 @@ export default function LeadPoolPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [cities, setCities] = useState<string[]>([]);
+  const [apiError, setApiError] = useState<string | null>(null);
   const pageSize = 50;
 
   // Filters
@@ -82,8 +83,12 @@ export default function LeadPoolPage() {
         setLeads(data.leads || []);
         setTotal(data.total || 0);
         if (data.cities) setCities(data.cities);
+        setApiError(null);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setApiError(`API Fehler ${res.status}: ${errData.error || res.statusText}`);
       }
-    } catch { /* silent */ }
+    } catch (e) { setApiError(`Netzwerkfehler: ${e instanceof Error ? e.message : 'Unbekannt'}`); }
     finally { setLoading(false); }
   }, [page, sortBy, sortDir, debouncedSearch, filterCity, filterStatus, filterWebsite, filterHasPhone, filterHasEmail]);
 
@@ -391,6 +396,13 @@ export default function LeadPoolPage() {
           >
             Abbrechen
           </button>
+        </div>
+      )}
+
+      {/* API Error */}
+      {apiError && (
+        <div className="p-3 rounded-xl text-sm bg-red-500/10 border border-red-500/20 text-red-400 animate-fade-in">
+          {apiError}
         </div>
       )}
 
