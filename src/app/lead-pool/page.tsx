@@ -197,32 +197,70 @@ export default function LeadPoolPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Analyze all unscored leads
+  // Analyze all unscored leads - one by one with live counter
   const analyzeAll = async () => {
     if (analyzing) return;
     setAnalyzing(true);
     setBulkMessage(null);
+
     try {
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch: true, limit: 50 }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setBulkMessage({
-          type: 'success',
-          text: `${data.analyzed} Websites analysiert (Durchschnitt: ${data.averageScore}/100)${data.errors > 0 ? ` - ${data.errors} Fehler` : ''}`,
-        });
-        loadLeads();
-      } else {
-        setBulkMessage({ type: 'error', text: data.error || 'Analyse fehlgeschlagen' });
+      // Step 1: Get list of unanalyzed lead IDs
+      const statsRes = await fetch('/api/analyze');
+      const statsData = await statsRes.json();
+      const pendingIds: number[] = statsData.pendingIds || [];
+
+      if (pendingIds.length === 0) {
+        setBulkMessage({ type: 'success', text: 'Alle Leads mit Website sind bereits analysiert!' });
+        setAnalyzing(false);
+        setTimeout(() => setBulkMessage(null), 5000);
+        return;
       }
-    } catch { setBulkMessage({ type: 'error', text: 'Netzwerkfehler bei Analyse' }); }
-    finally {
+
+      setAnalyzeProgress({ current: 0, total: pendingIds.length });
+
+      // Step 2: Analyze each lead sequentially
+      let analyzed = 0;
+      let errors = 0;
+      let totalScore = 0;
+
+      for (let i = 0; i < pendingIds.length; i++) {
+        setAnalyzeProgress({ current: i + 1, total: pendingIds.length });
+
+        try {
+          const res = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ leadId: pendingIds[i] }),
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            analyzed++;
+            totalScore += data.analysis.score;
+          } else {
+            errors++;
+          }
+        } catch {
+          errors++;
+        }
+
+        // Refresh table every 5 leads
+        if ((i + 1) % 5 === 0) {
+          loadLeads();
+        }
+      }
+
+      const avgScore = analyzed > 0 ? Math.round(totalScore / analyzed) : 0;
+      setBulkMessage({
+        type: 'success',
+        text: `${analyzed} Websites analysiert (Durchschnitt: ${avgScore}/100)${errors > 0 ? ` - ${errors} Fehler` : ''}`,
+      });
+      loadLeads();
+    } catch {
+      setBulkMessage({ type: 'error', text: 'Netzwerkfehler bei Analyse' });
+    } finally {
       setAnalyzing(false);
       setAnalyzeProgress(null);
-      setTimeout(() => setBulkMessage(null), 8000);
+      setTimeout(() => setBulkMessage(null), 10000);
     }
   };
 
@@ -298,30 +336,38 @@ export default function LeadPoolPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={analyzeAll}
-            disabled={analyzing}
-            className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all ${
-              analyzing
-                ? 'bg-elvora-primary/10 text-elvora-primary/50 cursor-wait'
-                : 'bg-elvora-primary/20 text-elvora-primary hover:bg-elvora-primary/30 border border-elvora-primary/20'
-            }`}
-          >
-            {analyzing ? (
-              <>
-                <div className="w-4 h-4 border-2 border-elvora-primary/30 border-t-elvora-primary rounded-full animate-spin" />
-                Analysiere...
-                {analyzeProgress && <span className="text-xs opacity-70">{analyzeProgress.current}/{analyzeProgress.total}</span>}
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                </svg>
-                Websites analysieren
-              </>
-            )}
-          </button>
+          {analyzing && analyzeProgress ? (
+            <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-elvora-primary/10 border border-elvora-primary/20">
+              <div className="w-4 h-4 border-2 border-elvora-primary/30 border-t-elvora-primary rounded-full animate-spin flex-shrink-0" />
+              <div className="flex flex-col gap-1 min-w-[140px]">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-elvora-primary font-semibold">
+                    {analyzeProgress.current} / {analyzeProgress.total}
+                  </span>
+                  <span className="text-elvora-text-dim">
+                    {Math.round((analyzeProgress.current / analyzeProgress.total) * 100)}%
+                  </span>
+                </div>
+                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-elvora-primary to-elvora-accent rounded-full transition-all duration-300"
+                    style={{ width: `${(analyzeProgress.current / analyzeProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={analyzeAll}
+              disabled={analyzing}
+              className="px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all bg-elvora-primary/20 text-elvora-primary hover:bg-elvora-primary/30 border border-elvora-primary/20 disabled:opacity-50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              Websites analysieren
+            </button>
+          )}
           <button
             onClick={exportCsv}
             className="px-4 py-2 rounded-xl bg-elvora-success/20 text-elvora-success hover:bg-elvora-success/30 transition-colors text-sm font-medium flex items-center gap-2"

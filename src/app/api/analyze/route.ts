@@ -176,9 +176,21 @@ export async function GET() {
         END
     `).all();
 
+    // Get IDs of unanalyzed leads (for frontend sequential analysis)
+    const pendingIds = db.prepare(`
+      SELECT id FROM leads
+      WHERE website_original IS NOT NULL
+        AND website_original != ''
+        AND score = 0
+        AND status != 'rejected'
+      ORDER BY created_at DESC
+      LIMIT 200
+    `).all() as { id: number }[];
+
     return NextResponse.json({
       stats,
       distribution,
+      pendingIds: pendingIds.map(r => r.id),
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unbekannter Fehler';
