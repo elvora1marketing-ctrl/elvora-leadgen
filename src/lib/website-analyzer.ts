@@ -330,7 +330,7 @@ function checkSEO(html: string, htmlLower: string): CheckResult {
   }
 
   // H1 tag
-  const h1Match = html.match(/<h1[^>]*>(.+?)<\/h1>/is);
+  const h1Match = html.match(/<h1[^>]*>([\s\S]+?)<\/h1>/i);
   if (h1Match) {
     score += 3;
     findings.push('H1-Überschrift vorhanden');
