@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateApiKey } from '@/lib/auth';
 import getDb from '@/lib/db';
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = validateApiKey(request);
-  if (authError) return authError;
-
   try {
     const { id } = await params;
     const leadId = parseInt(id);

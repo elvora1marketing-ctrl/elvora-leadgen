@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateApiKey } from '@/lib/auth';
 import getDb from '@/lib/db';
 
 export async function GET(request: NextRequest) {
-  const authError = validateApiKey(request);
-  if (authError) return authError;
-
   try {
     const db = getDb();
     const url = request.nextUrl;

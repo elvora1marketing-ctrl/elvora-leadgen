@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateApiKey } from '@/lib/auth';
+
 import getDb from '@/lib/db';
 
 /**
@@ -7,9 +7,6 @@ import getDb from '@/lib/db';
  * Body: { ids: number[], status?: string, contact_status?: string }
  */
 export async function PATCH(request: NextRequest) {
-  const authError = validateApiKey(request);
-  if (authError) return authError;
-
   try {
     const body = await request.json() as {
       ids: number[];
@@ -67,9 +64,6 @@ export async function PATCH(request: NextRequest) {
  * Body: { ids: number[] }
  */
 export async function DELETE(request: NextRequest) {
-  const authError = validateApiKey(request);
-  if (authError) return authError;
-
   try {
     const body = await request.json() as { ids: number[] };
 
