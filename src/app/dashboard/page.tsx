@@ -14,28 +14,15 @@ interface Stats {
   pendingFollowUps: number;
 }
 
-interface AutopilotStatus {
-  enabled: boolean;
-  lastRun: { timestamp: string; qualified: number; emailsSent: number; followUpsSent: number; hotLeadsDetected: number } | null;
-}
-
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [autopilot, setAutopilot] = useState<AutopilotStatus | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
-  const [runningAutopilot, setRunningAutopilot] = useState(false);
-  const [autopilotResult, setAutopilotResult] = useState<string | null>(null);
-  const [togglingAutopilot, setTogglingAutopilot] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const [statsRes, apRes] = await Promise.all([
-        fetch('/api/stats'),
-        fetch('/api/autopilot'),
-      ]);
+      const statsRes = await fetch('/api/stats');
       if (statsRes.ok) setStats(await statsRes.json());
-      if (apRes.ok) setAutopilot(await apRes.json());
     } catch { /* silent */ }
   }, []);
 
@@ -51,114 +38,11 @@ export default function DashboardPage() {
     finally { setScanning(false); loadData(); setTimeout(() => setScanResult(null), 4000); }
   };
 
-  const runAutopilot = async () => {
-    setRunningAutopilot(true); setAutopilotResult(null);
-    try {
-      const res = await fetch('/api/autopilot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: true }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        const parts = [];
-        if (data.qualified > 0) parts.push(`${data.qualified} qualifiziert`);
-        if (data.emailsSent > 0) parts.push(`${data.emailsSent} Mails`);
-        if (data.followUpsSent > 0) parts.push(`${data.followUpsSent} Follow-Ups`);
-        if (data.hotLeadsDetected > 0) parts.push(`${data.hotLeadsDetected} Hot Leads`);
-        setAutopilotResult(parts.length > 0 ? parts.join(', ') : 'Keine Aktionen nötig');
-      } else {
-        setAutopilotResult('Fehler');
-      }
-    } catch { setAutopilotResult('Netzwerkfehler'); }
-    finally { setRunningAutopilot(false); loadData(); setTimeout(() => setAutopilotResult(null), 5000); }
-  };
-
-  const toggleAutopilot = async () => {
-    setTogglingAutopilot(true);
-    try {
-      const newState = !autopilot?.enabled;
-      await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ autopilot_enabled: newState ? 'true' : 'false' }),
-      });
-      setAutopilot(prev => prev ? { ...prev, enabled: newState } : null);
-    } catch { /* silent */ }
-    finally { setTogglingAutopilot(false); }
-  };
-
   const fmt = (n: number) => n.toLocaleString('de-DE');
   const fmtEur = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
   return (
     <div className="max-w-5xl mx-auto animate-fade-in">
-      {/* Autopilot Banner */}
-      <div className={`rounded-xl p-4 mb-5 border transition-all ${
-        autopilot?.enabled
-          ? 'bg-elvora-success/5 border-elvora-success/20'
-          : 'bg-white/[0.02] border-white/5'
-      }`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              autopilot?.enabled ? 'bg-elvora-success/20' : 'bg-white/5'
-            }`}>
-              <svg className={`w-5 h-5 ${autopilot?.enabled ? 'text-elvora-success' : 'text-elvora-text-dim'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-white flex items-center gap-2">
-                Autopilot
-                {autopilot?.enabled && <span className="px-1.5 py-0.5 rounded-full bg-elvora-success/15 text-elvora-success text-[10px] font-bold border border-elvora-success/20">AKTIV</span>}
-              </div>
-              <div className="text-xs text-elvora-text-dim">
-                {autopilot?.enabled
-                  ? 'Qualify → Email → Follow-Up läuft automatisch'
-                  : 'Automatische Pipeline deaktiviert'}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={runAutopilot}
-              disabled={runningAutopilot}
-              className="hidden sm:block px-3 py-1.5 rounded-lg bg-elvora-gradient text-white text-xs font-semibold hover:shadow-elvora-lg transition-all disabled:opacity-50"
-            >
-              {runningAutopilot ? 'Läuft...' : autopilotResult || 'Jetzt ausführen'}
-            </button>
-            <button
-              onClick={toggleAutopilot}
-              disabled={togglingAutopilot}
-              className={`relative w-11 h-6 rounded-full transition-all flex-shrink-0 ${
-                autopilot?.enabled ? 'bg-elvora-success' : 'bg-white/10'
-              }`}
-            >
-              <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${
-                autopilot?.enabled ? 'left-[22px]' : 'left-0.5'
-              }`} />
-            </button>
-          </div>
-        </div>
-        {autopilot?.lastRun && (
-          <div className="mt-2 pt-2 border-t border-white/5 flex flex-wrap gap-3 text-[11px] text-elvora-text-dim">
-            <span>Letzter Lauf: {new Date(autopilot.lastRun.timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-            {autopilot.lastRun.qualified > 0 && <span className="text-elvora-success">{autopilot.lastRun.qualified} qualifiziert</span>}
-            {autopilot.lastRun.emailsSent > 0 && <span className="text-elvora-pink">{autopilot.lastRun.emailsSent} Mails</span>}
-            {autopilot.lastRun.followUpsSent > 0 && <span className="text-elvora-warning">{autopilot.lastRun.followUpsSent} Follow-Ups</span>}
-          </div>
-        )}
-        {/* Mobile run button */}
-        <button
-          onClick={runAutopilot}
-          disabled={runningAutopilot}
-          className="sm:hidden mt-3 w-full px-3 py-2 rounded-lg bg-elvora-gradient text-white text-xs font-semibold transition-all disabled:opacity-50"
-        >
-          {runningAutopilot ? 'Läuft...' : autopilotResult || 'Jetzt ausführen'}
-        </button>
-      </div>
-
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-5">
         <div className="glass rounded-xl p-3 lg:p-4">
@@ -306,21 +190,6 @@ export default function DashboardPage() {
               <div className="text-lg font-bold text-elvora-success">{stats.audits.total_cta_clicks}</div>
               <div className="text-[10px] text-elvora-text-dim">CTA Klicks</div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Pending Follow-Ups */}
-      {stats && stats.pendingFollowUps > 0 && (
-        <div className="glass rounded-xl p-4 mb-5 border border-elvora-warning/20">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-elvora-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm font-semibold text-white">{stats.pendingFollowUps} Follow-Ups fällig</span>
-            </div>
-            <span className="text-xs text-elvora-text-dim">Beim nächsten Autopilot-Lauf</span>
           </div>
         </div>
       )}

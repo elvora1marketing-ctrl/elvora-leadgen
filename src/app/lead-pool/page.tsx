@@ -339,8 +339,16 @@ export default function LeadPoolPage() {
 
       {/* Bulk Actions Bar */}
       {selected.size > 0 && (
-        <div className="card-glass p-3 border border-elvora-primary/20 flex items-center gap-3 animate-fade-in">
+        <div className="card-glass p-3 border border-elvora-primary/20 flex items-center gap-3 animate-fade-in flex-wrap">
           <span className="text-sm font-semibold text-white">{selected.size} ausgewählt</span>
+          {selected.size < leads.length && (
+            <button
+              onClick={() => { setSelected(new Set(leads.map(l => l.id))); setSelectAll(true); }}
+              className="px-2.5 py-1 rounded-lg text-xs text-elvora-primary hover:bg-elvora-primary/10 border border-elvora-primary/20 transition-all"
+            >
+              Alle {leads.length} auswählen
+            </button>
+          )}
           <div className="flex-1" />
           <button
             onClick={() => bulkUpdateStatus('akquise')}
@@ -605,6 +613,23 @@ export default function LeadPoolPage() {
                               </svg>
                             </a>
                           )}
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`"${lead.name}" wirklich löschen?`)) return;
+                              await fetch('/api/leads/bulk', {
+                                method: 'DELETE',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ ids: [lead.id] }),
+                              });
+                              loadLeads();
+                            }}
+                            className="px-2 py-1 rounded-lg bg-red-500/5 text-elvora-text-dim text-[11px] border border-white/5 hover:text-red-400 hover:bg-red-500/15 hover:border-red-500/20 transition-all"
+                            title="Löschen"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         </div>
                       </td>
                     </tr>
