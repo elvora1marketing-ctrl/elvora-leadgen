@@ -115,7 +115,7 @@ export default function LeadPoolPage() {
       const res = await fetch('/api/leads/bulk', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [...selected], status }),
+        body: JSON.stringify({ ids: Array.from(selected), status }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -141,7 +141,7 @@ export default function LeadPoolPage() {
       const res = await fetch('/api/leads/bulk', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [...selected] }),
+        body: JSON.stringify({ ids: Array.from(selected) }),
       });
       if (res.ok) {
         const data = await res.json();
