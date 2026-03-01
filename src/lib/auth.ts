@@ -2,11 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 
 /**
- * Validates API key from Authorization header or x-api-key header.
- * API key is stored in settings table as 'api_key'.
+ * Validates API key from Authorization header or x-api-key header,
+ * OR a valid session cookie (elvora_session).
  * Returns null if valid, or a NextResponse error if invalid.
  */
 export function validateApiKey(request: NextRequest): NextResponse | null {
+  // 1. Check session cookie first (frontend calls)
+  const sessionCookie = request.cookies.get('elvora_session')?.value;
+  if (sessionCookie) {
+    const db = getDb();
+    const sessionRow = db.prepare("SELECT value FROM settings WHERE key = 'session_token'").get() as { value: string } | undefined;
+    if (sessionRow?.value && sessionCookie.length === sessionRow.value.length && timingSafeEqual(sessionCookie, sessionRow.value)) {
+      return null; // Valid session
+    }
+  }
+
+  // 2. Check API key (external API calls)
   const authHeader = request.headers.get('authorization');
   const apiKeyHeader = request.headers.get('x-api-key');
 
