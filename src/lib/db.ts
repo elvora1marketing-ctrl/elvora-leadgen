@@ -37,8 +37,9 @@ CREATE TABLE IF NOT EXISTS leads (
   reviewed_at TEXT,
   contacted_at TEXT,
   updated_at TEXT DEFAULT (datetime('now')),
-  last_seen_at TEXT DEFAULT (datetime('now'))
-);
+  last_seen_at TEXT DEFAULT (datetime('now')),
+  engagement_score INTEGER DEFAULT 0,
+  engagement_signals TEXT DEFAULT '{}');
 
 CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
 CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(score);
@@ -207,6 +208,18 @@ const DEFAULT_SETTINGS: Record<string, string> = {
       body: 'letzte Nachricht von mir zu diesem Thema – ich möchte nicht nerven.\n\nIhre Website hat nach wie vor einen Score von {score}/100. Falls Sie in den nächsten Wochen etwas daran ändern möchten, melden Sie sich gerne.\n\nIch wünsche Ihnen alles Gute!',
     },
   ]),
+  engagement_weights: JSON.stringify({
+    email_opened: 15,
+    email_opened_multiple: 25,
+    audit_viewed: 20,
+    audit_cta_clicked: 35,
+    replied: 40,
+    replied_positive: 50,
+    website_score_bad: 10,
+    has_phone: 5,
+    has_email: 5,
+    multiple_found: 5,
+  }),
 };
 
 export function getDb(): Database.Database {

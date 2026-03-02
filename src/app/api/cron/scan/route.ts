@@ -72,6 +72,17 @@ export async function POST(request: NextRequest) {
       // Follow-up processing is optional
     }
 
+    // Recalculate engagement scores
+    let scoringData = {};
+    try {
+      const scoringRes = await fetch(new URL('/api/scoring', request.url).toString(), {
+        method: 'POST',
+      });
+      scoringData = await scoringRes.json();
+    } catch {
+      // Scoring is optional
+    }
+
     return NextResponse.json({
       success: true,
       scans: scanResults,
@@ -79,6 +90,7 @@ export async function POST(request: NextRequest) {
       keywords: keywords.length,
       totalScans: scanResults.length,
       followUps: followUpData,
+      scoring: scoringData,
     });
   } catch (error: unknown) {
     console.error('Cron scan error:', error);

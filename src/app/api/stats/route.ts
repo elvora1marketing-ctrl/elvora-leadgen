@@ -130,6 +130,32 @@ export async function GET() {
       LIMIT 5
     `).all();
 
+    // Engagement scoring distribution
+    const engagementDist = db.prepare(`
+      SELECT
+        SUM(CASE WHEN engagement_score >= 50 THEN 1 ELSE 0 END) as hot,
+        SUM(CASE WHEN engagement_score >= 25 AND engagement_score < 50 THEN 1 ELSE 0 END) as warm,
+        SUM(CASE WHEN engagement_score > 0 AND engagement_score < 25 THEN 1 ELSE 0 END) as cool,
+        SUM(CASE WHEN engagement_score = 0 OR engagement_score IS NULL THEN 1 ELSE 0 END) as cold
+      FROM leads
+      WHERE status IN ('qualified', 'akquise')
+    `).get() as { hot: number; warm: number; cool: number; cold: number };
+
+    // Top engaged leads
+    const topEngaged = db.prepare(`
+      SELECT l.id, l.name, l.city, l.email, l.phone, l.engagement_score, l.engagement_signals,
+             l.contact_status
+      FROM leads l
+      WHERE l.status IN ('qualified', 'akquise')
+        AND l.engagement_score > 0
+        AND l.contact_status NOT IN ('won', 'lost')
+      ORDER BY l.engagement_score DESC
+      LIMIT 5
+    `).all() as Array<{
+      id: number; name: string; city: string; email: string; phone: string;
+      engagement_score: number; engagement_signals: string; contact_status: string;
+    }>;
+
     // Conversion rate
     const openRate = emailStats.total_sent > 0
       ? Math.round((emailStats.opened / emailStats.total_sent) * 100)
@@ -181,6 +207,18 @@ export async function GET() {
         next: nextFollowUps,
       },
       pendingFollowUps: followUpStats.due_now || 0,
+      engagement: {
+        distribution: {
+          hot: engagementDist.hot || 0,
+          warm: engagementDist.warm || 0,
+          cool: engagementDist.cool || 0,
+          cold: engagementDist.cold || 0,
+        },
+        topLeads: topEngaged.map(l => ({
+          ...l,
+          engagement_signals: (() => { try { return JSON.parse(l.engagement_signals); } catch { return {}; } })(),
+        })),
+      },
     });
   } catch (error) {
     console.error('Stats error:', error);

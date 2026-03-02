@@ -13,6 +13,8 @@ interface AkquiseLead {
   contact_status: string;
   found_via_keywords: string | null;
   times_found: number;
+  engagement_score: number;
+  engagement_signals: string;
   created_at: string;
   updated_at: string;
 }
@@ -330,6 +332,21 @@ export default function AkquisePage() {
                   <span className="text-elvora-text-dim text-xs">{lead.city}</span>
                 </div>
 
+                {/* Engagement Score */}
+                {lead.engagement_score > 0 && (
+                  <div className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold ${
+                    lead.engagement_score >= 50
+                      ? 'bg-red-500/15 text-red-400 border border-red-500/20'
+                      : lead.engagement_score >= 25
+                      ? 'bg-elvora-warning/15 text-elvora-warning border border-elvora-warning/20'
+                      : 'bg-white/5 text-elvora-text-dim border border-white/10'
+                  }`} title={`Engagement: ${lead.engagement_score}/100`}>
+                    {lead.engagement_score >= 50 && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />}
+                    {lead.engagement_score >= 25 && lead.engagement_score < 50 && <span className="w-1.5 h-1.5 rounded-full bg-elvora-warning" />}
+                    {lead.engagement_score}
+                  </div>
+                )}
+
                 {/* Contact info icons */}
                 <div className="flex items-center gap-2">
                   {lead.phone && (
@@ -370,6 +387,37 @@ export default function AkquisePage() {
               {/* Expanded Detail */}
               {isExpanded && (
                 <div className="border-t border-white/5 px-4 py-4 space-y-4 animate-fade-in bg-white/[0.01]">
+                  {/* Engagement Signals */}
+                  {lead.engagement_score > 0 && (() => {
+                    let signals: Record<string, boolean> = {};
+                    try { signals = JSON.parse(lead.engagement_signals || '{}'); } catch { /* ignore */ }
+                    const signalList = [
+                      { key: 'email_opened', label: 'Email geöffnet', color: 'bg-elvora-success/15 text-elvora-success border-elvora-success/20' },
+                      { key: 'email_opened_multiple', label: 'Mehrfach geöffnet', color: 'bg-elvora-success/20 text-elvora-success border-elvora-success/30' },
+                      { key: 'audit_viewed', label: 'Audit angesehen', color: 'bg-elvora-warning/15 text-elvora-warning border-elvora-warning/20' },
+                      { key: 'audit_cta_clicked', label: 'CTA geklickt', color: 'bg-red-500/15 text-red-400 border-red-500/20' },
+                      { key: 'replied', label: 'Geantwortet', color: 'bg-elvora-pink/15 text-elvora-pink border-elvora-pink/20' },
+                      { key: 'pipeline_advanced', label: 'Pipeline aktiv', color: 'bg-elvora-accent/15 text-elvora-accent border-elvora-accent/20' },
+                      { key: 'bad_website', label: 'Schlechte Website', color: 'bg-elvora-purple/15 text-elvora-purple-light border-elvora-purple/20' },
+                    ].filter(s => signals[s.key]);
+                    if (signalList.length === 0) return null;
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-bold ${
+                          lead.engagement_score >= 50 ? 'text-red-400' :
+                          lead.engagement_score >= 25 ? 'text-elvora-warning' : 'text-elvora-text-dim'
+                        }`}>
+                          Engagement: {lead.engagement_score}/100
+                        </span>
+                        {signalList.map(s => (
+                          <span key={s.key} className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${s.color}`}>
+                            {s.label}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                   {/* Lead Info */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                     <div>

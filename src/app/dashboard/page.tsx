@@ -36,6 +36,13 @@ interface Stats {
     }>;
   };
   pendingFollowUps: number;
+  engagement: {
+    distribution: { hot: number; warm: number; cool: number; cold: number };
+    topLeads: Array<{
+      id: number; name: string; city: string; email: string; phone: string;
+      engagement_score: number; engagement_signals: Record<string, boolean>; contact_status: string;
+    }>;
+  };
 }
 
 export default function DashboardPage() {
@@ -193,6 +200,114 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Engagement Scoring */}
+      {stats && (stats.engagement.distribution.hot > 0 || stats.engagement.distribution.warm > 0 || stats.engagement.topLeads.length > 0) && (() => {
+        const dist = stats.engagement.distribution;
+        const total = dist.hot + dist.warm + dist.cool + dist.cold;
+        const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0;
+        const signalLabels: Record<string, string> = {
+          email_opened: 'Email geöffnet',
+          email_opened_multiple: 'Mehrfach geöffnet',
+          audit_viewed: 'Audit angesehen',
+          audit_cta_clicked: 'CTA geklickt',
+          replied: 'Geantwortet',
+          pipeline_advanced: 'Pipeline aktiv',
+          bad_website: 'Schlechte Website',
+          has_phone: 'Telefon',
+          has_email: 'Email',
+          multiple_found: 'Mehrfach gefunden',
+        };
+
+        return (
+          <div className="glass rounded-xl p-4 mb-5 border border-elvora-purple/20">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+                <span className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider">Engagement Scoring</span>
+              </div>
+              <Link href="/akquise?sort=engagement" className="text-xs text-elvora-purple-light hover:text-elvora-purple transition-colors">
+                Alle anzeigen &rarr;
+              </Link>
+            </div>
+
+            {/* Distribution Bar */}
+            <div className="mb-4">
+              <div className="flex rounded-lg overflow-hidden h-3 bg-white/5">
+                {dist.hot > 0 && (
+                  <div className="bg-red-500 transition-all" style={{ width: `${pct(dist.hot)}%` }} title={`Hot: ${dist.hot}`} />
+                )}
+                {dist.warm > 0 && (
+                  <div className="bg-elvora-warning transition-all" style={{ width: `${pct(dist.warm)}%` }} title={`Warm: ${dist.warm}`} />
+                )}
+                {dist.cool > 0 && (
+                  <div className="bg-elvora-accent transition-all" style={{ width: `${pct(dist.cool)}%` }} title={`Cool: ${dist.cool}`} />
+                )}
+                {dist.cold > 0 && (
+                  <div className="bg-white/10 transition-all" style={{ width: `${pct(dist.cold)}%` }} title={`Kalt: ${dist.cold}`} />
+                )}
+              </div>
+              <div className="flex justify-between mt-2 text-[10px]">
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="text-elvora-text-dim">Hot {dist.hot}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-elvora-warning" />
+                  <span className="text-elvora-text-dim">Warm {dist.warm}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-elvora-accent" />
+                  <span className="text-elvora-text-dim">Cool {dist.cool}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-white/20" />
+                  <span className="text-elvora-text-dim">Kalt {dist.cold}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Top Engaged Leads */}
+            {stats.engagement.topLeads.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider">Top Engaged Leads</div>
+                {stats.engagement.topLeads.map((lead) => (
+                  <div key={lead.id} className="flex items-center justify-between p-2.5 rounded-lg bg-white/[0.02] border border-white/5 hover:border-elvora-purple/20 transition-all">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                        lead.engagement_score >= 50 ? 'bg-red-500/20 text-red-400' : 'bg-elvora-warning/20 text-elvora-warning'
+                      }`}>
+                        {lead.engagement_score}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-white truncate">{lead.name}</div>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <span className="text-[10px] text-elvora-text-dim">{lead.city}</span>
+                          {Object.entries(lead.engagement_signals)
+                            .filter(([, v]) => v)
+                            .slice(0, 3)
+                            .map(([key]) => (
+                              <span key={key} className="text-[9px] px-1.5 py-0.5 rounded-full bg-elvora-purple/10 text-elvora-purple-light">
+                                {signalLabels[key] || key}
+                              </span>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+                    {lead.phone && (
+                      <a href={`tel:${lead.phone}`} className="ml-2 px-2.5 py-1 rounded-lg bg-elvora-success/15 border border-elvora-success/20 text-elvora-success text-[10px] font-semibold hover:bg-elvora-success/25 transition-all flex-shrink-0">
+                        Anrufen
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
