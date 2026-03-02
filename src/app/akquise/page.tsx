@@ -712,7 +712,7 @@ export default function AkquisePage() {
                                       </span>
                                       <span className="text-[10px] text-elvora-text-dim">{timeStr}</span>
                                     </div>
-                                    {item.data.subject && (
+                                    {Boolean(item.data.subject) && (
                                       <div className="text-[11px] text-elvora-text-muted mb-1">Re: {item.data.subject as string}</div>
                                     )}
                                     <div className="text-xs text-elvora-text-muted whitespace-pre-wrap leading-relaxed">
