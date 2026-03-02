@@ -24,6 +24,22 @@ interface Activity {
   created_at: string;
 }
 
+interface ThreadItem {
+  id: string;
+  type: 'initial_email' | 'followup_sent' | 'followup_scheduled' | 'followup_cancelled' | 'reply' | 'event' | 'activity';
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
+interface ThreadStats {
+  totalSent: number;
+  followUpsSent: number;
+  followUpsPending: number;
+  repliesReceived: number;
+  opened: boolean;
+  bounced: boolean;
+}
+
 const contactLabels: Record<string, { label: string; color: string; icon: string }> = {
   not_contacted: { label: 'Offen', color: 'bg-white/10 text-elvora-text-muted', icon: '' },
   email_sent: { label: 'Mail gesendet', color: 'bg-elvora-purple/15 text-elvora-purple-light', icon: '' },
@@ -50,6 +66,16 @@ export default function AkquisePage() {
   const [addingNote, setAddingNote] = useState(false);
   const [callResult, setCallResult] = useState('');
   const [emailNote, setEmailNote] = useState('');
+
+  // Email thread
+  const [thread, setThread] = useState<ThreadItem[]>([]);
+  const [threadStats, setThreadStats] = useState<ThreadStats | null>(null);
+  const [threadTab, setThreadTab] = useState<'thread' | 'log'>('thread');
+  const [replyText, setReplyText] = useState('');
+  const [replySubject, setReplySubject] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+  const [replyResult, setReplyResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [showReply, setShowReply] = useState(false);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -84,6 +110,17 @@ export default function AkquisePage() {
     } catch { /* silent */ }
   };
 
+  const loadThread = async (leadId: number) => {
+    try {
+      const res = await fetch(`/api/leads/${leadId}/thread`);
+      if (res.ok) {
+        const data = await res.json();
+        setThread(data.thread || []);
+        setThreadStats(data.stats || null);
+      }
+    } catch { /* silent */ }
+  };
+
   const toggleExpand = (leadId: number) => {
     if (expandedId === leadId) {
       setExpandedId(null);
@@ -91,10 +128,46 @@ export default function AkquisePage() {
     }
     setExpandedId(leadId);
     setActivities([]);
+    setThread([]);
+    setThreadStats(null);
     setNoteInput('');
     setCallResult('');
     setEmailNote('');
+    setThreadTab('thread');
+    setShowReply(false);
+    setReplyText('');
+    setReplySubject('');
+    setReplyResult(null);
     loadActivities(leadId);
+    loadThread(leadId);
+  };
+
+  const sendReply = async (leadId: number) => {
+    if (!replyText.trim()) return;
+    setSendingReply(true);
+    setReplyResult(null);
+    try {
+      const res = await fetch(`/api/leads/${leadId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject: replySubject, body: replyText }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setReplyResult({ ok: true, msg: data.message || 'Gesendet!' });
+        setReplyText('');
+        setReplySubject('');
+        setShowReply(false);
+        loadThread(leadId);
+        loadActivities(leadId);
+      } else {
+        setReplyResult({ ok: false, msg: data.error || 'Fehler' });
+      }
+    } catch { setReplyResult({ ok: false, msg: 'Netzwerkfehler' }); }
+    finally {
+      setSendingReply(false);
+      setTimeout(() => setReplyResult(null), 4000);
+    }
   };
 
   const addActivity = async (leadId: number, type: string, content: string) => {
@@ -436,10 +509,274 @@ export default function AkquisePage() {
                     </div>
                   </div>
 
-                  {/* Activity Log */}
-                  {activities.length > 0 && (
-                    <div>
-                      <span className="text-xs text-elvora-text-dim block mb-2">Verlauf</span>
+                  {/* Thread / Activity Tabs */}
+                  <div>
+                    <div className="flex items-center gap-1 mb-3">
+                      <button
+                        onClick={() => setThreadTab('thread')}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                          threadTab === 'thread'
+                            ? 'bg-elvora-purple/20 text-elvora-purple-light'
+                            : 'text-elvora-text-dim hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        Email-Thread
+                        {threadStats && threadStats.repliesReceived > 0 && (
+                          <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-elvora-pink/20 text-elvora-pink text-[9px] font-bold">
+                            {threadStats.repliesReceived}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setThreadTab('log')}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                          threadTab === 'log'
+                            ? 'bg-white/10 text-white'
+                            : 'text-elvora-text-dim hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        Aktivitäten ({activities.length})
+                      </button>
+
+                      {/* Thread Stats Badges */}
+                      {threadTab === 'thread' && threadStats && (
+                        <div className="ml-auto flex items-center gap-1.5">
+                          {threadStats.opened && (
+                            <span className="px-1.5 py-0.5 rounded bg-elvora-success/15 text-elvora-success text-[9px] font-bold">Geöffnet</span>
+                          )}
+                          {threadStats.bounced && (
+                            <span className="px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 text-[9px] font-bold">Bounce</span>
+                          )}
+                          {threadStats.followUpsPending > 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-elvora-accent/15 text-elvora-accent text-[9px] font-bold">
+                              {threadStats.followUpsPending} geplant
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Email Thread View */}
+                    {threadTab === 'thread' && (
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
+                        {thread.length === 0 ? (
+                          <div className="text-xs text-elvora-text-dim text-center py-4">
+                            Noch keine Emails gesendet
+                          </div>
+                        ) : (
+                          thread.map(item => {
+                            const time = new Date(item.timestamp + 'Z');
+                            const timeStr = `${time.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} ${time.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
+
+                            if (item.type === 'initial_email') {
+                              return (
+                                <div key={item.id} className="flex gap-2 items-start">
+                                  <div className="w-6 h-6 rounded-full bg-elvora-purple/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg className="w-3 h-3 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                    </svg>
+                                  </div>
+                                  <div className="flex-1 rounded-lg bg-elvora-purple/5 border border-elvora-purple/15 p-3">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs font-medium text-elvora-purple-light">Erstansprache gesendet</span>
+                                      <span className="text-[10px] text-elvora-text-dim">{timeStr}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      {item.data.opened ? (
+                                        <span className="text-[10px] text-elvora-success flex items-center gap-0.5">
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                          {item.data.open_count as number}x geöffnet
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] text-elvora-text-dim">Nicht geöffnet</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (item.type === 'followup_sent') {
+                              return (
+                                <div key={item.id} className="flex gap-2 items-start">
+                                  <div className="w-6 h-6 rounded-full bg-elvora-accent/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg className="w-3 h-3 text-elvora-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                  </div>
+                                  <div className="flex-1 rounded-lg bg-elvora-accent/5 border border-elvora-accent/15 p-3">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs font-medium text-elvora-accent">Follow-Up {item.data.step as number} gesendet</span>
+                                      <span className="text-[10px] text-elvora-text-dim">{timeStr}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (item.type === 'followup_scheduled') {
+                              const schedDate = new Date((item.data.scheduled_at as string) + 'Z');
+                              const now = new Date();
+                              const diffDays = Math.ceil((schedDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                              const label = diffDays <= 0 ? 'Fällig' : diffDays === 1 ? 'Morgen' : `In ${diffDays} Tagen`;
+                              return (
+                                <div key={item.id} className="flex gap-2 items-start opacity-60">
+                                  <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 mt-0.5 border border-dashed border-white/20">
+                                    <span className="text-[10px] text-elvora-text-dim font-bold">{item.data.step as number}</span>
+                                  </div>
+                                  <div className="flex-1 rounded-lg border border-dashed border-white/10 p-3">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs text-elvora-text-dim">Follow-Up {item.data.step as number} geplant</span>
+                                      <span className={`text-[10px] ${diffDays <= 0 ? 'text-elvora-warning font-semibold' : 'text-elvora-text-dim'}`}>{label}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (item.type === 'followup_cancelled') {
+                              return (
+                                <div key={item.id} className="flex gap-2 items-start opacity-40">
+                                  <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg className="w-3 h-3 text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </div>
+                                  <div className="flex-1 rounded-lg border border-white/5 p-2">
+                                    <span className="text-[10px] text-elvora-text-dim line-through">Follow-Up {item.data.step as number} abgebrochen</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (item.type === 'reply') {
+                              return (
+                                <div key={item.id} className="flex gap-2 items-start">
+                                  <div className="w-6 h-6 rounded-full bg-elvora-pink/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg className="w-3 h-3 text-elvora-pink" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                                    </svg>
+                                  </div>
+                                  <div className="flex-1 rounded-lg bg-elvora-pink/5 border border-elvora-pink/20 p-3">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-medium text-elvora-pink">
+                                        Antwort von {item.data.from_name as string || item.data.from_email as string}
+                                      </span>
+                                      <span className="text-[10px] text-elvora-text-dim">{timeStr}</span>
+                                    </div>
+                                    {item.data.subject && (
+                                      <div className="text-[11px] text-elvora-text-muted mb-1">Re: {item.data.subject as string}</div>
+                                    )}
+                                    <div className="text-xs text-elvora-text-muted whitespace-pre-wrap leading-relaxed">
+                                      {(item.data.body_text as string)?.substring(0, 300) || '(Kein Text)'}
+                                      {((item.data.body_text as string)?.length || 0) > 300 && '...'}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (item.type === 'event') {
+                              const eventLabels: Record<string, { label: string; color: string }> = {
+                                delivered: { label: 'Zugestellt', color: 'text-elvora-success' },
+                                bounced: { label: 'Bounce', color: 'text-red-400' },
+                                complained: { label: 'Spam-Beschwerde', color: 'text-red-400' },
+                                opened: { label: 'Geöffnet', color: 'text-elvora-success' },
+                                clicked: { label: 'Link geklickt', color: 'text-elvora-accent' },
+                              };
+                              const ev = eventLabels[item.data.event_type as string] || { label: item.data.event_type as string, color: 'text-elvora-text-dim' };
+                              return (
+                                <div key={item.id} className="flex items-center gap-2 px-8 py-0.5">
+                                  <div className="flex-1 h-px bg-white/5" />
+                                  <span className={`text-[10px] font-medium ${ev.color}`}>{ev.label}</span>
+                                  <span className="text-[10px] text-elvora-text-dim">{timeStr}</span>
+                                  <div className="flex-1 h-px bg-white/5" />
+                                </div>
+                              );
+                            }
+
+                            if (item.type === 'activity') {
+                              return (
+                                <div key={item.id} className="flex gap-2 items-start">
+                                  <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <svg className="w-3 h-3 text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                    </svg>
+                                  </div>
+                                  <div className="flex-1 rounded-lg bg-elvora-purple/5 border border-elvora-purple/10 p-3">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs text-elvora-text-muted">{item.data.content as string}</span>
+                                      <span className="text-[10px] text-elvora-text-dim">{timeStr}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            return null;
+                          })
+                        )}
+
+                        {/* Reply button */}
+                        {lead.email && thread.length > 0 && !showReply && (
+                          <div className="pt-2">
+                            <button
+                              onClick={() => setShowReply(true)}
+                              className="w-full py-2 rounded-lg border border-dashed border-elvora-purple/20 text-elvora-purple-light text-xs hover:bg-elvora-purple/5 hover:border-elvora-purple/40 transition-all flex items-center justify-center gap-1.5"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                              </svg>
+                              Antworten
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Reply form */}
+                        {showReply && (
+                          <div className="rounded-lg border border-elvora-purple/20 bg-elvora-purple/5 p-3 space-y-2">
+                            <input
+                              type="text"
+                              value={replySubject}
+                              onChange={(e) => setReplySubject(e.target.value)}
+                              placeholder={`Re: ${lead.name}`}
+                              className="w-full px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/30"
+                            />
+                            <textarea
+                              value={replyText}
+                              onChange={(e) => setReplyText(e.target.value)}
+                              placeholder="Nachricht schreiben..."
+                              rows={4}
+                              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/30 resize-none"
+                              autoFocus
+                            />
+                            <div className="flex items-center justify-between">
+                              <button
+                                onClick={() => { setShowReply(false); setReplyText(''); setReplySubject(''); }}
+                                className="text-xs text-elvora-text-dim hover:text-white transition-colors"
+                              >
+                                Abbrechen
+                              </button>
+                              <button
+                                onClick={() => sendReply(lead.id)}
+                                disabled={sendingReply || !replyText.trim()}
+                                className="px-4 py-1.5 rounded-lg bg-elvora-gradient text-white text-xs font-semibold hover:shadow-elvora-lg transition-all disabled:opacity-50"
+                              >
+                                {sendingReply ? 'Sende...' : 'Senden'}
+                              </button>
+                            </div>
+                            {replyResult && (
+                              <div className={`text-xs font-medium ${replyResult.ok ? 'text-elvora-success' : 'text-red-400'}`}>
+                                {replyResult.msg}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Activity Log View */}
+                    {threadTab === 'log' && activities.length > 0 && (
                       <div className="space-y-1.5 max-h-48 overflow-y-auto">
                         {activities.map(a => {
                           const typeStyles: Record<string, { icon: string; color: string }> = {
@@ -469,8 +806,12 @@ export default function AkquisePage() {
                           );
                         })}
                       </div>
-                    </div>
-                  )}
+                    )}
+
+                    {threadTab === 'log' && activities.length === 0 && (
+                      <div className="text-xs text-elvora-text-dim text-center py-4">Keine Aktivitäten</div>
+                    )}
+                  </div>
 
                   {/* Remove from Akquise */}
                   <div className="flex justify-end pt-2 border-t border-white/5">
