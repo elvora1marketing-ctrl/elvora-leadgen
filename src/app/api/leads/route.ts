@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     const hasPhone = url.searchParams.get('has_phone');
     const hasEmail = url.searchParams.get('has_email');
     const keyword = url.searchParams.get('keyword');
+    const includeMeta = url.searchParams.get('include_meta') === '1';
     const sortBy = url.searchParams.get('sort') || 'score';
     const sortDir = url.searchParams.get('dir') === 'asc' ? 'ASC' : 'DESC';
     const limit = parseInt(url.searchParams.get('limit') || '50');
@@ -88,32 +89,34 @@ export async function GET(request: NextRequest) {
 
     const total = db.prepare(`SELECT COUNT(*) as count FROM leads l ${where}`).get(...values) as { count: number };
 
-    // Get distinct cities for filter dropdown
-    const citiesList = db.prepare("SELECT DISTINCT city FROM leads WHERE city IS NOT NULL AND city != '' ORDER BY city").all() as { city: string }[];
-
-    // Get distinct keywords with counts
-    const keywordRows = db.prepare("SELECT found_via_keywords FROM leads WHERE found_via_keywords IS NOT NULL AND found_via_keywords != ''").all() as { found_via_keywords: string }[];
-    const keywordCounts: Record<string, number> = {};
-    for (const row of keywordRows) {
-      row.found_via_keywords.split(',').forEach(k => {
-        const trimmed = k.trim();
-        if (trimmed) {
-          keywordCounts[trimmed] = (keywordCounts[trimmed] || 0) + 1;
-        }
-      });
-    }
-    const keywordsWithCounts = Object.entries(keywordCounts)
-      .map(([kw, count]) => ({ keyword: kw, count }))
-      .sort((a, b) => b.count - a.count);
-
-    return NextResponse.json({
+    const result: Record<string, unknown> = {
       leads,
       total: total.count,
       limit,
       offset,
-      cities: citiesList.map(c => c.city),
-      keywords: keywordsWithCounts,
-    });
+    };
+
+    // Only compute metadata (cities, keywords) when requested to avoid full table scans on every pagination/filter change
+    if (includeMeta) {
+      const citiesList = db.prepare("SELECT DISTINCT city FROM leads WHERE city IS NOT NULL AND city != '' ORDER BY city").all() as { city: string }[];
+      result.cities = citiesList.map(c => c.city);
+
+      const keywordRows = db.prepare("SELECT found_via_keywords FROM leads WHERE found_via_keywords IS NOT NULL AND found_via_keywords != ''").all() as { found_via_keywords: string }[];
+      const keywordCounts: Record<string, number> = {};
+      for (const row of keywordRows) {
+        row.found_via_keywords.split(',').forEach(k => {
+          const trimmed = k.trim();
+          if (trimmed) {
+            keywordCounts[trimmed] = (keywordCounts[trimmed] || 0) + 1;
+          }
+        });
+      }
+      result.keywords = Object.entries(keywordCounts)
+        .map(([kw, count]) => ({ keyword: kw, count }))
+        .sort((a, b) => b.count - a.count);
+    }
+
+    return NextResponse.json(result);
   } catch (error: unknown) {
     console.error('Leads list error:', error);
     return NextResponse.json({ error: 'Fehler beim Laden' }, { status: 500 });

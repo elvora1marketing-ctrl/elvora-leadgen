@@ -60,6 +60,9 @@ export default function LeadPoolPage() {
   const [analyzingLeadId, setAnalyzingLeadId] = useState<number | null>(null);
   const [expandedLead, setExpandedLead] = useState<number | null>(null);
 
+  // Track whether metadata (cities/keywords) has been loaded
+  const metaLoaded = useRef(false);
+
   // Debounce search
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -89,13 +92,14 @@ export default function LeadPoolPage() {
       if (filterHasPhone) params.set('has_phone', '1');
       if (filterHasEmail) params.set('has_email', '1');
       if (filterKeyword) params.set('keyword', filterKeyword);
+      if (!metaLoaded.current) params.set('include_meta', '1');
 
       const res = await fetch(`/api/leads?${params}`);
       if (res.ok) {
         const data = await res.json();
         setLeads(data.leads || []);
         setTotal(data.total || 0);
-        if (data.cities) setCities(data.cities);
+        if (data.cities) { setCities(data.cities); metaLoaded.current = true; }
         if (data.keywords) setKeywordsWithCounts(data.keywords);
         setApiError(null);
       } else {

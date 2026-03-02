@@ -10,6 +10,7 @@ export default function SettingsPage() {
   const [scoreThreshold, setScoreThreshold] = useState(85);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Email settings (Resend)
   const [resendApiKey, setResendApiKey] = useState('');
@@ -118,44 +119,36 @@ export default function SettingsPage() {
     }
   }
 
-  // Save error state
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  async function saveSettings(): Promise<boolean> {
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target_cities: JSON.stringify(cities),
-          keywords: JSON.stringify(keywords),
-          score_threshold: scoreThreshold.toString(),
-          resend_api_key: resendApiKey,
-          email_from_name: emailFromName,
-          email_from_email: emailFromEmail,
-          calendly_url: calendlyUrl,
-          tpl_subject: tplSubject,
-          tpl_intro: tplIntro,
-          tpl_pitch: tplPitch,
-          tpl_leistungen: tplLeistungen,
-          tpl_cta: tplCta,
-          google_maps_api_key: googleMapsApiKey,
-          api_key: apiKey,
-          followup_enabled: followUpEnabled ? 'true' : 'false',
-          followup_sequence: JSON.stringify(followUpSequence),
-          ai_personalization_enabled: aiEnabled ? 'true' : 'false',
-          ai_classify_enabled: aiClassifyEnabled ? 'true' : 'false',
-          openai_api_key: openaiApiKey,
-          ai_model: aiModel,
-        }),
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `HTTP ${res.status}`);
-      }
-      return true;
-    } catch (e) {
-      throw e;
+  async function saveSettings() {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_cities: JSON.stringify(cities),
+        keywords: JSON.stringify(keywords),
+        score_threshold: scoreThreshold.toString(),
+        resend_api_key: resendApiKey,
+        email_from_name: emailFromName,
+        email_from_email: emailFromEmail,
+        calendly_url: calendlyUrl,
+        tpl_subject: tplSubject,
+        tpl_intro: tplIntro,
+        tpl_pitch: tplPitch,
+        tpl_leistungen: tplLeistungen,
+        tpl_cta: tplCta,
+        google_maps_api_key: googleMapsApiKey,
+        api_key: apiKey,
+        followup_enabled: followUpEnabled ? 'true' : 'false',
+        followup_sequence: JSON.stringify(followUpSequence),
+        ai_personalization_enabled: aiEnabled ? 'true' : 'false',
+        ai_classify_enabled: aiClassifyEnabled ? 'true' : 'false',
+        openai_api_key: openaiApiKey,
+        ai_model: aiModel,
+      }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${res.status}`);
     }
   }
 
