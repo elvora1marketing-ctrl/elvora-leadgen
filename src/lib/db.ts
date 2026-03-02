@@ -151,6 +151,27 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   api_key: '',
   google_maps_api_key: 'AIzaSyBIz-9lWsmnh32gO_SMdRl9w1197g0t7Xk',
   panel_password: '3ca8179b59ca670d0ed2cbe30ffea83993928f5b152bb1910221f44077f50a8a:95cc9e8e2affb49415041c7fc0a8203a8b6f2efab9f5df4f7ee994edade94e96e4e730c7e91bbddd30ee24c562728ceb6ba0f8c8fe1e920f4e0de6001de360c2',
+  followup_enabled: 'true',
+  followup_sequence: JSON.stringify([
+    {
+      step: 1,
+      days: 3,
+      subject: 'Kurze Nachfrage: Website-Analyse für {firmenname}',
+      body: 'ich hatte Ihnen vor ein paar Tagen eine Analyse Ihrer Website {website} geschickt. Haben Sie die Mail gesehen?\n\nKurz zusammengefasst: Ihr Website-Score liegt bei {score}/100 – da gibt es ein paar Sachen, die Sie vermutlich Kunden kosten.\n\nFalls Sie Interesse haben, können wir gerne kurz telefonieren. 15 Minuten reichen völlig.',
+    },
+    {
+      step: 2,
+      days: 7,
+      subject: 'Noch aktuell? Ihre Website-Probleme, {ansprechpartner}',
+      body: 'ich melde mich nochmal kurz wegen Ihrer Website. Die Probleme, die wir gefunden haben, sind leider nicht von alleine weggegangen.\n\nAndere Betriebe in {stadt} investieren gerade in ihre Online-Präsenz – das heißt, je länger Sie warten, desto weiter fallen Sie zurück.\n\nSollen wir mal 15 Minuten telefonieren? Ich zeige Ihnen, was wir konkret für {firmenname} tun können.',
+    },
+    {
+      step: 3,
+      days: 14,
+      subject: 'Letzter Hinweis: {score} Punkte für {firmenname}',
+      body: 'letzte Nachricht von mir zu diesem Thema – ich möchte nicht nerven.\n\nIhre Website hat nach wie vor einen Score von {score}/100. Falls Sie in den nächsten Wochen etwas daran ändern möchten, melden Sie sich gerne.\n\nIch wünsche Ihnen alles Gute!',
+    },
+  ]),
 };
 
 export function getDb(): Database.Database {

@@ -89,11 +89,27 @@ export async function GET() {
       LIMIT 10
     `).all();
 
-    // Pending follow-ups
-    const pendingFollowUps = db.prepare(`
-      SELECT COUNT(*) as count FROM follow_ups
-      WHERE status = 'pending' AND scheduled_at <= datetime('now')
-    `).get() as { count: number };
+    // Follow-up stats
+    const followUpStats = db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'pending' AND scheduled_at <= datetime('now') THEN 1 ELSE 0 END) as due_now,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
+        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+        SUM(CASE WHEN status = 'sent' AND date(sent_at) >= date('now', '-7 days') THEN 1 ELSE 0 END) as sent_this_week
+      FROM follow_ups
+    `).get() as { total: number; due_now: number; pending: number; sent: number; cancelled: number; sent_this_week: number };
+
+    // Next scheduled follow-ups
+    const nextFollowUps = db.prepare(`
+      SELECT f.step, f.scheduled_at, l.name, l.city
+      FROM follow_ups f
+      JOIN leads l ON f.lead_id = l.id
+      WHERE f.status = 'pending'
+      ORDER BY f.scheduled_at ASC
+      LIMIT 5
+    `).all();
 
     // Conversion rate
     const openRate = emailStats.total_sent > 0
@@ -131,7 +147,15 @@ export async function GET() {
       audits: auditStats,
       hotLeads,
       recentScans,
-      pendingFollowUps: pendingFollowUps.count || 0,
+      followUps: {
+        dueNow: followUpStats.due_now || 0,
+        pending: followUpStats.pending || 0,
+        sent: followUpStats.sent || 0,
+        cancelled: followUpStats.cancelled || 0,
+        sentThisWeek: followUpStats.sent_this_week || 0,
+        next: nextFollowUps,
+      },
+      pendingFollowUps: followUpStats.due_now || 0,
     });
   } catch (error) {
     console.error('Stats error:', error);

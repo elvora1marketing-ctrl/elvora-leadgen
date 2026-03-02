@@ -302,14 +302,27 @@ export async function POST(request: NextRequest) {
         "UPDATE leads SET contact_status = 'email_sent', contacted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
       ).run(body.lead_id);
 
-      // Schedule follow-up emails (3 days, 7 days, 14 days) - only for initial email
+      // Schedule follow-up emails based on configurable sequence - only for initial email
       if (!body.is_followup) {
-        const followUpDays = [3, 7, 14];
-        const insertFollowUp = db.prepare(
-          "INSERT INTO follow_ups (lead_id, step, scheduled_at) VALUES (?, ?, datetime('now', ? || ' days'))"
-        );
-        for (let i = 0; i < followUpDays.length; i++) {
-          insertFollowUp.run(body.lead_id, i + 1, String(followUpDays[i]));
+        const fuEnabledRow = db.prepare("SELECT value FROM settings WHERE key = 'followup_enabled'").get() as { value: string } | undefined;
+        const fuEnabled = fuEnabledRow?.value !== 'false';
+
+        if (fuEnabled) {
+          const seqRow = db.prepare("SELECT value FROM settings WHERE key = 'followup_sequence'").get() as { value: string } | undefined;
+          let sequence: { step: number; days: number }[] = [{ step: 1, days: 3 }, { step: 2, days: 7 }, { step: 3, days: 14 }];
+          if (seqRow) {
+            try { sequence = JSON.parse(seqRow.value); } catch { /* use defaults */ }
+          }
+
+          // Cancel any existing pending follow-ups for this lead
+          db.prepare("UPDATE follow_ups SET status = 'cancelled' WHERE lead_id = ? AND status = 'pending'").run(body.lead_id);
+
+          const insertFollowUp = db.prepare(
+            "INSERT INTO follow_ups (lead_id, step, scheduled_at) VALUES (?, ?, datetime('now', ? || ' days'))"
+          );
+          for (const s of sequence) {
+            insertFollowUp.run(body.lead_id, s.step, String(s.days));
+          }
         }
       }
     }

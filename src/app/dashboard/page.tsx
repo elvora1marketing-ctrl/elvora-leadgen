@@ -11,6 +11,14 @@ interface Stats {
   audits: { total_audits: number; total_views: number; total_cta_clicks: number };
   hotLeads: Array<{ id: number; name: string; city: string; score: number; phone: string; email: string; contact_status: string; audit_views: number; cta_clicks: number; audit_slug: string }>;
   recentScans: Array<{ keyword: string; city: string; leads_found: number; leads_new: number; status: string; time: string }>;
+  followUps: {
+    dueNow: number;
+    pending: number;
+    sent: number;
+    cancelled: number;
+    sentThisWeek: number;
+    next: Array<{ step: number; scheduled_at: string; name: string; city: string }>;
+  };
   pendingFollowUps: number;
 }
 
@@ -191,6 +199,70 @@ export default function DashboardPage() {
               <div className="text-[10px] text-elvora-text-dim">CTA Klicks</div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Follow-Up Automation */}
+      {stats && (stats.followUps.pending > 0 || stats.followUps.sent > 0) && (
+        <div className="glass rounded-xl p-4 mb-5 border border-elvora-accent/20">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-elvora-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider">Auto Follow-Ups</span>
+            </div>
+            {stats.followUps.dueNow > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-elvora-warning/15 text-elvora-warning text-[10px] font-bold animate-pulse">
+                {stats.followUps.dueNow} fällig
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 text-center mb-3">
+            <div>
+              <div className="text-lg font-bold text-elvora-accent">{stats.followUps.pending}</div>
+              <div className="text-[10px] text-elvora-text-dim">Geplant</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-elvora-success">{stats.followUps.sentThisWeek}</div>
+              <div className="text-[10px] text-elvora-text-dim">Diese Woche</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-elvora-purple-light">{stats.followUps.sent}</div>
+              <div className="text-[10px] text-elvora-text-dim">Gesamt gesendet</div>
+            </div>
+          </div>
+
+          {stats.followUps.next.length > 0 && (
+            <div className="border-t border-white/5 pt-3">
+              <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider mb-2">Nächste Follow-Ups</div>
+              <div className="space-y-1.5">
+                {stats.followUps.next.map((fu, i) => {
+                  const date = new Date(fu.scheduled_at + 'Z');
+                  const now = new Date();
+                  const diffMs = date.getTime() - now.getTime();
+                  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                  const timeLabel = diffDays <= 0 ? 'Jetzt fällig' : diffDays === 1 ? 'Morgen' : `In ${diffDays} Tagen`;
+
+                  return (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-5 h-5 rounded-full bg-elvora-accent/20 text-elvora-accent text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                          {fu.step}
+                        </span>
+                        <span className="text-elvora-text-muted truncate">{fu.name}</span>
+                        <span className="text-elvora-text-dim">{fu.city}</span>
+                      </div>
+                      <span className={`flex-shrink-0 ml-2 ${diffDays <= 0 ? 'text-elvora-warning font-semibold' : 'text-elvora-text-dim'}`}>
+                        {timeLabel}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -33,6 +33,21 @@ export default function SettingsPage() {
   const [pwChanging, setPwChanging] = useState(false);
   const [pwResult, setPwResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // Follow-Up Sequenz
+  interface FollowUpStep {
+    step: number;
+    days: number;
+    subject: string;
+    body: string;
+  }
+  const [followUpEnabled, setFollowUpEnabled] = useState(true);
+  const [followUpSequence, setFollowUpSequence] = useState<FollowUpStep[]>([
+    { step: 1, days: 3, subject: 'Kurze Nachfrage: Website-Analyse für {firmenname}', body: 'ich hatte Ihnen vor ein paar Tagen eine Analyse Ihrer Website {website} geschickt. Haben Sie die Mail gesehen?\n\nKurz zusammengefasst: Ihr Website-Score liegt bei {score}/100 – da gibt es ein paar Sachen, die Sie vermutlich Kunden kosten.\n\nFalls Sie Interesse haben, können wir gerne kurz telefonieren. 15 Minuten reichen völlig.' },
+    { step: 2, days: 7, subject: 'Noch aktuell? Ihre Website-Probleme, {ansprechpartner}', body: 'ich melde mich nochmal kurz wegen Ihrer Website. Die Probleme, die wir gefunden haben, sind leider nicht von alleine weggegangen.\n\nAndere Betriebe in {stadt} investieren gerade in ihre Online-Präsenz – das heißt, je länger Sie warten, desto weiter fallen Sie zurück.\n\nSollen wir mal 15 Minuten telefonieren? Ich zeige Ihnen, was wir konkret für {firmenname} tun können.' },
+    { step: 3, days: 14, subject: 'Letzter Hinweis: {score} Punkte für {firmenname}', body: 'letzte Nachricht von mir zu diesem Thema – ich möchte nicht nerven.\n\nIhre Website hat nach wie vor einen Score von {score}/100. Falls Sie in den nächsten Wochen etwas daran ändern möchten, melden Sie sich gerne.\n\nIch wünsche Ihnen alles Gute!' },
+  ]);
+  const [followUpStats, setFollowUpStats] = useState<{ pending: number; sent: number } | null>(null);
+
   // Template settings
   const [tplSubject, setTplSubject] = useState('Website-Analyse für {firmenname} – {score}/100 Punkte');
   const [tplIntro, setTplIntro] = useState('mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.');
@@ -59,6 +74,18 @@ export default function SettingsPage() {
         if (data.tpl_cta) setTplCta(data.tpl_cta);
         if (data.google_maps_api_key) setGoogleMapsApiKey(data.google_maps_api_key);
         if (data.api_key) setApiKey(data.api_key);
+        if (data.followup_enabled) setFollowUpEnabled(data.followup_enabled !== 'false');
+        if (data.followup_sequence) {
+          try { setFollowUpSequence(JSON.parse(data.followup_sequence)); } catch { /* keep defaults */ }
+        }
+      })
+      .catch(() => {});
+
+    // Load follow-up stats
+    fetch('/api/followups/process')
+      .then(res => res.json())
+      .then(data => {
+        if (data.stats) setFollowUpStats({ pending: data.stats.pending, sent: data.stats.sent });
       })
       .catch(() => {});
   }, []);
@@ -100,6 +127,8 @@ export default function SettingsPage() {
           tpl_cta: tplCta,
           google_maps_api_key: googleMapsApiKey,
           api_key: apiKey,
+          followup_enabled: followUpEnabled ? 'true' : 'false',
+          followup_sequence: JSON.stringify(followUpSequence),
         }),
       });
       if (res.ok) {
@@ -429,6 +458,127 @@ export default function SettingsPage() {
               />
             </div>
           </div>
+        </div>
+
+        {/* Follow-Up Sequenz */}
+        <div className="glass rounded-xl p-5 border border-elvora-accent/20">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-elvora-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-sm font-semibold text-white">Auto Follow-Up Sequenz</span>
+              {followUpStats && (
+                <span className="px-2 py-0.5 rounded-full bg-elvora-accent/15 text-elvora-accent text-[10px] font-bold border border-elvora-accent/20">
+                  {followUpStats.pending} ausstehend &middot; {followUpStats.sent} gesendet
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setFollowUpEnabled(!followUpEnabled)}
+              className={`relative w-10 h-5 rounded-full transition-colors ${followUpEnabled ? 'bg-elvora-success' : 'bg-white/10'}`}
+            >
+              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${followUpEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+
+          {followUpEnabled ? (
+            <>
+              <p className="text-xs text-elvora-text-dim mb-4">
+                Nach dem Erst-Email werden automatisch Follow-Ups gesendet. Stoppt automatisch wenn der Lead antwortet oder in der Pipeline weiterbewegt wird.
+                <br />
+                Platzhalter: <code className="text-elvora-accent bg-elvora-accent/10 px-1 rounded">{'{firmenname}'}</code> <code className="text-elvora-accent bg-elvora-accent/10 px-1 rounded">{'{ansprechpartner}'}</code> <code className="text-elvora-accent bg-elvora-accent/10 px-1 rounded">{'{website}'}</code> <code className="text-elvora-accent bg-elvora-accent/10 px-1 rounded">{'{stadt}'}</code> <code className="text-elvora-accent bg-elvora-accent/10 px-1 rounded">{'{score}'}</code> <code className="text-elvora-accent bg-elvora-accent/10 px-1 rounded">{'{absender}'}</code>
+              </p>
+
+              <div className="space-y-4">
+                {followUpSequence.map((step, idx) => (
+                  <div key={step.step} className="relative rounded-lg bg-white/[0.03] border border-white/5 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-full bg-elvora-accent/20 text-elvora-accent text-xs font-bold flex items-center justify-center">{step.step}</span>
+                        <span className="text-sm font-medium text-white">Follow-Up {step.step}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-elvora-text-dim">nach</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={step.days}
+                          onChange={(e) => {
+                            const updated = [...followUpSequence];
+                            updated[idx] = { ...updated[idx], days: parseInt(e.target.value) || 1 };
+                            setFollowUpSequence(updated);
+                          }}
+                          className="w-14 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-white text-sm text-center focus:outline-none focus:border-elvora-accent/50"
+                        />
+                        <span className="text-xs text-elvora-text-dim">Tagen</span>
+                        {followUpSequence.length > 1 && (
+                          <button
+                            onClick={() => setFollowUpSequence(followUpSequence.filter((_, i) => i !== idx).map((s, i) => ({ ...s, step: i + 1 })))}
+                            className="ml-2 text-elvora-text-dim hover:text-elvora-danger transition-colors"
+                            title="Stufe entfernen"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-xs text-elvora-text-dim mb-1">Betreff</label>
+                        <input
+                          type="text"
+                          value={step.subject}
+                          onChange={(e) => {
+                            const updated = [...followUpSequence];
+                            updated[idx] = { ...updated[idx], subject: e.target.value };
+                            setFollowUpSequence(updated);
+                          }}
+                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-elvora-accent/50 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-elvora-text-dim mb-1">Text <span className="text-elvora-text-dim/50">(nach &quot;Guten Tag {'{ansprechpartner}'},...&quot;)</span></label>
+                        <textarea
+                          value={step.body}
+                          onChange={(e) => {
+                            const updated = [...followUpSequence];
+                            updated[idx] = { ...updated[idx], body: e.target.value };
+                            setFollowUpSequence(updated);
+                          }}
+                          rows={4}
+                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-elvora-accent/50 transition-all resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {followUpSequence.length < 5 && (
+                  <button
+                    onClick={() => {
+                      const lastStep = followUpSequence[followUpSequence.length - 1];
+                      setFollowUpSequence([...followUpSequence, {
+                        step: followUpSequence.length + 1,
+                        days: (lastStep?.days || 7) + 7,
+                        subject: 'Erinnerung: {firmenname} Website',
+                        body: '',
+                      }]);
+                    }}
+                    className="w-full py-2 rounded-lg border border-dashed border-white/10 text-elvora-text-dim text-xs hover:border-elvora-accent/30 hover:text-elvora-accent transition-all"
+                  >
+                    + Stufe hinzufügen
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-elvora-text-dim">
+              Auto Follow-Ups sind deaktiviert. Keine automatischen Nachfass-Emails werden gesendet.
+            </p>
+          )}
         </div>
 
         {/* OpenClaw Integration */}
