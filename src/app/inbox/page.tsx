@@ -141,13 +141,13 @@ export default function InboxPage() {
           {selectedIds.size > 0 && (
             <>
               <button
-                onClick={() => markAs([...selectedIds], 'read')}
+                onClick={() => markAs(Array.from(selectedIds), 'read')}
                 className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs hover:bg-white/10 transition-all"
               >
                 Gelesen
               </button>
               <button
-                onClick={() => markAs([...selectedIds], 'archive')}
+                onClick={() => markAs(Array.from(selectedIds), 'archive')}
                 className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-elvora-text-dim text-xs hover:bg-white/10 transition-all"
               >
                 Archivieren
