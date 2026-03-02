@@ -6,6 +6,10 @@ export async function POST(request: NextRequest) {
     const { lead_ids } = await request.json() as { lead_ids?: number[] };
     const db = getDb();
 
+    // Check if AI personalization is enabled
+    const aiEnabledRow = db.prepare("SELECT value FROM settings WHERE key = 'ai_personalization_enabled'").get() as { value: string } | undefined;
+    const aiEnabled = aiEnabledRow?.value === 'true';
+
     // If no specific IDs, get all qualified leads that haven't been contacted
     let leads;
     if (lead_ids && lead_ids.length > 0) {
@@ -59,6 +63,33 @@ export async function POST(request: NextRequest) {
         const problems = lead.problems ? JSON.parse(lead.problems) : [];
         const seoIssues = lead.seo_issues ? JSON.parse(lead.seo_issues) : [];
 
+        // Try AI personalization if enabled
+        let personalized: { subject?: string; intro?: string; pitch?: string } = {};
+        if (aiEnabled) {
+          try {
+            const aiRes = await fetch(new URL('/api/ai/personalize', request.url).toString(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                lead_id: lead.id,
+                lead_name: lead.name,
+                ansprechpartner: lead.name.split(' ')[0] || 'Geschäftsführer/in',
+                website: lead.name,
+                city: lead.city,
+                score: lead.score,
+                problems,
+                seo_issues: seoIssues,
+              }),
+            });
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              personalized = { subject: aiData.subject, intro: aiData.intro, pitch: aiData.pitch };
+            }
+          } catch {
+            // AI failed silently, continue with template
+          }
+        }
+
         const res = await fetch(new URL('/api/email/send', request.url).toString(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -72,6 +103,9 @@ export async function POST(request: NextRequest) {
             score: lead.score,
             problems,
             seo_issues: seoIssues,
+            personalized_subject: personalized.subject,
+            personalized_intro: personalized.intro,
+            personalized_pitch: personalized.pitch,
           }),
         });
 

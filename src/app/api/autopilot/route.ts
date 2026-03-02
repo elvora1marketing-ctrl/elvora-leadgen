@@ -65,7 +65,10 @@ export async function POST(request: NextRequest) {
       result.qualified = pendingLeads.length;
     }
 
-    // ─── STEP 2: Auto-Email ───
+    // ─── STEP 2: Auto-Email (with optional AI personalization) ───
+    const aiEnabledRow = db.prepare("SELECT value FROM settings WHERE key = 'ai_personalization_enabled'").get() as { value: string } | undefined;
+    const aiEnabled = aiEnabledRow?.value === 'true';
+
     const uncontactedLeads = db.prepare(`
       SELECT id, name, email, phone, website_original as website, city, score, problems, seo_issues
       FROM leads
@@ -88,6 +91,33 @@ export async function POST(request: NextRequest) {
         try { problems = JSON.parse(lead.problems || '[]'); } catch { /* skip */ }
         try { seoIssues = JSON.parse(lead.seo_issues || '[]'); } catch { /* skip */ }
 
+        // Try AI personalization if enabled
+        let personalized: { subject?: string; intro?: string; pitch?: string } = {};
+        if (aiEnabled) {
+          try {
+            const aiRes = await fetch(new URL('/api/ai/personalize', request.url).toString(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                lead_id: lead.id,
+                lead_name: lead.name,
+                ansprechpartner: lead.name.split(' ')[0] || '',
+                website: lead.website || '',
+                city: lead.city,
+                score: lead.score,
+                problems,
+                seo_issues: seoIssues,
+              }),
+            });
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              personalized = { subject: aiData.subject, intro: aiData.intro, pitch: aiData.pitch };
+            }
+          } catch {
+            // AI failed silently, continue with template
+          }
+        }
+
         const emailRes = await fetch(new URL('/api/email/send', request.url).toString(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -101,6 +131,9 @@ export async function POST(request: NextRequest) {
             score: lead.score,
             problems,
             seo_issues: seoIssues,
+            personalized_subject: personalized.subject,
+            personalized_intro: personalized.intro,
+            personalized_pitch: personalized.pitch,
           }),
         });
 

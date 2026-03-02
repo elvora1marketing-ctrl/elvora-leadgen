@@ -15,6 +15,10 @@ export interface EmailPayload {
   audit_url?: string;
   is_followup?: boolean;
   followup_step?: number;
+  // KI-Personalisierung (Phase 5)
+  personalized_subject?: string;
+  personalized_intro?: string;
+  personalized_pitch?: string;
 }
 
 function getEmailSettings() {
@@ -249,7 +253,15 @@ export async function POST(request: NextRequest) {
       tpl_cta: settings.tpl_cta || DEFAULTS.tpl_cta,
     };
 
-    const subject = replacePlaceholders(tpl.tpl_subject, body, fromName);
+    // Use AI-personalized content if provided, otherwise use template
+    if (body.personalized_intro) {
+      tpl.tpl_intro = body.personalized_intro;
+    }
+    if (body.personalized_pitch) {
+      tpl.tpl_pitch = body.personalized_pitch;
+    }
+
+    const subject = body.personalized_subject || replacePlaceholders(tpl.tpl_subject, body, fromName);
     const html = buildEmailHtml(body, calendlyUrl, fromName, tpl);
     const text = buildPlainText(body, calendlyUrl, fromName, tpl);
 

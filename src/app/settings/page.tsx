@@ -48,6 +48,13 @@ export default function SettingsPage() {
   ]);
   const [followUpStats, setFollowUpStats] = useState<{ pending: number; sent: number } | null>(null);
 
+  // KI-Personalisierung (Phase 5)
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [aiModel, setAiModel] = useState('gpt-4o-mini');
+  const [aiTestLoading, setAiTestLoading] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string; data?: { subject: string; intro: string; pitch: string } } | null>(null);
+
   // Template settings
   const [tplSubject, setTplSubject] = useState('Website-Analyse für {firmenname} – {score}/100 Punkte');
   const [tplIntro, setTplIntro] = useState('mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.');
@@ -78,6 +85,9 @@ export default function SettingsPage() {
         if (data.followup_sequence) {
           try { setFollowUpSequence(JSON.parse(data.followup_sequence)); } catch { /* keep defaults */ }
         }
+        if (data.ai_personalization_enabled) setAiEnabled(data.ai_personalization_enabled === 'true');
+        if (data.openai_api_key) setOpenaiApiKey(data.openai_api_key);
+        if (data.ai_model) setAiModel(data.ai_model);
       })
       .catch(() => {});
 
@@ -129,6 +139,9 @@ export default function SettingsPage() {
           api_key: apiKey,
           followup_enabled: followUpEnabled ? 'true' : 'false',
           followup_sequence: JSON.stringify(followUpSequence),
+          ai_personalization_enabled: aiEnabled ? 'true' : 'false',
+          openai_api_key: openaiApiKey,
+          ai_model: aiModel,
         }),
       });
       if (res.ok) {
@@ -577,6 +590,156 @@ export default function SettingsPage() {
           ) : (
             <p className="text-xs text-elvora-text-dim">
               Auto Follow-Ups sind deaktiviert. Keine automatischen Nachfass-Emails werden gesendet.
+            </p>
+          )}
+        </div>
+
+        {/* KI-Personalisierung */}
+        <div className="glass rounded-xl p-5 border border-amber-500/20">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              <span className="text-sm font-semibold text-white">KI-Personalisierung</span>
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[10px] font-bold border border-amber-500/20">OPENAI</span>
+            </div>
+            <button
+              onClick={() => setAiEnabled(!aiEnabled)}
+              className={`relative w-10 h-5 rounded-full transition-colors ${aiEnabled ? 'bg-elvora-success' : 'bg-white/10'}`}
+            >
+              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${aiEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+
+          {aiEnabled ? (
+            <>
+              <p className="text-xs text-elvora-text-dim mb-4">
+                Jede Erst-Email wird per KI individuell auf den Lead zugeschnitten. Basierend auf den Website-Problemen, der Branche und dem Standort wird ein persönlicher Einstieg generiert.
+              </p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-elvora-text-dim mb-1">OpenAI API-Key</label>
+                  <input
+                    type="password"
+                    value={openaiApiKey}
+                    onChange={(e) => setOpenaiApiKey(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-amber-500/50 transition-all font-mono"
+                  />
+                  <p className="text-[11px] text-elvora-text-dim mt-1">
+                    Hol dir deinen Key auf platform.openai.com/api-keys
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-elvora-text-dim mb-1">Modell</label>
+                  <select
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-amber-500/50 transition-all"
+                  >
+                    <option value="gpt-4o-mini" className="bg-[#0a0a0f]">GPT-4o Mini (schnell & günstig)</option>
+                    <option value="gpt-4o" className="bg-[#0a0a0f]">GPT-4o (beste Qualität)</option>
+                    <option value="gpt-4.1-mini" className="bg-[#0a0a0f]">GPT-4.1 Mini</option>
+                    <option value="gpt-4.1-nano" className="bg-[#0a0a0f]">GPT-4.1 Nano (am günstigsten)</option>
+                  </select>
+                </div>
+
+                {/* AI Test */}
+                <div className="pt-3 mt-3 border-t border-white/5">
+                  <label className="block text-xs text-elvora-text-dim mb-2">KI testen</label>
+                  <button
+                    onClick={async () => {
+                      setAiTestLoading(true);
+                      setAiTestResult(null);
+                      try {
+                        const res = await fetch('/api/ai/personalize', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            lead_name: 'Müller Sanitär GmbH',
+                            ansprechpartner: 'Herr Müller',
+                            website: 'www.mueller-sanitaer.de',
+                            city: 'Essen',
+                            score: 42,
+                            problems: [
+                              { label: 'Kein SSL-Zertifikat', severity: 'critical' },
+                              { label: 'Website nicht mobilfähig', severity: 'major' },
+                              { label: 'Veraltetes Design (2018)', severity: 'major' },
+                            ],
+                            seo_issues: [
+                              { label: 'Keine Meta-Beschreibung', impact: 'high' },
+                              { label: 'Fehlende Alt-Texte bei Bildern', impact: 'medium' },
+                            ],
+                          }),
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          setAiTestResult({
+                            ok: true,
+                            message: `Generiert (${data.tokens} Tokens, ${data.model})`,
+                            data: { subject: data.subject, intro: data.intro, pitch: data.pitch },
+                          });
+                        } else {
+                          setAiTestResult({ ok: false, message: data.error || 'Fehler' });
+                        }
+                      } catch {
+                        setAiTestResult({ ok: false, message: 'Netzwerkfehler' });
+                      } finally {
+                        setAiTestLoading(false);
+                      }
+                    }}
+                    disabled={aiTestLoading || !openaiApiKey}
+                    className="px-4 py-2 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/25 transition-all disabled:opacity-50"
+                  >
+                    {aiTestLoading ? 'Generiere...' : 'Test-Personalisierung generieren'}
+                  </button>
+
+                  {aiTestResult && (
+                    <div className="mt-3">
+                      <div className={`text-xs font-medium mb-2 ${aiTestResult.ok ? 'text-elvora-success' : 'text-elvora-danger'}`}>
+                        {aiTestResult.message}
+                      </div>
+                      {aiTestResult.data && (
+                        <div className="space-y-2 rounded-lg bg-white/[0.03] border border-white/5 p-3">
+                          <div>
+                            <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-semibold">Betreff</span>
+                            <p className="text-xs text-white mt-0.5">{aiTestResult.data.subject}</p>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-semibold">Intro</span>
+                            <p className="text-xs text-elvora-text-muted mt-0.5">{aiTestResult.data.intro}</p>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-semibold">Pitch</span>
+                            <p className="text-xs text-elvora-text-muted mt-0.5">{aiTestResult.data.pitch}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Info Box */}
+                <div className="rounded-lg bg-amber-500/5 border border-amber-500/10 p-3 mt-2">
+                  <div className="text-[10px] font-semibold text-amber-400/70 uppercase tracking-wider mb-1">So funktioniert es</div>
+                  <ul className="text-xs text-elvora-text-dim space-y-1">
+                    <li>1. Beim Email-Versand analysiert die KI die Website-Probleme des Leads</li>
+                    <li>2. Betreff, Intro und Pitch werden individuell formuliert</li>
+                    <li>3. Der Rest der Email (Score, Probleme, CTA) bleibt gleich</li>
+                    <li>4. Falls die KI ausfällt, wird automatisch das Template verwendet</li>
+                  </ul>
+                  <p className="text-[11px] text-elvora-text-dim mt-2">
+                    Kosten: ca. 0,01-0,03 Cent pro Email (GPT-4o Mini)
+                  </p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-elvora-text-dim">
+              KI-Personalisierung ist deaktiviert. Emails werden mit dem Standard-Template versendet.
             </p>
           )}
         </div>
