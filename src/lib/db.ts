@@ -291,6 +291,22 @@ export function getDb(): Database.Database {
       db.pragma('foreign_keys = ON');
     }
 
+    // Migration: Add engagement_score and engagement_signals columns if missing
+    try {
+      const colCheck = db.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colNames = colCheck.map(c => c.name);
+      if (!colNames.includes('engagement_score')) {
+        db.exec("ALTER TABLE leads ADD COLUMN engagement_score INTEGER DEFAULT 0");
+        console.log('[DB] Migration: added engagement_score column');
+      }
+      if (!colNames.includes('engagement_signals')) {
+        db.exec("ALTER TABLE leads ADD COLUMN engagement_signals TEXT DEFAULT '{}'");
+        console.log('[DB] Migration: added engagement_signals column');
+      }
+    } catch (e) {
+      console.error('[DB] Engagement columns migration error:', e);
+    }
+
     // Insert default settings (only if not already set)
     const insertSetting = db.prepare(
       "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))"

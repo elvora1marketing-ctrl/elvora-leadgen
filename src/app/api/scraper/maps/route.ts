@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { scrapeGoogleMaps, normalizeWebsite, type ScrapedBusiness } from '@/lib/maps-scraper';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/scraper/maps - Get scraper job history and results
  */

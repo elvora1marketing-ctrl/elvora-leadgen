@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * POST /api/scoring - Recalculate engagement scores for all leads
  * GET /api/scoring - Get top engaged leads

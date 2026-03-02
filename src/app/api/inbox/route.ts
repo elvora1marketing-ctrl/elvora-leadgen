@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/inbox - Liste aller Inbox-Nachrichten
  * Query params: ?unread=1&limit=50&offset=0
