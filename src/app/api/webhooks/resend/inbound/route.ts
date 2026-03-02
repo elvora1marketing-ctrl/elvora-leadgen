@@ -133,6 +133,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Phase 6: Auto-classify reply using AI (non-blocking)
+    if (lead && (cleanBody || textBody)) {
+      const aiClassifyRow = db.prepare("SELECT value FROM settings WHERE key = 'ai_classify_enabled'").get() as { value: string } | undefined;
+      const aiKeyRow = db.prepare("SELECT value FROM settings WHERE key = 'openai_api_key'").get() as { value: string } | undefined;
+      if (aiClassifyRow?.value === 'true' && aiKeyRow?.value) {
+        try {
+          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `${request.nextUrl.protocol}//${request.nextUrl.host}`;
+          fetch(`${baseUrl}/api/ai/classify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message_id: messageDbId,
+              subject,
+              body: cleanBody || textBody,
+              from_name: fromName,
+              lead_name: lead.name,
+            }),
+          }).catch(() => { /* AI classification failed silently */ });
+        } catch {
+          // AI classification is optional, don't block webhook
+        }
+      }
+    }
+
     return NextResponse.json({
       received: true,
       message_id: messageDbId,

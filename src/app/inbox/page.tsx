@@ -20,6 +20,22 @@ interface InboxMessage {
   lead_score: number | null;
 }
 
+interface AiClassification {
+  classification: string;
+  label: string;
+  color: string;
+  confidence: number;
+  summary: string;
+  suggested_action: string;
+}
+
+const classificationColors: Record<string, string> = {
+  success: 'bg-elvora-success/15 text-elvora-success border-elvora-success/20',
+  danger: 'bg-red-500/15 text-red-400 border-red-500/20',
+  warning: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
+  muted: 'bg-white/10 text-elvora-text-dim border-white/10',
+};
+
 export default function InboxPage() {
   const [messages, setMessages] = useState<InboxMessage[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -28,6 +44,11 @@ export default function InboxPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [filter, setFilter] = useState<'all' | 'unread' | 'archived'>('all');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  // AI Classification
+  const [classifying, setClassifying] = useState(false);
+  const [classification, setClassification] = useState<AiClassification | null>(null);
+  const [classifyError, setClassifyError] = useState('');
 
   const loadMessages = useCallback(async () => {
     try {
@@ -65,8 +86,10 @@ export default function InboxPage() {
     } catch { /* silent */ }
   }
 
-  // Auto-mark as read when opening
+  // Auto-mark as read when opening, reset classification
   useEffect(() => {
+    setClassification(null);
+    setClassifyError('');
     if (selectedMessage && !selectedMessage.is_read) {
       markAs([selectedMessage.id], 'read');
     }
@@ -317,6 +340,68 @@ export default function InboxPage() {
                     </svg>
                   </Link>
                 )}
+
+                {/* AI Classification */}
+                <div className="mb-4">
+                  {classification && classification.classification ? (
+                    <div className={`rounded-lg border p-3 ${classificationColors[classification.color] || classificationColors.muted}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase tracking-wider font-bold">KI-Analyse</span>
+                          <span className="font-semibold text-xs">{classification.label}</span>
+                          <span className="text-[10px] opacity-70">{Math.round(classification.confidence * 100)}%</span>
+                        </div>
+                        <button
+                          onClick={() => setClassification(null)}
+                          className="text-[10px] opacity-50 hover:opacity-100 transition-opacity"
+                        >
+                          Ausblenden
+                        </button>
+                      </div>
+                      <p className="text-xs opacity-80">{classification.summary}</p>
+                      <p className="text-[11px] opacity-60 mt-1">Empfehlung: {classification.suggested_action}</p>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        if (!selectedMessage) return;
+                        setClassifying(true);
+                        setClassifyError('');
+                        try {
+                          const res = await fetch('/api/ai/classify', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              message_id: selectedMessage.id,
+                              subject: selectedMessage.subject,
+                              body: selectedMessage.body_text,
+                              from_name: selectedMessage.from_name,
+                              lead_name: selectedMessage.lead_name,
+                            }),
+                          });
+                          const data = await res.json();
+                          if (res.ok) {
+                            setClassification(data);
+                          } else {
+                            setClassifyError(data.error || 'Fehler');
+                          }
+                        } catch {
+                          setClassifyError('Netzwerkfehler');
+                        } finally {
+                          setClassifying(false);
+                        }
+                      }}
+                      disabled={classifying}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium hover:bg-amber-500/20 transition-all disabled:opacity-50"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      {classifying ? 'Analysiere...' : 'KI-Klassifizierung'}
+                    </button>
+                  )}
+                  {classifyError && <div className="text-[11px] text-red-400 mt-1">{classifyError}</div>}
+                </div>
 
                 {/* Body */}
                 <div className="rounded-lg bg-white/[0.02] border border-white/5 p-4">

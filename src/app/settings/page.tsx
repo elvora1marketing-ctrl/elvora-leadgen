@@ -48,8 +48,9 @@ export default function SettingsPage() {
   ]);
   const [followUpStats, setFollowUpStats] = useState<{ pending: number; sent: number } | null>(null);
 
-  // KI-Personalisierung (Phase 5)
+  // KI-Personalisierung (Phase 5) & Klassifizierung (Phase 6)
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiClassifyEnabled, setAiClassifyEnabled] = useState(false);
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [aiModel, setAiModel] = useState('gpt-4o-mini');
   const [aiTestLoading, setAiTestLoading] = useState(false);
@@ -86,6 +87,7 @@ export default function SettingsPage() {
           try { setFollowUpSequence(JSON.parse(data.followup_sequence)); } catch { /* keep defaults */ }
         }
         if (data.ai_personalization_enabled) setAiEnabled(data.ai_personalization_enabled === 'true');
+        if (data.ai_classify_enabled) setAiClassifyEnabled(data.ai_classify_enabled === 'true');
         if (data.openai_api_key) setOpenaiApiKey(data.openai_api_key);
         if (data.ai_model) setAiModel(data.ai_model);
       })
@@ -140,6 +142,7 @@ export default function SettingsPage() {
           followup_enabled: followUpEnabled ? 'true' : 'false',
           followup_sequence: JSON.stringify(followUpSequence),
           ai_personalization_enabled: aiEnabled ? 'true' : 'false',
+          ai_classify_enabled: aiClassifyEnabled ? 'true' : 'false',
           openai_api_key: openaiApiKey,
           ai_model: aiModel,
         }),
@@ -718,6 +721,32 @@ export default function SettingsPage() {
                           </div>
                         </div>
                       )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Auto-Classify Toggle */}
+                <div className="pt-3 mt-3 border-t border-white/5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-white block">Auto-Klassifizierung</span>
+                      <span className="text-[11px] text-elvora-text-dim">Eingehende Antworten automatisch analysieren (Interesse, Absage, Frage, Out-of-Office)</span>
+                    </div>
+                    <button
+                      onClick={() => setAiClassifyEnabled(!aiClassifyEnabled)}
+                      className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ml-3 ${aiClassifyEnabled ? 'bg-elvora-success' : 'bg-white/10'}`}
+                    >
+                      <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${aiClassifyEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                  {aiClassifyEnabled && (
+                    <div className="mt-2 rounded-lg bg-white/[0.03] border border-white/5 p-2.5">
+                      <ul className="text-[11px] text-elvora-text-dim space-y-1">
+                        <li>- <span className="text-elvora-success">Interesse</span>: Lead wird automatisch auf &quot;Meeting&quot; gesetzt</li>
+                        <li>- <span className="text-red-400">Absage/Abmeldung</span>: Lead wird auf &quot;Verloren&quot; gesetzt</li>
+                        <li>- <span className="text-amber-400">Frage</span>: Follow-Ups pausiert, manuelle Antwort empfohlen</li>
+                        <li>- <span className="text-elvora-text-dim">Abwesenheit</span>: Follow-Ups pausiert</li>
+                      </ul>
                     </div>
                   )}
                 </div>
