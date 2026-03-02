@@ -36,11 +36,15 @@ export default function LeadPoolPage() {
   const [search, setSearch] = useState('');
   const [filterCity, setFilterCity] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterKeyword, setFilterKeyword] = useState('');
   const [filterWebsite, setFilterWebsite] = useState<'' | 'yes' | 'no'>('');
   const [filterHasPhone, setFilterHasPhone] = useState(false);
   const [filterHasEmail, setFilterHasEmail] = useState(false);
   const [sortBy, setSortBy] = useState<SortField>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Keywords
+  const [keywordsWithCounts, setKeywordsWithCounts] = useState<{ keyword: string; count: number }[]>([]);
 
   // Selection
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -84,6 +88,7 @@ export default function LeadPoolPage() {
       if (filterWebsite === 'no') params.set('has_website', '0');
       if (filterHasPhone) params.set('has_phone', '1');
       if (filterHasEmail) params.set('has_email', '1');
+      if (filterKeyword) params.set('keyword', filterKeyword);
 
       const res = await fetch(`/api/leads?${params}`);
       if (res.ok) {
@@ -91,6 +96,7 @@ export default function LeadPoolPage() {
         setLeads(data.leads || []);
         setTotal(data.total || 0);
         if (data.cities) setCities(data.cities);
+        if (data.keywords) setKeywordsWithCounts(data.keywords);
         setApiError(null);
       } else {
         const errData = await res.json().catch(() => ({}));
@@ -98,7 +104,7 @@ export default function LeadPoolPage() {
       }
     } catch (e) { setApiError(`Netzwerkfehler: ${e instanceof Error ? e.message : 'Unbekannt'}`); }
     finally { setLoading(false); }
-  }, [page, sortBy, sortDir, debouncedSearch, filterCity, filterStatus, filterWebsite, filterHasPhone, filterHasEmail]);
+  }, [page, sortBy, sortDir, debouncedSearch, filterCity, filterStatus, filterWebsite, filterHasPhone, filterHasEmail, filterKeyword]);
 
   useEffect(() => { loadLeads(); }, [loadLeads]);
 
@@ -323,7 +329,7 @@ export default function LeadPoolPage() {
   };
 
   const totalPages = Math.ceil(total / pageSize);
-  const hasFilters = debouncedSearch || filterCity || filterStatus || filterWebsite || filterHasPhone || filterHasEmail;
+  const hasFilters = debouncedSearch || filterCity || filterStatus || filterWebsite || filterHasPhone || filterHasEmail || filterKeyword;
 
   return (
     <div className="space-y-4">
@@ -379,6 +385,49 @@ export default function LeadPoolPage() {
           </button>
         </div>
       </div>
+
+      {/* Keyword Tabs */}
+      {keywordsWithCounts.length > 0 && (
+        <div className="card-glass p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <svg className="w-4 h-4 text-elvora-text-dim flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+            </svg>
+            <span className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider">Nach Keyword</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => { setFilterKeyword(''); setPage(0); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                !filterKeyword
+                  ? 'bg-elvora-gradient text-white border-elvora-primary/30 shadow-elvora'
+                  : 'bg-white/5 text-elvora-text-muted border-white/10 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              Alle
+              <span className={`ml-1.5 px-1.5 py-0.5 rounded-md text-[10px] ${!filterKeyword ? 'bg-white/20' : 'bg-white/5'}`}>
+                {keywordsWithCounts.reduce((sum, k) => sum + k.count, 0)}
+              </span>
+            </button>
+            {keywordsWithCounts.map(({ keyword: kw, count }) => (
+              <button
+                key={kw}
+                onClick={() => { setFilterKeyword(filterKeyword === kw ? '' : kw); setPage(0); }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                  filterKeyword === kw
+                    ? 'bg-elvora-pink/20 text-elvora-pink-light border-elvora-pink/30'
+                    : 'bg-white/5 text-elvora-text-muted border-white/10 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                {kw}
+                <span className={`ml-1.5 px-1.5 py-0.5 rounded-md text-[10px] ${filterKeyword === kw ? 'bg-elvora-pink/20' : 'bg-white/5'}`}>
+                  {count}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Search + Filters */}
       <div className="card-glass p-4 space-y-3">
@@ -476,7 +525,7 @@ export default function LeadPoolPage() {
               onClick={() => {
                 setSearch(''); setFilterCity(''); setFilterStatus('');
                 setFilterWebsite(''); setFilterHasPhone(false); setFilterHasEmail(false);
-                setPage(0);
+                setFilterKeyword(''); setPage(0);
               }}
               className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-400 hover:text-red-300 bg-red-500/10 border border-red-500/20 transition-all"
             >

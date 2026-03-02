@@ -118,8 +118,10 @@ export default function SettingsPage() {
     }
   }
 
-  async function handleSave() {
-    setSaving(true);
+  // Save error state
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  async function saveSettings(): Promise<boolean> {
     try {
       const res = await fetch('/api/settings', {
         method: 'POST',
@@ -147,12 +149,26 @@ export default function SettingsPage() {
           ai_model: aiModel,
         }),
       });
-      if (res.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
       }
-    } catch {
-      // silent fail
+      return true;
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await saveSettings();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      setSaveError(`Speichern fehlgeschlagen: ${e instanceof Error ? e.message : 'Unbekannter Fehler'}`);
+      setTimeout(() => setSaveError(null), 5000);
     } finally {
       setSaving(false);
     }
@@ -164,6 +180,9 @@ export default function SettingsPage() {
     setTestResult(null);
 
     try {
+      // Auto-save settings first so the API key is in the DB
+      await saveSettings();
+
       const res = await fetch('/api/email/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -190,8 +209,8 @@ export default function SettingsPage() {
       } else {
         setTestResult({ ok: false, message: data.error || 'Fehler' });
       }
-    } catch {
-      setTestResult({ ok: false, message: 'Netzwerkfehler' });
+    } catch (e) {
+      setTestResult({ ok: false, message: e instanceof Error ? e.message : 'Netzwerkfehler' });
     } finally {
       setTestSending(false);
       setTimeout(() => setTestResult(null), 5000);
@@ -208,12 +227,20 @@ export default function SettingsPage() {
           className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
             saved
               ? 'bg-elvora-success/20 text-elvora-success border border-elvora-success/30'
+              : saveError
+              ? 'bg-red-500/20 text-red-400 border border-red-500/30'
               : 'bg-elvora-gradient text-white hover:shadow-elvora-lg disabled:opacity-50'
           }`}
         >
-          {saved ? 'Gespeichert!' : saving ? 'Speichere...' : 'Speichern'}
+          {saved ? 'Gespeichert!' : saving ? 'Speichere...' : saveError ? 'Fehler!' : 'Speichern'}
         </button>
       </div>
+
+      {saveError && (
+        <div className="mb-4 p-3 rounded-xl text-sm bg-red-500/10 border border-red-500/20 text-red-400 animate-fade-in">
+          {saveError}
+        </div>
+      )}
 
       <div className="space-y-4">
         {/* Cities */}

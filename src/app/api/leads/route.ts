@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     const hasWebsite = url.searchParams.get('has_website');
     const hasPhone = url.searchParams.get('has_phone');
     const hasEmail = url.searchParams.get('has_email');
+    const keyword = url.searchParams.get('keyword');
     const sortBy = url.searchParams.get('sort') || 'score';
     const sortDir = url.searchParams.get('dir') === 'asc' ? 'ASC' : 'DESC';
     const limit = parseInt(url.searchParams.get('limit') || '50');
@@ -56,6 +57,10 @@ export async function GET(request: NextRequest) {
     if (hasEmail === '1') {
       conditions.push("l.email IS NOT NULL AND l.email != ''");
     }
+    if (keyword) {
+      conditions.push("(',' || l.found_via_keywords || ',') LIKE ('%,' || ? || ',%')");
+      values.push(keyword);
+    }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -86,12 +91,28 @@ export async function GET(request: NextRequest) {
     // Get distinct cities for filter dropdown
     const citiesList = db.prepare("SELECT DISTINCT city FROM leads WHERE city IS NOT NULL AND city != '' ORDER BY city").all() as { city: string }[];
 
+    // Get distinct keywords with counts
+    const keywordRows = db.prepare("SELECT found_via_keywords FROM leads WHERE found_via_keywords IS NOT NULL AND found_via_keywords != ''").all() as { found_via_keywords: string }[];
+    const keywordCounts: Record<string, number> = {};
+    for (const row of keywordRows) {
+      row.found_via_keywords.split(',').forEach(k => {
+        const trimmed = k.trim();
+        if (trimmed) {
+          keywordCounts[trimmed] = (keywordCounts[trimmed] || 0) + 1;
+        }
+      });
+    }
+    const keywordsWithCounts = Object.entries(keywordCounts)
+      .map(([kw, count]) => ({ keyword: kw, count }))
+      .sort((a, b) => b.count - a.count);
+
     return NextResponse.json({
       leads,
       total: total.count,
       limit,
       offset,
       cities: citiesList.map(c => c.city),
+      keywords: keywordsWithCounts,
     });
   } catch (error: unknown) {
     console.error('Leads list error:', error);
