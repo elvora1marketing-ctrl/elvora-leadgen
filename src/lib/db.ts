@@ -140,6 +140,41 @@ CREATE TABLE IF NOT EXISTS scraper_jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_scraper_status ON scraper_jobs(status);
+
+CREATE TABLE IF NOT EXISTS inbox_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id INTEGER,
+  from_email TEXT NOT NULL,
+  from_name TEXT,
+  to_email TEXT,
+  subject TEXT,
+  body_text TEXT,
+  body_html TEXT,
+  message_id TEXT,
+  in_reply_to TEXT,
+  is_read INTEGER DEFAULT 0,
+  is_archived INTEGER DEFAULT 0,
+  source TEXT DEFAULT 'resend' CHECK(source IN ('resend','webhook','manual')),
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_lead ON inbox_messages(lead_id);
+CREATE INDEX IF NOT EXISTS idx_inbox_read ON inbox_messages(is_read);
+CREATE INDEX IF NOT EXISTS idx_inbox_from ON inbox_messages(from_email);
+
+CREATE TABLE IF NOT EXISTS email_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id INTEGER,
+  tracking_id TEXT,
+  event_type TEXT NOT NULL CHECK(event_type IN ('delivered','opened','clicked','bounced','complained','failed')),
+  payload TEXT DEFAULT '{}',
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_events_lead ON email_events(lead_id);
+CREATE INDEX IF NOT EXISTS idx_email_events_type ON email_events(event_type);
 `;
 
 const DEFAULT_SETTINGS: Record<string, string> = {

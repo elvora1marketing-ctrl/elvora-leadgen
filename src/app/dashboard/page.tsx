@@ -19,6 +19,22 @@ interface Stats {
     sentThisWeek: number;
     next: Array<{ step: number; scheduled_at: string; name: string; city: string }>;
   };
+  inbox: {
+    total: number;
+    unread: number;
+    thisWeek: number;
+    recent: Array<{
+      id: number;
+      from_name: string;
+      from_email: string;
+      subject: string;
+      body_text: string;
+      is_read: number;
+      created_at: string;
+      lead_name: string | null;
+      lead_city: string | null;
+    }>;
+  };
   pendingFollowUps: number;
 }
 
@@ -130,6 +146,49 @@ export default function DashboardPage() {
                   </a>
                 )}
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Inbox / Recent Replies */}
+      {stats && stats.inbox.unread > 0 && (
+        <div className="glass rounded-xl p-4 mb-5 border border-elvora-pink/20">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-elvora-pink" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <span className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider">Neue Antworten</span>
+              <span className="px-2 py-0.5 rounded-full bg-elvora-pink/20 text-elvora-pink text-[10px] font-bold animate-pulse">
+                {stats.inbox.unread} ungelesen
+              </span>
+            </div>
+            <Link href="/inbox" className="text-xs text-elvora-pink hover:text-elvora-pink-light transition-colors">
+              Alle anzeigen &rarr;
+            </Link>
+          </div>
+
+          <div className="space-y-2">
+            {stats.inbox.recent.filter(r => !r.is_read).slice(0, 3).map(reply => (
+              <Link
+                key={reply.id}
+                href="/inbox"
+                className="flex items-center gap-3 p-3 rounded-lg bg-elvora-pink/5 border border-elvora-pink/10 hover:bg-elvora-pink/10 transition-all"
+              >
+                <div className="w-8 h-8 rounded-full bg-elvora-gradient flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                  {(reply.lead_name || reply.from_name || reply.from_email)[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-white truncate">
+                    {reply.lead_name || reply.from_name || reply.from_email}
+                  </div>
+                  <div className="text-xs text-elvora-text-dim truncate">{reply.subject}</div>
+                </div>
+                {reply.lead_city && (
+                  <span className="text-[10px] text-elvora-text-dim flex-shrink-0">{reply.lead_city}</span>
+                )}
+              </Link>
             ))}
           </div>
         </div>

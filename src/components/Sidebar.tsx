@@ -2,10 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthProvider';
 
-const navItems = [
+const navItems: Array<{
+  label: string;
+  href: string;
+  icon: React.ReactNode;
+  badge?: boolean;
+  inboxBadge?: boolean;
+}> = [
   {
     label: 'Übersicht',
     href: '/dashboard',
@@ -44,6 +50,16 @@ const navItems = [
     ),
   },
   {
+    label: 'Inbox',
+    href: '/inbox',
+    inboxBadge: true,
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+  {
     label: 'Maps Scraper',
     href: '/scraper',
     icon: (
@@ -77,12 +93,31 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [inboxCount, setInboxCount] = useState(0);
   const { logout } = useAuth();
+
+  // Fetch inbox unread count
+  const loadInboxCount = useCallback(async () => {
+    try {
+      const res = await fetch('/api/inbox?unread=1&limit=1');
+      if (res.ok) {
+        const data = await res.json();
+        setInboxCount(data.unreadCount || 0);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => {
+    loadInboxCount();
+    const interval = setInterval(loadInboxCount, 30000); // Poll every 30s
+    return () => clearInterval(interval);
+  }, [loadInboxCount]);
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
     setOpen(false);
-  }, [pathname]);
+    loadInboxCount(); // Refresh count on navigation
+  }, [pathname, loadInboxCount]);
 
   // Prevent body scroll when sidebar open on mobile
   useEffect(() => {
@@ -166,6 +201,11 @@ export default function Sidebar() {
                 {item.badge && (
                   <span className="ml-auto bg-elvora-pink/20 text-elvora-pink text-xs font-semibold px-2 py-0.5 rounded-full">
                     12
+                  </span>
+                )}
+                {item.inboxBadge && inboxCount > 0 && (
+                  <span className="ml-auto bg-elvora-pink/20 text-elvora-pink text-xs font-semibold px-2 py-0.5 rounded-full animate-pulse">
+                    {inboxCount}
                   </span>
                 )}
               </Link>

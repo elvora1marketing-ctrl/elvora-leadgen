@@ -111,6 +111,25 @@ export async function GET() {
       LIMIT 5
     `).all();
 
+    // Inbox stats
+    const inboxStats = db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN is_read = 0 AND is_archived = 0 THEN 1 ELSE 0 END) as unread,
+        SUM(CASE WHEN date(created_at) >= date('now', '-7 days') THEN 1 ELSE 0 END) as this_week
+      FROM inbox_messages
+    `).get() as { total: number; unread: number; this_week: number };
+
+    const recentReplies = db.prepare(`
+      SELECT m.id, m.from_name, m.from_email, m.subject, m.body_text, m.is_read, m.created_at,
+             l.name as lead_name, l.city as lead_city
+      FROM inbox_messages m
+      LEFT JOIN leads l ON m.lead_id = l.id
+      WHERE m.is_archived = 0
+      ORDER BY m.created_at DESC
+      LIMIT 5
+    `).all();
+
     // Conversion rate
     const openRate = emailStats.total_sent > 0
       ? Math.round((emailStats.opened / emailStats.total_sent) * 100)
@@ -145,6 +164,12 @@ export async function GET() {
         activeDeals: pipelineValue.active_deals || 0,
       },
       audits: auditStats,
+      inbox: {
+        total: inboxStats.total || 0,
+        unread: inboxStats.unread || 0,
+        thisWeek: inboxStats.this_week || 0,
+        recent: recentReplies,
+      },
       hotLeads,
       recentScans,
       followUps: {
