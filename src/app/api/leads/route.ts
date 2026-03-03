@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
       SELECT l.id, l.name, l.email, l.phone, l.city, l.website_original as website,
              l.score, l.status, l.contact_status, l.priority, l.deal_value,
              l.notes, l.followup_date, l.problems, l.seo_issues,
-             l.found_via_keywords, l.times_found, l.rating, l.source,
+             l.found_via_keywords, l.times_found, l.rating,
              l.engagement_score, l.engagement_signals,
              l.created_at, l.contacted_at, l.updated_at,
              (SELECT COUNT(*) FROM follow_ups f WHERE f.lead_id = l.id AND f.status = 'pending') as pending_followups,

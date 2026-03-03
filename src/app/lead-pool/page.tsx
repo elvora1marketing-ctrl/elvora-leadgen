@@ -17,7 +17,6 @@ interface PoolLead {
   seo_issues: string | null;
   found_via_keywords: string | null;
   times_found: number;
-  source: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -701,14 +700,7 @@ export default function LeadPoolPage() {
                         />
                       </td>
                       <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-white font-medium text-sm truncate max-w-[180px]">{lead.name}</span>
-                          {lead.source === 'inbound_check' && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-elvora-success/15 text-elvora-success flex-shrink-0">
-                              INBOUND
-                            </span>
-                          )}
-                        </div>
+                        <span className="text-white font-medium text-sm block truncate max-w-[200px]">{lead.name}</span>
                         {lead.website && (
                           <a
                             href={lead.website}

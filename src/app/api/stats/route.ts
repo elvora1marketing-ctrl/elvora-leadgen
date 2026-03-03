@@ -156,22 +156,6 @@ export async function GET() {
       engagement_score: number; engagement_signals: string; contact_status: string;
     }>;
 
-    // Check page stats
-    let checkPageTotals = { views: 0, submissions: 0 };
-    let inboundLeadCount = 0;
-    try {
-      const cpStats = db.prepare(`
-        SELECT COALESCE(SUM(views), 0) as views, COALESCE(SUM(submissions), 0) as submissions
-        FROM check_page_stats
-      `).get() as { views: number; submissions: number };
-      checkPageTotals = cpStats;
-
-      const ibCount = db.prepare(
-        "SELECT COUNT(*) as count FROM leads WHERE source = 'inbound_check'"
-      ).get() as { count: number };
-      inboundLeadCount = ibCount.count;
-    } catch { /* table may not exist yet */ }
-
     // Conversion rate
     const openRate = emailStats.total_sent > 0
       ? Math.round((emailStats.opened / emailStats.total_sent) * 100)
@@ -206,11 +190,6 @@ export async function GET() {
         activeDeals: pipelineValue.active_deals || 0,
       },
       audits: auditStats,
-      checkPages: {
-        views: checkPageTotals.views,
-        submissions: checkPageTotals.submissions,
-        inboundLeads: inboundLeadCount,
-      },
       inbox: {
         total: inboxStats.total || 0,
         unread: inboxStats.unread || 0,

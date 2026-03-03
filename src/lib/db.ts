@@ -176,20 +176,6 @@ CREATE TABLE IF NOT EXISTS email_events (
 
 CREATE INDEX IF NOT EXISTS idx_email_events_lead ON email_events(lead_id);
 CREATE INDEX IF NOT EXISTS idx_email_events_type ON email_events(event_type);
-
-CREATE TABLE IF NOT EXISTS check_page_stats (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  branche TEXT NOT NULL,
-  stadt TEXT NOT NULL,
-  branche_slug TEXT NOT NULL,
-  stadt_slug TEXT NOT NULL,
-  views INTEGER DEFAULT 0,
-  submissions INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(branche_slug, stadt_slug)
-);
-
-CREATE INDEX IF NOT EXISTS idx_check_stats_slugs ON check_page_stats(branche_slug, stadt_slug);
 `;
 
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -319,18 +305,6 @@ export function getDb(): Database.Database {
       }
     } catch (e) {
       console.error('[DB] Engagement columns migration error:', e);
-    }
-
-    // Migration: Add source column to leads if missing
-    try {
-      const leadCols = db.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
-      const leadColNames = leadCols.map(c => c.name);
-      if (!leadColNames.includes('source')) {
-        db.exec("ALTER TABLE leads ADD COLUMN source TEXT DEFAULT 'outbound'");
-        console.log('[DB] Migration: added source column to leads');
-      }
-    } catch (e) {
-      console.error('[DB] Source column migration error:', e);
     }
 
     // Insert default settings (only if not already set)
