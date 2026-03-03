@@ -60,6 +60,17 @@ export interface ParsedSeoIssue {
   impact: 'high' | 'medium' | 'low';
 }
 
+export interface CheckPageStats {
+  id: number;
+  branche: string;
+  stadt: string;
+  branche_slug: string;
+  stadt_slug: string;
+  views: number;
+  submissions: number;
+  created_at: string;
+}
+
 export interface AuditPage {
   id: number;
   lead_id: number;
