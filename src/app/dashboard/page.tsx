@@ -9,6 +9,7 @@ interface Stats {
   email: { totalSent: number; opened: number; openRate: number };
   pipeline: { activeValue: number; wonValue: number; activeDeals: number };
   audits: { total_audits: number; total_views: number; total_cta_clicks: number };
+  checkPages: { views: number; submissions: number; inboundLeads: number };
   hotLeads: Array<{ id: number; name: string; city: string; score: number; phone: string; email: string; contact_status: string; audit_views: number; cta_clicks: number; audit_slug: string }>;
   recentScans: Array<{ keyword: string; city: string; leads_found: number; leads_new: number; status: string; time: string }>;
   followUps: {
@@ -357,6 +358,42 @@ export default function DashboardPage() {
             <div>
               <div className="text-lg font-bold text-elvora-success">{stats.audits.total_cta_clicks}</div>
               <div className="text-[10px] text-elvora-text-dim">CTA Klicks</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inbound Check-Seiten */}
+      {stats && (stats.checkPages.views > 0 || stats.checkPages.inboundLeads > 0) && (
+        <div className="glass rounded-xl p-4 mb-5 border border-elvora-success/20">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-elvora-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 17l-4 4m0 0l-4-4m4 4V3" />
+              </svg>
+              <span className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider">Inbound Check-Seiten</span>
+              {stats.checkPages.inboundLeads > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-elvora-success/20 text-elvora-success text-[10px] font-bold">
+                  {stats.checkPages.inboundLeads} Leads
+                </span>
+              )}
+            </div>
+            <Link href="/check-overview" className="text-xs text-elvora-success hover:text-elvora-success/80 transition-colors">
+              Details &rarr;
+            </Link>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <div className="text-lg font-bold text-elvora-accent">{stats.checkPages.views}</div>
+              <div className="text-[10px] text-elvora-text-dim">Seitenaufrufe</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-elvora-warning">{stats.checkPages.submissions}</div>
+              <div className="text-[10px] text-elvora-text-dim">Checks gemacht</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-elvora-success">{stats.checkPages.inboundLeads}</div>
+              <div className="text-[10px] text-elvora-text-dim">Inbound Leads</div>
             </div>
           </div>
         </div>
