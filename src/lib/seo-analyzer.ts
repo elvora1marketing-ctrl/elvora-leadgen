@@ -1078,12 +1078,12 @@ async function fetchPageSpeedInsights(url: string): Promise<PageSpeedData | unde
     const fcpAudit = audits['first-contentful-paint'];
     const siAudit = audits['speed-index'];
 
-    function getRating(score: number | null, thresholds: [number, number]): 'good' | 'needs-improvement' | 'poor' {
+    const getRating = (score: number | null, thresholds: [number, number]): 'good' | 'needs-improvement' | 'poor' => {
       if (score === null) return 'poor';
       if (score >= thresholds[1]) return 'good';
       if (score >= thresholds[0]) return 'needs-improvement';
       return 'poor';
-    }
+    };
 
     // Extract opportunities (performance improvement suggestions)
     const opportunities: PageSpeedOpportunity[] = [];
