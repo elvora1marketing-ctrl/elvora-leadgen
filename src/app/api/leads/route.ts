@@ -35,8 +35,9 @@ export async function GET(request: NextRequest) {
       values.push(contactStatus);
     }
     if (city) {
-      conditions.push('l.city = ?');
-      values.push(city);
+      // Smart city filter: "Düsseldorf" matches "Düsseldorf", "Düsseldorf-Bilk", etc.
+      conditions.push("(l.city = ? OR l.city LIKE ? || ' %' OR l.city LIKE ? || '-%')");
+      values.push(city, city, city);
     }
     if (minScore) {
       conditions.push('l.score >= ?');
@@ -59,7 +60,9 @@ export async function GET(request: NextRequest) {
       conditions.push("l.email IS NOT NULL AND l.email != ''");
     }
     if (keyword) {
-      conditions.push("(',' || l.found_via_keywords || ',') LIKE ('%,' || ? || ',%')");
+      // Smart keyword filter: matches partial keywords too
+      // "Pflegedienst" matches "Pflegedienst Düsseldorf", "Pflegedienst Köln", etc.
+      conditions.push("l.found_via_keywords LIKE '%' || ? || '%'");
       values.push(keyword);
     }
 
@@ -105,17 +108,56 @@ export async function GET(request: NextRequest) {
       const statusCounts = db.prepare("SELECT status, COUNT(*) as count FROM leads GROUP BY status").all() as { status: string; count: number }[];
       result.statusCounts = statusCounts;
 
-      // City counts (top cities)
-      const cityCounts = db.prepare("SELECT city, COUNT(*) as count FROM leads WHERE city IS NOT NULL AND city != '' GROUP BY city ORDER BY count DESC").all() as { city: string; count: number }[];
-      result.cityCounts = cityCounts;
+      // City counts — group by main city (e.g. "Düsseldorf-Bilk" → "Düsseldorf")
+      const rawCityCounts = db.prepare("SELECT city, COUNT(*) as count FROM leads WHERE city IS NOT NULL AND city != '' GROUP BY city ORDER BY count DESC").all() as { city: string; count: number }[];
+      const groupedCities: Record<string, number> = {};
+      for (const row of rawCityCounts) {
+        // Extract main city: split on "-", " ", "/" and take first part
+        // "Düsseldorf-Bilk" → "Düsseldorf", "Köln Ehrenfeld" → "Köln", "Frankfurt am Main" stays
+        let mainCity = row.city.trim();
+        // Handle "Stadt-Stadtteil" pattern
+        const dashParts = mainCity.split('-');
+        if (dashParts.length > 1 && dashParts[0].length >= 3) {
+          mainCity = dashParts[0].trim();
+        }
+        // Handle "Stadt Stadtteil" but not "Frankfurt am Main" or "Freiburg im Breisgau"
+        const spaceParts = mainCity.split(' ');
+        if (spaceParts.length > 1 && !['am', 'im', 'an', 'ob', 'bei', 'in'].includes(spaceParts[1].toLowerCase())) {
+          mainCity = spaceParts[0].trim();
+        }
+        groupedCities[mainCity] = (groupedCities[mainCity] || 0) + row.count;
+      }
+      result.cityCounts = Object.entries(groupedCities)
+        .map(([city, count]) => ({ city, count }))
+        .sort((a, b) => b.count - a.count);
 
+      // Keyword counts — group by service type (strip city from keyword)
       const keywordRows = db.prepare("SELECT found_via_keywords FROM leads WHERE found_via_keywords IS NOT NULL AND found_via_keywords != ''").all() as { found_via_keywords: string }[];
+      // Collect all known city names for stripping
+      const allCityNames = new Set(rawCityCounts.map(c => c.city.toLowerCase()));
+      // Also add grouped main cities
+      for (const mainCity of Object.keys(groupedCities)) {
+        allCityNames.add(mainCity.toLowerCase());
+      }
+
       const keywordCounts: Record<string, number> = {};
       for (const row of keywordRows) {
         row.found_via_keywords.split(',').forEach(k => {
           const trimmed = k.trim();
-          if (trimmed) {
-            keywordCounts[trimmed] = (keywordCounts[trimmed] || 0) + 1;
+          if (!trimmed) return;
+
+          // Extract the service part by removing city names from the keyword
+          // "Pflegedienst Düsseldorf" → "Pflegedienst", "SHK Betrieb Köln" → "SHK Betrieb"
+          let service = trimmed;
+          const words = trimmed.split(/\s+/);
+          const serviceWords = words.filter(w => !allCityNames.has(w.toLowerCase()));
+          if (serviceWords.length > 0 && serviceWords.length < words.length) {
+            service = serviceWords.join(' ');
+          }
+          // Normalize: trim, lowercase first letter check
+          service = service.trim();
+          if (service) {
+            keywordCounts[service] = (keywordCounts[service] || 0) + 1;
           }
         });
       }
