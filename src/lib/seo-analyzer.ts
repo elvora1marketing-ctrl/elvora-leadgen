@@ -28,6 +28,40 @@ export interface SeoIssueDetail {
   recommendation?: string;
 }
 
+export interface PageSpeedData {
+  performance: number;       // 0-100
+  accessibility: number;     // 0-100
+  bestPractices: number;     // 0-100
+  seo: number;               // 0-100
+  coreWebVitals: {
+    lcp: { value: number; unit: string; rating: 'good' | 'needs-improvement' | 'poor' };
+    cls: { value: number; unit: string; rating: 'good' | 'needs-improvement' | 'poor' };
+    tbt: { value: number; unit: string; rating: 'good' | 'needs-improvement' | 'poor' };
+    fcp: { value: number; unit: string; rating: 'good' | 'needs-improvement' | 'poor' };
+    si: { value: number; unit: string; rating: 'good' | 'needs-improvement' | 'poor' };
+  };
+  opportunities: PageSpeedOpportunity[];
+}
+
+export interface PageSpeedOpportunity {
+  id: string;
+  title: string;
+  description: string;
+  savings?: string;
+}
+
+export interface DomainAuthority {
+  domain: string;
+  pageRank: number;         // 0-10
+  rank: number | null;       // global rank
+}
+
+export interface KeywordData {
+  word: string;
+  count: number;
+  density: number;           // percentage
+}
+
 export interface SeoAuditResult {
   url: string;
   finalUrl: string;
@@ -49,6 +83,11 @@ export interface SeoAuditResult {
     minor: number;
     passed: number;
   };
+  // Enhanced data from external APIs
+  pageSpeed?: PageSpeedData;
+  domainAuthority?: DomainAuthority;
+  keywords?: KeywordData[];
+  techStack?: string[];
   analyzedAt: string;
   responseTimeMs: number;
 }
@@ -156,10 +195,13 @@ export async function runSeoAudit(url: string): Promise<SeoAuditResult> {
   const htmlLower = html.toLowerCase();
   const baseUrl = new URL(finalUrl).origin;
 
-  // Fetch additional resources in parallel
-  const [sitemapExists, robotsTxt] = await Promise.all([
+  // Fetch additional resources in parallel (including external APIs)
+  const domain = new URL(finalUrl).hostname.replace(/^www\./, '');
+  const [sitemapExists, robotsTxt, pageSpeedData, domainAuthority] = await Promise.all([
     checkUrlExists(baseUrl + '/sitemap.xml'),
     fetchRobotsTxt(baseUrl),
+    fetchPageSpeedInsights(finalUrl).catch(() => undefined),
+    fetchDomainAuthority(domain).catch(() => undefined),
   ]);
 
   // Run all category checks
@@ -172,6 +214,10 @@ export async function runSeoAudit(url: string): Promise<SeoAuditResult> {
   const security = checkSecurity(hasSSL, headers);
   const mobile = checkMobile(html, htmlLower);
   const content = checkContent(html, htmlLower);
+
+  // Extract keywords and tech stack
+  const keywords = extractKeywords(html);
+  const techStack = detectTechStack(html, htmlLower, headers);
 
   const totalScore = metaTags.score + headings.score + links.score +
     performance.score + indexability.score + schema.score +
@@ -195,6 +241,10 @@ export async function runSeoAudit(url: string): Promise<SeoAuditResult> {
       minor: allIssues.filter(i => i.severity === 'minor').length,
       passed: allIssues.filter(i => i.severity === 'pass').length,
     },
+    pageSpeed: pageSpeedData,
+    domainAuthority,
+    keywords,
+    techStack,
     analyzedAt: new Date().toISOString(),
     responseTimeMs,
   };
@@ -999,6 +1049,279 @@ function extractDomain(url: string): string {
     return url.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
   }
 }
+
+// ─── Google PageSpeed Insights API ──────────────────────────────────────────
+
+async function fetchPageSpeedInsights(url: string): Promise<PageSpeedData | undefined> {
+  try {
+    const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=mobile&category=performance&category=accessibility&category=best-practices&category=seo`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout for PSI
+
+    const response = await fetch(apiUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!response.ok) return undefined;
+
+    const data = await response.json();
+    const lighthouse = data.lighthouseResult;
+    if (!lighthouse) return undefined;
+
+    const categories = lighthouse.categories || {};
+    const audits = lighthouse.audits || {};
+
+    // Extract Core Web Vitals
+    const lcpAudit = audits['largest-contentful-paint'];
+    const clsAudit = audits['cumulative-layout-shift'];
+    const tbtAudit = audits['total-blocking-time'];
+    const fcpAudit = audits['first-contentful-paint'];
+    const siAudit = audits['speed-index'];
+
+    function getRating(score: number | null, thresholds: [number, number]): 'good' | 'needs-improvement' | 'poor' {
+      if (score === null) return 'poor';
+      if (score >= thresholds[1]) return 'good';
+      if (score >= thresholds[0]) return 'needs-improvement';
+      return 'poor';
+    }
+
+    // Extract opportunities (performance improvement suggestions)
+    const opportunities: PageSpeedOpportunity[] = [];
+    const opportunityIds = [
+      'render-blocking-resources', 'unused-css-rules', 'unused-javascript',
+      'modern-image-formats', 'uses-optimized-images', 'uses-responsive-images',
+      'efficient-animated-content', 'uses-text-compression', 'uses-rel-preconnect',
+      'server-response-time', 'redirects', 'uses-rel-preload',
+      'offscreen-images', 'unminified-css', 'unminified-javascript',
+      'dom-size', 'critical-request-chains', 'font-display',
+    ];
+
+    for (const id of opportunityIds) {
+      const audit = audits[id];
+      if (audit && audit.score !== null && audit.score < 1 && audit.details?.overallSavingsMs > 100) {
+        opportunities.push({
+          id,
+          title: audit.title || id,
+          description: audit.description || '',
+          savings: audit.details?.overallSavingsMs
+            ? `${Math.round(audit.details.overallSavingsMs)}ms`
+            : audit.details?.overallSavingsBytes
+              ? `${Math.round(audit.details.overallSavingsBytes / 1024)}KB`
+              : undefined,
+        });
+      }
+    }
+
+    return {
+      performance: Math.round((categories.performance?.score || 0) * 100),
+      accessibility: Math.round((categories.accessibility?.score || 0) * 100),
+      bestPractices: Math.round((categories['best-practices']?.score || 0) * 100),
+      seo: Math.round((categories.seo?.score || 0) * 100),
+      coreWebVitals: {
+        lcp: {
+          value: lcpAudit?.numericValue || 0,
+          unit: 'ms',
+          rating: getRating(lcpAudit?.score, [0.5, 0.9]),
+        },
+        cls: {
+          value: clsAudit?.numericValue || 0,
+          unit: '',
+          rating: getRating(clsAudit?.score, [0.5, 0.9]),
+        },
+        tbt: {
+          value: tbtAudit?.numericValue || 0,
+          unit: 'ms',
+          rating: getRating(tbtAudit?.score, [0.5, 0.9]),
+        },
+        fcp: {
+          value: fcpAudit?.numericValue || 0,
+          unit: 'ms',
+          rating: getRating(fcpAudit?.score, [0.5, 0.9]),
+        },
+        si: {
+          value: siAudit?.numericValue || 0,
+          unit: 'ms',
+          rating: getRating(siAudit?.score, [0.5, 0.9]),
+        },
+      },
+      opportunities: opportunities.slice(0, 6),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+
+// ─── Open PageRank API (Domain Authority) ───────────────────────────────────
+
+async function fetchDomainAuthority(domain: string): Promise<DomainAuthority | undefined> {
+  try {
+    const apiUrl = `https://openpagerank.com/api/v1.0/getPageRank?domains%5B0%5D=${encodeURIComponent(domain)}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(apiUrl, {
+      signal: controller.signal,
+      headers: { 'API-OPR': 'test' }, // Free tier key
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) return undefined;
+
+    const data = await response.json();
+    const result = data?.response?.[0];
+
+    if (!result || result.status_code !== 200) return undefined;
+
+    return {
+      domain: result.domain || domain,
+      pageRank: result.page_rank_decimal || 0,
+      rank: result.rank || null,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+
+// ─── Keyword Extraction ─────────────────────────────────────────────────────
+
+function extractKeywords(html: string): KeywordData[] {
+  // Strip HTML to get text content
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  // German stop words
+  const stopWords = new Set([
+    'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer', 'einem', 'einen', 'eines',
+    'und', 'oder', 'aber', 'doch', 'wenn', 'weil', 'dass', 'als', 'wie', 'auch', 'noch', 'schon',
+    'ist', 'sind', 'war', 'wird', 'hat', 'haben', 'kann', 'können', 'soll', 'sollen', 'muss',
+    'für', 'mit', 'von', 'auf', 'aus', 'bei', 'nach', 'vor', 'über', 'unter', 'zwischen',
+    'nicht', 'kein', 'keine', 'nur', 'mehr', 'sehr', 'wir', 'sie', 'uns', 'ihr', 'ich',
+    'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her', 'was', 'one',
+    'our', 'out', 'this', 'that', 'with', 'from', 'your', 'have', 'been', 'will', 'than',
+    'sich', 'man', 'hier', 'dort', 'dann', 'denn', 'diese', 'dieser', 'dieses', 'jede',
+    'alle', 'zum', 'zur', 'bis', 'seit', 'durch', 'ohne', 'gegen', 'um', 'an', 'in', 'zu',
+  ]);
+
+  const words = text.split(/[\s,.;:!?()\[\]{}"'\/\\]+/).filter(w =>
+    w.length >= 3 && !stopWords.has(w) && !/^\d+$/.test(w)
+  );
+
+  // Count word frequencies
+  const freq = new Map<string, number>();
+  for (const word of words) {
+    freq.set(word, (freq.get(word) || 0) + 1);
+  }
+
+  const totalWords = words.length;
+
+  // Sort by frequency and return top 15
+  return Array.from(freq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15)
+    .map(([word, count]) => ({
+      word,
+      count,
+      density: totalWords > 0 ? Math.round((count / totalWords) * 1000) / 10 : 0,
+    }));
+}
+
+
+// ─── Tech Stack Detection ───────────────────────────────────────────────────
+
+function detectTechStack(html: string, htmlLower: string, headers: Record<string, string>): string[] {
+  const stack: string[] = [];
+
+  // Frameworks
+  const frameworks: [RegExp, string][] = [
+    [/_next\//i, 'Next.js'],
+    [/__nuxt/i, 'Nuxt.js'],
+    [/__gatsby/i, 'Gatsby'],
+    [/react/i, 'React'],
+    [/vue\.?js|__vue/i, 'Vue.js'],
+    [/angular/i, 'Angular'],
+    [/svelte/i, 'Svelte'],
+  ];
+
+  // CMS
+  const cmsPatterns: [RegExp, string][] = [
+    [/wp-content|wp-includes|wordpress/i, 'WordPress'],
+    [/joomla/i, 'Joomla'],
+    [/drupal/i, 'Drupal'],
+    [/typo3/i, 'TYPO3'],
+    [/contao/i, 'Contao'],
+  ];
+
+  // Builders
+  const builders: [RegExp, string][] = [
+    [/wix\.com|wixsite/i, 'Wix'],
+    [/squarespace/i, 'Squarespace'],
+    [/webflow/i, 'Webflow'],
+    [/shopify/i, 'Shopify'],
+    [/jimdo/i, 'Jimdo'],
+    [/weebly/i, 'Weebly'],
+    [/1und1|ionos/i, 'IONOS'],
+    [/strato/i, 'Strato'],
+    [/duda/i, 'Duda'],
+  ];
+
+  // CSS Frameworks
+  const cssFrameworks: [RegExp, string][] = [
+    [/bootstrap/i, 'Bootstrap'],
+    [/tailwind/i, 'Tailwind CSS'],
+    [/foundation/i, 'Foundation'],
+    [/bulma/i, 'Bulma'],
+    [/materialize/i, 'Materialize'],
+  ];
+
+  // Analytics / Tracking
+  const analytics: [RegExp, string][] = [
+    [/google-analytics|gtag|googletagmanager|ga\.js|analytics\.js/i, 'Google Analytics'],
+    [/gtm\.js|googletagmanager/i, 'Google Tag Manager'],
+    [/facebook\.net\/.*fbevents|fbq\(/i, 'Facebook Pixel'],
+    [/hotjar/i, 'Hotjar'],
+    [/matomo|piwik/i, 'Matomo'],
+    [/clarity\.ms/i, 'Microsoft Clarity'],
+  ];
+
+  // Tools
+  const tools: [RegExp, string][] = [
+    [/recaptcha/i, 'reCAPTCHA'],
+    [/cloudflare/i, 'Cloudflare'],
+    [/jquery/i, 'jQuery'],
+    [/font-awesome|fontawesome/i, 'Font Awesome'],
+    [/google.*fonts|fonts\.googleapis/i, 'Google Fonts'],
+    [/cookiebot|cookieconsent|borlabs/i, 'Cookie Consent'],
+  ];
+
+  const allPatterns = [...frameworks, ...cmsPatterns, ...builders, ...cssFrameworks, ...analytics, ...tools];
+
+  for (const [pattern, name] of allPatterns) {
+    if (pattern.test(html)) {
+      if (!stack.includes(name)) stack.push(name);
+    }
+  }
+
+  // Server from headers
+  const server = headers['server'] || headers['x-powered-by'] || '';
+  if (server && !stack.some(s => server.toLowerCase().includes(s.toLowerCase()))) {
+    if (server.toLowerCase().includes('nginx')) stack.push('Nginx');
+    else if (server.toLowerCase().includes('apache')) stack.push('Apache');
+    else if (server.toLowerCase().includes('cloudflare')) { if (!stack.includes('Cloudflare')) stack.push('Cloudflare'); }
+    else if (server.toLowerCase().includes('iis')) stack.push('IIS');
+  }
+
+  return stack;
+}
+
 
 function unreachableResult(url: string, responseTimeMs: number): SeoAuditResult {
   const emptyCategory = (name: string, max: number): SeoCategory => ({

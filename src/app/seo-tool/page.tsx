@@ -17,6 +17,40 @@ interface SeoCategory {
   issues: SeoIssueDetail[];
 }
 
+interface PageSpeedOpportunity {
+  id: string;
+  title: string;
+  description: string;
+  savings?: string;
+}
+
+interface PageSpeedData {
+  performance: number;
+  accessibility: number;
+  bestPractices: number;
+  seo: number;
+  coreWebVitals: {
+    lcp: { value: number; unit: string; rating: string };
+    cls: { value: number; unit: string; rating: string };
+    tbt: { value: number; unit: string; rating: string };
+    fcp: { value: number; unit: string; rating: string };
+    si: { value: number; unit: string; rating: string };
+  };
+  opportunities: PageSpeedOpportunity[];
+}
+
+interface DomainAuthority {
+  domain: string;
+  pageRank: number;
+  rank: number | null;
+}
+
+interface KeywordData {
+  word: string;
+  count: number;
+  density: number;
+}
+
 interface SeoAuditResult {
   url: string;
   finalUrl: string;
@@ -38,6 +72,10 @@ interface SeoAuditResult {
     minor: number;
     passed: number;
   };
+  pageSpeed?: PageSpeedData;
+  domainAuthority?: DomainAuthority;
+  keywords?: KeywordData[];
+  techStack?: string[];
   analyzedAt: string;
   responseTimeMs: number;
 }
@@ -346,6 +384,175 @@ export default function SeoToolPage() {
                   </div>
                 </div>
               </div>
+
+              {/* ═══ Google PageSpeed Insights ═══ */}
+              {auditResult.pageSpeed && (
+                <div className="glass rounded-xl p-4">
+                  <h3 className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-elvora-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    Google Lighthouse Scores
+                  </h3>
+
+                  {/* 4 Score Gauges */}
+                  <div className="grid grid-cols-4 gap-3 mb-4">
+                    {[
+                      { label: 'Performance', value: auditResult.pageSpeed.performance },
+                      { label: 'SEO', value: auditResult.pageSpeed.seo },
+                      { label: 'Accessibility', value: auditResult.pageSpeed.accessibility },
+                      { label: 'Best Practices', value: auditResult.pageSpeed.bestPractices },
+                    ].map(gauge => (
+                      <div key={gauge.label} className="text-center">
+                        <div className="relative w-16 h-16 mx-auto mb-1">
+                          <svg className="w-16 h-16 -rotate-90" viewBox="0 0 100 100">
+                            <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="8" className="text-white/5" />
+                            <circle cx="50" cy="50" r="42" fill="none" strokeWidth="8" strokeLinecap="round"
+                              strokeDasharray={`${gauge.value * 2.64} 264`}
+                              className={gauge.value >= 90 ? 'stroke-emerald-400' : gauge.value >= 50 ? 'stroke-orange-400' : 'stroke-red-400'}
+                            />
+                          </svg>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className={`text-lg font-bold ${gauge.value >= 90 ? 'text-emerald-400' : gauge.value >= 50 ? 'text-orange-400' : 'text-red-400'}`}>
+                              {gauge.value}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-elvora-text-dim">{gauge.label}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Core Web Vitals */}
+                  <div className="border-t border-white/5 pt-3">
+                    <h4 className="text-[10px] font-semibold text-elvora-text-dim uppercase tracking-wider mb-2">Core Web Vitals</h4>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: 'LCP', desc: 'Largest Contentful Paint', data: auditResult.pageSpeed.coreWebVitals.lcp, format: (v: number) => `${(v/1000).toFixed(1)}s` },
+                        { label: 'TBT', desc: 'Total Blocking Time', data: auditResult.pageSpeed.coreWebVitals.tbt, format: (v: number) => `${Math.round(v)}ms` },
+                        { label: 'CLS', desc: 'Cumulative Layout Shift', data: auditResult.pageSpeed.coreWebVitals.cls, format: (v: number) => v.toFixed(3) },
+                      ].map(cwv => (
+                        <div key={cwv.label} className={`rounded-lg p-2.5 border ${
+                          cwv.data.rating === 'good' ? 'bg-emerald-500/5 border-emerald-500/20' :
+                          cwv.data.rating === 'needs-improvement' ? 'bg-orange-500/5 border-orange-500/20' :
+                          'bg-red-500/5 border-red-500/20'
+                        }`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-bold text-white">{cwv.label}</span>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                              cwv.data.rating === 'good' ? 'bg-emerald-500/20 text-emerald-400' :
+                              cwv.data.rating === 'needs-improvement' ? 'bg-orange-500/20 text-orange-400' :
+                              'bg-red-500/20 text-red-400'
+                            }`}>
+                              {cwv.data.rating === 'good' ? 'GUT' : cwv.data.rating === 'needs-improvement' ? 'MITTEL' : 'SCHLECHT'}
+                            </span>
+                          </div>
+                          <div className={`text-lg font-bold ${
+                            cwv.data.rating === 'good' ? 'text-emerald-400' :
+                            cwv.data.rating === 'needs-improvement' ? 'text-orange-400' : 'text-red-400'
+                          }`}>
+                            {cwv.format(cwv.data.value)}
+                          </div>
+                          <div className="text-[9px] text-elvora-text-dim">{cwv.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Opportunities */}
+                  {auditResult.pageSpeed.opportunities.length > 0 && (
+                    <div className="border-t border-white/5 pt-3 mt-3">
+                      <h4 className="text-[10px] font-semibold text-elvora-text-dim uppercase tracking-wider mb-2">Optimierungspotenzial</h4>
+                      <div className="space-y-1">
+                        {auditResult.pageSpeed.opportunities.map(opp => (
+                          <div key={opp.id} className="flex items-center gap-2 p-1.5 rounded bg-white/[0.02]">
+                            <svg className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01" />
+                            </svg>
+                            <span className="text-xs text-elvora-text-dim flex-1 truncate">{opp.title}</span>
+                            {opp.savings && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 font-mono flex-shrink-0">
+                                -{opp.savings}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ═══ Domain Authority + Tech Stack Row ═══ */}
+              {(auditResult.domainAuthority || (auditResult.techStack && auditResult.techStack.length > 0)) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Domain Authority */}
+                  {auditResult.domainAuthority && (
+                    <div className="glass rounded-xl p-4">
+                      <h3 className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider mb-3">Domain Authority</h3>
+                      <div className="flex items-center gap-4">
+                        <div className={`w-16 h-16 rounded-full border-2 flex items-center justify-center ${
+                          auditResult.domainAuthority.pageRank >= 5 ? 'border-emerald-500/50 bg-emerald-500/10' :
+                          auditResult.domainAuthority.pageRank >= 3 ? 'border-yellow-500/50 bg-yellow-500/10' :
+                          'border-red-500/50 bg-red-500/10'
+                        }`}>
+                          <span className={`text-xl font-bold ${
+                            auditResult.domainAuthority.pageRank >= 5 ? 'text-emerald-400' :
+                            auditResult.domainAuthority.pageRank >= 3 ? 'text-yellow-400' : 'text-red-400'
+                          }`}>
+                            {auditResult.domainAuthority.pageRank.toFixed(1)}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="text-sm text-white font-medium">{auditResult.domainAuthority.domain}</div>
+                          <div className="text-[10px] text-elvora-text-dim">
+                            PageRank: {auditResult.domainAuthority.pageRank.toFixed(1)}/10
+                          </div>
+                          {auditResult.domainAuthority.rank && (
+                            <div className="text-[10px] text-elvora-text-dim">
+                              Globaler Rang: #{auditResult.domainAuthority.rank.toLocaleString('de-DE')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tech Stack */}
+                  {auditResult.techStack && auditResult.techStack.length > 0 && (
+                    <div className="glass rounded-xl p-4">
+                      <h3 className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider mb-3">Tech Stack</h3>
+                      <div className="flex flex-wrap gap-1.5">
+                        {auditResult.techStack.map(tech => (
+                          <span key={tech} className="px-2 py-1 rounded-md bg-elvora-primary/10 border border-elvora-primary/20 text-xs text-elvora-primary font-medium">
+                            {tech}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ═══ Keyword Density ═══ */}
+              {auditResult.keywords && auditResult.keywords.length > 0 && (
+                <div className="glass rounded-xl p-4">
+                  <h3 className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider mb-3">Top Keywords (Keyword-Dichte)</h3>
+                  <div className="grid grid-cols-3 md:grid-cols-5 gap-1.5">
+                    {auditResult.keywords.slice(0, 10).map((kw, idx) => (
+                      <div key={kw.word} className="rounded-lg p-2 bg-white/[0.02] border border-white/5 text-center">
+                        <div className="text-xs text-white font-medium truncate">{kw.word}</div>
+                        <div className="flex items-center justify-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-elvora-text-dim">{kw.count}x</span>
+                          <span className={`text-[10px] font-mono font-bold ${
+                            idx < 3 ? 'text-elvora-primary' : 'text-elvora-text-dim'
+                          }`}>
+                            {kw.density}%
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Category Score Bars */}
               <div className="glass rounded-xl p-4">
