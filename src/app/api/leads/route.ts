@@ -132,10 +132,19 @@ export async function GET(request: NextRequest) {
         .sort((a, b) => b.count - a.count);
 
       // Keyword counts — group by service type (strip city from keyword)
+      // Keywords follow the pattern "[Service] [City]", e.g. "Sanitär Essen", "Pflegedienst Düsseldorf"
       const keywordRows = db.prepare("SELECT found_via_keywords FROM leads WHERE found_via_keywords IS NOT NULL AND found_via_keywords != ''").all() as { found_via_keywords: string }[];
-      // Collect all known city names for stripping
-      const allCityNames = new Set(rawCityCounts.map(c => c.city.toLowerCase()));
-      // Also add grouped main cities
+
+      // Build a comprehensive set of all city names (lowercase) for matching
+      const allCityNames = new Set<string>();
+      for (const row of rawCityCounts) {
+        const city = row.city.trim().toLowerCase();
+        allCityNames.add(city);
+        // Also add parts: "Düsseldorf-Bilk" → add "düsseldorf", "bilk"
+        city.split(/[-\s\/]/).forEach(part => {
+          if (part.length >= 3) allCityNames.add(part);
+        });
+      }
       for (const mainCity of Object.keys(groupedCities)) {
         allCityNames.add(mainCity.toLowerCase());
       }
@@ -146,15 +155,29 @@ export async function GET(request: NextRequest) {
           const trimmed = k.trim();
           if (!trimmed) return;
 
-          // Extract the service part by removing city names from the keyword
-          // "Pflegedienst Düsseldorf" → "Pflegedienst", "SHK Betrieb Köln" → "SHK Betrieb"
-          let service = trimmed;
+          // Strip city from keyword by checking from the end
+          // "Pflegedienst Düsseldorf" → "Pflegedienst"
+          // "SHK Betrieb Köln" → "SHK Betrieb"
+          // "Heizung Frankfurt am Main" → "Heizung"
           const words = trimmed.split(/\s+/);
-          const serviceWords = words.filter(w => !allCityNames.has(w.toLowerCase()));
-          if (serviceWords.length > 0 && serviceWords.length < words.length) {
-            service = serviceWords.join(' ');
+          let service = trimmed;
+
+          // Try removing last 1, 2, or 3 words if they match a city
+          for (let removeCount = 1; removeCount <= Math.min(3, words.length - 1); removeCount++) {
+            const maybeCityParts = words.slice(words.length - removeCount);
+            const maybeCity = maybeCityParts.join(' ').toLowerCase();
+            // Check if the last N words form a known city name
+            if (allCityNames.has(maybeCity)) {
+              service = words.slice(0, words.length - removeCount).join(' ');
+              break;
+            }
+            // Also check just the last word alone
+            if (removeCount === 1 && allCityNames.has(maybeCityParts[0].toLowerCase())) {
+              service = words.slice(0, -1).join(' ');
+              break;
+            }
           }
-          // Normalize: trim, lowercase first letter check
+
           service = service.trim();
           if (service) {
             keywordCounts[service] = (keywordCounts[service] || 0) + 1;
