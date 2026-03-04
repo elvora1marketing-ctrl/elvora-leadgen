@@ -96,10 +96,18 @@ export async function GET(request: NextRequest) {
       offset,
     };
 
-    // Only compute metadata (cities, keywords) when requested to avoid full table scans on every pagination/filter change
+    // Only compute metadata (cities, keywords, status counts) when requested
     if (includeMeta) {
       const citiesList = db.prepare("SELECT DISTINCT city FROM leads WHERE city IS NOT NULL AND city != '' ORDER BY city").all() as { city: string }[];
       result.cities = citiesList.map(c => c.city);
+
+      // Status counts for category overview
+      const statusCounts = db.prepare("SELECT status, COUNT(*) as count FROM leads GROUP BY status").all() as { status: string; count: number }[];
+      result.statusCounts = statusCounts;
+
+      // City counts (top cities)
+      const cityCounts = db.prepare("SELECT city, COUNT(*) as count FROM leads WHERE city IS NOT NULL AND city != '' GROUP BY city ORDER BY count DESC").all() as { city: string; count: number }[];
+      result.cityCounts = cityCounts;
 
       const keywordRows = db.prepare("SELECT found_via_keywords FROM leads WHERE found_via_keywords IS NOT NULL AND found_via_keywords != ''").all() as { found_via_keywords: string }[];
       const keywordCounts: Record<string, number> = {};
