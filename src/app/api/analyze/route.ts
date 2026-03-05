@@ -56,7 +56,6 @@ export async function POST(request: NextRequest) {
     if (body.batch) {
       const limit = body.limit || 50;
 
-      // Get leads with website but not yet analyzed (score = 0)
       const leads = db.prepare(`
         SELECT id, name, website_original
         FROM leads
@@ -98,7 +97,6 @@ export async function POST(request: NextRequest) {
 
           results.push({ id: lead.id, name: lead.name, score: result.score });
 
-          // Small delay between requests to avoid overwhelming targets
           await new Promise(resolve => setTimeout(resolve, 1500));
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : 'Unbekannter Fehler';
@@ -130,12 +128,46 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET /api/analyze - Get analysis statistics
+ * GET /api/analyze - Get analysis statistics & pending IDs
+ * Supports optional filters: ?status=...&city=...&keyword=...
+ * Without filters: returns ALL pending leads (no limit)
+ * With filters: returns only pending leads matching the filter
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const db = getDb();
+    const { searchParams } = new URL(request.url);
+    const filterStatus = searchParams.get('status') || '';
+    const filterCity = searchParams.get('city') || '';
+    const filterKeyword = searchParams.get('keyword') || '';
 
+    // Build WHERE conditions for filters
+    const conditions: string[] = [
+      "website_original IS NOT NULL",
+      "website_original != ''",
+      "score = 0",
+      "status != 'rejected'",
+    ];
+    const params: (string | number)[] = [];
+
+    if (filterStatus) {
+      conditions.push("status = ?");
+      params.push(filterStatus);
+    }
+
+    if (filterCity) {
+      conditions.push("(city = ? OR city LIKE ? || ' %' OR city LIKE ? || '-%')");
+      params.push(filterCity, filterCity, filterCity);
+    }
+
+    if (filterKeyword) {
+      conditions.push("found_via_keywords LIKE '%' || ? || '%'");
+      params.push(filterKeyword);
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Stats (unfiltered, for overview)
     const stats = db.prepare(`
       SELECT
         COUNT(*) as total,
@@ -176,16 +208,12 @@ export async function GET() {
         END
     `).all();
 
-    // Get IDs of unanalyzed leads (for frontend sequential analysis)
+    // Get ALL pending IDs matching the filter (NO LIMIT)
     const pendingIds = db.prepare(`
       SELECT id FROM leads
-      WHERE website_original IS NOT NULL
-        AND website_original != ''
-        AND score = 0
-        AND status != 'rejected'
+      WHERE ${whereClause}
       ORDER BY created_at DESC
-      LIMIT 200
-    `).all() as { id: number }[];
+    `).all(...params) as { id: number }[];
 
     return NextResponse.json({
       stats,

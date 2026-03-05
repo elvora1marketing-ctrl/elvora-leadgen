@@ -254,13 +254,18 @@ export default function LeadPoolPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Analyze all unscored leads
+  // Analyze all unscored leads (in current category if filtered)
   const analyzeAll = async () => {
     if (analyzing) return;
     setAnalyzing(true);
     setBulkMessage(null);
     try {
-      const statsRes = await fetch('/api/analyze');
+      // Pass current filters so only leads in the active category are analyzed
+      const analyzeParams = new URLSearchParams();
+      if (filterCity) analyzeParams.set('city', filterCity);
+      if (filterStatus) analyzeParams.set('status', filterStatus);
+      if (filterKeyword) analyzeParams.set('keyword', filterKeyword);
+      const statsRes = await fetch(`/api/analyze?${analyzeParams}`);
       const statsData = await statsRes.json();
       const pendingIds: number[] = statsData.pendingIds || [];
       if (pendingIds.length === 0) {
