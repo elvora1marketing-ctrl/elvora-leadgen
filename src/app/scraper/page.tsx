@@ -274,11 +274,11 @@ export default function ScraperPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Google Maps Scraper</h1>
-          <p className="text-sm text-elvora-text-dim mt-1">
-            Firmen aus Google Maps finden und als Leads importieren
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Google Maps Scraper</h1>
+          <p className="text-xs sm:text-sm text-elvora-text-dim mt-1">
+            Firmen aus Google Maps finden und importieren
           </p>
         </div>
         {showingResults && (
@@ -736,23 +736,23 @@ export default function ScraperPage() {
               return (
                 <div
                   key={job.id}
-                  className="px-4 py-3 flex items-center justify-between hover:bg-white/[0.02] transition-colors cursor-pointer"
+                  className="px-3 sm:px-4 py-3 flex items-center justify-between hover:bg-white/[0.02] transition-colors cursor-pointer gap-2"
                   onClick={() => viewJobResults(job.id)}
                 >
-                  <div className="flex items-center gap-4">
-                    <div className={`w-2 h-2 rounded-full ${
+                  <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
                       job.status === 'completed' ? 'bg-elvora-success' :
                       job.status === 'running' ? 'bg-elvora-primary animate-pulse' :
                       'bg-red-500'
                     }`} />
-                    <div>
-                      <span className="text-white text-sm font-medium">{job.keyword}</span>
-                      <span className="text-elvora-text-dim text-xs ml-3">
-                        {new Date(job.started_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    <div className="min-w-0">
+                      <span className="text-white text-sm font-medium truncate block">{job.keyword}</span>
+                      <span className="text-elvora-text-dim text-[10px] sm:text-xs">
+                        {new Date(job.started_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 text-xs">
+                  <div className="flex items-center gap-2 sm:gap-4 text-xs flex-shrink-0">
                     <span className="text-elvora-text-muted">
                       {job.businesses_found} gefunden
                     </span>

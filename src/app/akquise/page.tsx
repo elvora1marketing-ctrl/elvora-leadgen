@@ -258,9 +258,9 @@ export default function AkquisePage() {
     <div className="space-y-4">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Akquise</h1>
-        <p className="text-sm text-elvora-text-dim mt-1">
-          {total} Leads in Bearbeitung - Anrufe, Mails und Notizen dokumentieren
+        <h1 className="text-xl sm:text-2xl font-bold text-white">Akquise</h1>
+        <p className="text-xs sm:text-sm text-elvora-text-dim mt-1">
+          {total} Leads in Bearbeitung
         </p>
       </div>
 
@@ -332,7 +332,7 @@ export default function AkquisePage() {
             <div key={lead.id} className="card-glass rounded-xl overflow-hidden">
               {/* Lead Row */}
               <div
-                className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
                 onClick={() => toggleExpand(lead.id)}
               >
                 {/* Status badge */}
@@ -362,7 +362,7 @@ export default function AkquisePage() {
                 )}
 
                 {/* Contact info icons */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 sm:gap-2">
                   {lead.phone && (
                     <a
                       href={`tel:${lead.phone}`}
@@ -373,7 +373,7 @@ export default function AkquisePage() {
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                       </svg>
-                      Anrufen
+                      <span className="hidden sm:inline">Anrufen</span>
                     </a>
                   )}
                   {lead.website && (
@@ -382,7 +382,7 @@ export default function AkquisePage() {
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="px-2 py-1 rounded-lg bg-white/5 text-elvora-text-dim text-[11px] border border-white/10 hover:text-white hover:bg-white/10 transition-all"
+                      className="hidden sm:block px-2 py-1 rounded-lg bg-white/5 text-elvora-text-dim text-[11px] border border-white/10 hover:text-white hover:bg-white/10 transition-all"
                       title="Website"
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

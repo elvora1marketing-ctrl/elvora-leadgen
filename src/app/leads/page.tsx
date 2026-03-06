@@ -223,16 +223,16 @@ export default function LeadsPage() {
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
         <h1 className="text-lg font-bold text-white">Pipeline</h1>
-        <div className="flex items-center gap-3 text-xs sm:text-sm">
-          <span className="text-elvora-text-dim">{totalDeals} Deals</span>
-          <span className="text-elvora-accent font-semibold">{totalValue.toLocaleString('de-DE')} EUR</span>
-          {wonValue > 0 && <span className="text-elvora-success font-semibold">{wonValue.toLocaleString('de-DE')} gewonnen</span>}
+        <div className="flex items-center gap-2 sm:gap-3 text-xs overflow-x-auto">
+          <span className="text-elvora-text-dim whitespace-nowrap">{totalDeals} Deals</span>
+          <span className="text-elvora-accent font-semibold whitespace-nowrap">{totalValue.toLocaleString('de-DE')} EUR</span>
+          {wonValue > 0 && <span className="text-elvora-success font-semibold whitespace-nowrap hidden sm:inline">{wonValue.toLocaleString('de-DE')} gewonnen</span>}
           <button
             onClick={sendBulkEmails}
             disabled={bulkSending}
-            className="px-3 py-1.5 rounded-lg bg-elvora-gradient text-white text-xs font-semibold hover:shadow-elvora-lg transition-all disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg bg-elvora-gradient text-white text-xs font-semibold hover:shadow-elvora-lg transition-all disabled:opacity-50 whitespace-nowrap flex-shrink-0"
           >
             {bulkSending ? 'Sende...' : 'Alle pitchen'}
           </button>

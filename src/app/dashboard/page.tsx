@@ -112,9 +112,9 @@ export default function DashboardPage() {
             ].map((step, i) => (
               <div key={i} className="flex-1 min-w-0">
                 <div className={`${step.color} rounded-lg py-2 px-1`}>
-                  <div className="text-lg font-bold text-white">{step.value}</div>
+                  <div className="text-sm sm:text-lg font-bold text-white">{step.value}</div>
                 </div>
-                <div className="text-[10px] text-elvora-text-dim mt-1 truncate">{step.label}</div>
+                <div className="text-[9px] sm:text-[10px] text-elvora-text-dim mt-1 truncate">{step.label}</div>
               </div>
             ))}
           </div>
@@ -345,17 +345,17 @@ export default function DashboardPage() {
       {stats && stats.audits.total_audits > 0 && (
         <div className="glass rounded-xl p-4 mb-5">
           <div className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider mb-3">Audit Performance</div>
-          <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
             <div>
-              <div className="text-lg font-bold text-elvora-purple-light">{stats.audits.total_audits}</div>
-              <div className="text-[10px] text-elvora-text-dim">Audits erstellt</div>
+              <div className="text-base sm:text-lg font-bold text-elvora-purple-light">{stats.audits.total_audits}</div>
+              <div className="text-[10px] text-elvora-text-dim">Audits</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-elvora-warning">{stats.audits.total_views}</div>
+              <div className="text-base sm:text-lg font-bold text-elvora-warning">{stats.audits.total_views}</div>
               <div className="text-[10px] text-elvora-text-dim">Aufrufe</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-elvora-success">{stats.audits.total_cta_clicks}</div>
+              <div className="text-base sm:text-lg font-bold text-elvora-success">{stats.audits.total_cta_clicks}</div>
               <div className="text-[10px] text-elvora-text-dim">CTA Klicks</div>
             </div>
           </div>
@@ -379,18 +379,18 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-3 text-center mb-3">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center mb-3">
             <div>
-              <div className="text-lg font-bold text-elvora-accent">{stats.followUps.pending}</div>
+              <div className="text-base sm:text-lg font-bold text-elvora-accent">{stats.followUps.pending}</div>
               <div className="text-[10px] text-elvora-text-dim">Geplant</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-elvora-success">{stats.followUps.sentThisWeek}</div>
+              <div className="text-base sm:text-lg font-bold text-elvora-success">{stats.followUps.sentThisWeek}</div>
               <div className="text-[10px] text-elvora-text-dim">Diese Woche</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-elvora-purple-light">{stats.followUps.sent}</div>
-              <div className="text-[10px] text-elvora-text-dim">Gesamt gesendet</div>
+              <div className="text-base sm:text-lg font-bold text-elvora-purple-light">{stats.followUps.sent}</div>
+              <div className="text-[10px] text-elvora-text-dim">Gesamt</div>
             </div>
           </div>
 

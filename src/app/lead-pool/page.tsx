@@ -404,10 +404,10 @@ export default function LeadPoolPage() {
     return (
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-white">Lead-Pool</h1>
-            <p className="text-sm text-elvora-text-dim mt-1">
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Lead-Pool</h1>
+            <p className="text-xs sm:text-sm text-elvora-text-dim mt-1">
               {totalLeads.toLocaleString('de-DE')} Leads in {statusCategories.length} Kategorien
             </p>
           </div>
@@ -557,18 +557,18 @@ export default function LeadPoolPage() {
   return (
     <div className="space-y-4">
       {/* Header with back button */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={backToCategories}
-            className="p-2 rounded-lg bg-white/5 border border-white/10 text-elvora-text-dim hover:text-white hover:bg-white/10 transition-all"
+            className="p-2 rounded-lg bg-white/5 border border-white/10 text-elvora-text-dim hover:text-white hover:bg-white/10 transition-all flex-shrink-0"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <div>
-            <h1 className="text-xl font-bold text-white flex items-center gap-2">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 truncate">
               {activeCategory ? (
                 <>
                   <span className={activeCategory.color}>{activeCategory.label}</span>

@@ -290,7 +290,7 @@ export default function SeoToolPage() {
             <label className="block text-xs font-semibold text-elvora-text-dim uppercase tracking-wider mb-2">
               Website-URL eingeben
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={auditUrl}
@@ -302,7 +302,7 @@ export default function SeoToolPage() {
               <button
                 onClick={handleAudit}
                 disabled={auditLoading || !auditUrl.trim()}
-                className="px-5 py-2.5 bg-elvora-primary text-white rounded-lg text-sm font-semibold hover:bg-elvora-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                className="px-5 py-2.5 bg-elvora-primary text-white rounded-lg text-sm font-semibold hover:bg-elvora-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
                 {auditLoading ? (
                   <>
@@ -327,10 +327,10 @@ export default function SeoToolPage() {
             <div className="space-y-4 animate-in fade-in">
               {/* Score Overview */}
               <div className={`glass rounded-xl p-5 border ${getScoreBgColor(auditResult.totalScore)}`}>
-                <div className="flex items-center gap-6">
+                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
                   {/* Score Ring */}
-                  <div className="relative w-24 h-24 flex-shrink-0">
-                    <svg className="w-24 h-24 -rotate-90" viewBox="0 0 100 100">
+                  <div className="relative w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0">
+                    <svg className="w-20 h-20 sm:w-24 sm:h-24 -rotate-90" viewBox="0 0 100 100">
                       <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="6" className="text-white/5" />
                       <circle
                         cx="50" cy="50" r="42" fill="none"
@@ -348,14 +348,14 @@ export default function SeoToolPage() {
                   </div>
 
                   {/* Score Info */}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
+                  <div className="flex-1 text-center sm:text-left">
+                    <div className="flex items-center justify-center sm:justify-start gap-2 mb-1">
                       <h2 className="text-lg font-bold text-white">{getScoreLabel(auditResult.totalScore)}</h2>
                     </div>
                     <p className="text-xs text-elvora-text-dim mb-3 truncate">
                       {auditResult.finalUrl}
                     </p>
-                    <div className="flex gap-3 text-xs">
+                    <div className="flex flex-wrap justify-center sm:justify-start gap-2 sm:gap-3 text-xs">
                       <span className="flex items-center gap-1">
                         <span className="w-2 h-2 rounded-full bg-red-500" />
                         <span className="text-red-400">{auditResult.summary.critical} Kritisch</span>
@@ -376,7 +376,7 @@ export default function SeoToolPage() {
                   </div>
 
                   {/* Response time */}
-                  <div className="text-right text-xs text-elvora-text-dim flex-shrink-0">
+                  <div className="text-center sm:text-right text-xs text-elvora-text-dim flex-shrink-0">
                     <div>{(auditResult.responseTimeMs / 1000).toFixed(1)}s Ladezeit</div>
                     <div className="mt-1 text-[10px]">
                       {new Date(auditResult.analyzedAt).toLocaleString('de-DE')}
@@ -394,7 +394,7 @@ export default function SeoToolPage() {
                   </h3>
 
                   {/* 4 Score Gauges */}
-                  <div className="grid grid-cols-4 gap-3 mb-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                     {[
                       { label: 'Performance', value: auditResult.pageSpeed.performance },
                       { label: 'SEO', value: auditResult.pageSpeed.seo },
@@ -424,7 +424,7 @@ export default function SeoToolPage() {
                   {/* Core Web Vitals */}
                   <div className="border-t border-white/5 pt-3">
                     <h4 className="text-[10px] font-semibold text-elvora-text-dim uppercase tracking-wider mb-2">Core Web Vitals</h4>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       {[
                         { label: 'LCP', desc: 'Largest Contentful Paint', data: auditResult.pageSpeed.coreWebVitals.lcp, format: (v: number) => `${(v/1000).toFixed(1)}s` },
                         { label: 'TBT', desc: 'Total Blocking Time', data: auditResult.pageSpeed.coreWebVitals.tbt, format: (v: number) => `${Math.round(v)}ms` },
@@ -536,7 +536,7 @@ export default function SeoToolPage() {
               {auditResult.keywords && auditResult.keywords.length > 0 && (
                 <div className="glass rounded-xl p-4">
                   <h3 className="text-xs font-semibold text-elvora-text-dim uppercase tracking-wider mb-3">Top Keywords (Keyword-Dichte)</h3>
-                  <div className="grid grid-cols-3 md:grid-cols-5 gap-1.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
                     {auditResult.keywords.slice(0, 10).map((kw, idx) => (
                       <div key={kw.word} className="rounded-lg p-2 bg-white/[0.02] border border-white/5 text-center">
                         <div className="text-xs text-white font-medium truncate">{kw.word}</div>
@@ -564,7 +564,7 @@ export default function SeoToolPage() {
                       onClick={() => toggleCategory(key)}
                       className="w-full flex items-center gap-3 group hover:bg-white/[0.02] rounded-lg p-1.5 transition-colors"
                     >
-                      <span className="text-xs text-elvora-text-dim w-32 text-left truncate">{cat.name}</span>
+                      <span className="text-xs text-elvora-text-dim w-24 sm:w-32 text-left truncate">{cat.name}</span>
                       <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all ${
@@ -719,16 +719,16 @@ export default function SeoToolPage() {
                       ? 'border-yellow-500/30 bg-yellow-500/5'
                       : 'border-orange-500/30 bg-orange-500/5'
               }`}>
-                <div className="flex items-center gap-5">
+                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-5">
                   <div className="text-center flex-shrink-0">
                     {rankResult.position === null ? (
-                      <div className="w-20 h-20 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center">
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center">
                         <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </div>
                     ) : (
-                      <div className={`w-20 h-20 rounded-full border-2 flex items-center justify-center ${
+                      <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 flex items-center justify-center ${
                         rankResult.position <= 3 ? 'bg-emerald-500/10 border-emerald-500/30' :
                         rankResult.position <= 10 ? 'bg-yellow-500/10 border-yellow-500/30' :
                         'bg-orange-500/10 border-orange-500/30'
