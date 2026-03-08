@@ -176,6 +176,17 @@ CREATE TABLE IF NOT EXISTS email_events (
 
 CREATE INDEX IF NOT EXISTS idx_email_events_lead ON email_events(lead_id);
 CREATE INDEX IF NOT EXISTS idx_email_events_type ON email_events(event_type);
+
+CREATE TABLE IF NOT EXISTS local_seo_cache (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cache_key TEXT UNIQUE NOT NULL,
+  branche TEXT NOT NULL,
+  stadt TEXT NOT NULL,
+  response_data TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_local_seo_cache_key ON local_seo_cache(cache_key);
 `;
 
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -208,6 +219,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
       body: 'letzte Nachricht von mir zu diesem Thema – ich möchte nicht nerven.\n\nIhre Website hat nach wie vor einen Score von {score}/100. Falls Sie in den nächsten Wochen etwas daran ändern möchten, melden Sie sich gerne.\n\nIch wünsche Ihnen alles Gute!',
     },
   ]),
+  dataforseo_login: 'info@clean-scene.de',
+  dataforseo_password: 'bc4a22162f210771',
   engagement_weights: JSON.stringify({
     email_opened: 15,
     email_opened_multiple: 25,

@@ -57,6 +57,10 @@ export default function SettingsPage() {
   const [aiTestLoading, setAiTestLoading] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string; data?: { subject: string; intro: string; pitch: string } } | null>(null);
 
+  // DataForSEO
+  const [dataforseoLogin, setDataforseoLogin] = useState('');
+  const [dataforseoPassword, setDataforseoPassword] = useState('');
+
   // Template settings
   const [tplSubject, setTplSubject] = useState('Website-Analyse für {firmenname} – {score}/100 Punkte');
   const [tplIntro, setTplIntro] = useState('mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.');
@@ -87,6 +91,8 @@ export default function SettingsPage() {
         if (data.followup_sequence) {
           try { setFollowUpSequence(JSON.parse(data.followup_sequence)); } catch { /* keep defaults */ }
         }
+        if (data.dataforseo_login) setDataforseoLogin(data.dataforseo_login);
+        if (data.dataforseo_password) setDataforseoPassword(data.dataforseo_password);
         if (data.ai_personalization_enabled) setAiEnabled(data.ai_personalization_enabled === 'true');
         if (data.ai_classify_enabled) setAiClassifyEnabled(data.ai_classify_enabled === 'true');
         if (data.openai_api_key) setOpenaiApiKey(data.openai_api_key);
@@ -140,6 +146,8 @@ export default function SettingsPage() {
         api_key: apiKey,
         followup_enabled: followUpEnabled ? 'true' : 'false',
         followup_sequence: JSON.stringify(followUpSequence),
+        dataforseo_login: dataforseoLogin,
+        dataforseo_password: dataforseoPassword,
         ai_personalization_enabled: aiEnabled ? 'true' : 'false',
         ai_classify_enabled: aiClassifyEnabled ? 'true' : 'false',
         openai_api_key: openaiApiKey,
@@ -338,6 +346,45 @@ export default function SettingsPage() {
               1. Google Cloud Console &rarr; APIs &amp; Services &rarr; Credentials<br />
               2. &quot;Places API (New)&quot; aktivieren<br />
               3. API-Key erstellen und hier einfügen
+            </p>
+          </div>
+        </div>
+
+        {/* DataForSEO API */}
+        <div className="glass rounded-xl p-5 border border-emerald-500/20">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+            </svg>
+            <span className="text-sm font-semibold text-white">DataForSEO API</span>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">KEYWORD &amp; SERP</span>
+          </div>
+          <p className="text-xs text-elvora-text-dim mb-4">
+            Keyword-Recherche und SERP-Analyse für lokale SEO. Pay-per-use Abrechnung über dataforseo.com.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Login (E-Mail)</label>
+              <input
+                type="text"
+                value={dataforseoLogin}
+                onChange={(e) => setDataforseoLogin(e.target.value)}
+                placeholder="deine@email.de"
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-emerald-500/50 transition-all font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Passwort</label>
+              <input
+                type="password"
+                value={dataforseoPassword}
+                onChange={(e) => setDataforseoPassword(e.target.value)}
+                placeholder="API-Passwort"
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-emerald-500/50 transition-all font-mono"
+              />
+            </div>
+            <p className="text-[11px] text-elvora-text-dim">
+              Registriere dich auf dataforseo.com &rarr; Dashboard &rarr; API Access
             </p>
           </div>
         </div>
