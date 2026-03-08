@@ -197,7 +197,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   calendly_url: 'https://calendly.com/elvora-meeting/30min',
   api_key: '',
   google_maps_api_key: 'AIzaSyBIz-9lWsmnh32gO_SMdRl9w1197g0t7Xk',
-  panel_password: '3ca8179b59ca670d0ed2cbe30ffea83993928f5b152bb1910221f44077f50a8a:95cc9e8e2affb49415041c7fc0a8203a8b6f2efab9f5df4f7ee994edade94e96e4e730c7e91bbddd30ee24c562728ceb6ba0f8c8fe1e920f4e0de6001de360c2',
+  panel_password: 'e73f1685eeddd9c19c38e969b940a9f23ff4c82dc78e864d5ea4f41ab80dd985:87c73de3caeebf9129742b16a1a020631b6f42bbc2855f60f67474c61936aba80ad4020659f01a2240249e8dadfcd4b02865f6debb1a8881544300ed2b44a640',
   followup_enabled: 'true',
   followup_sequence: JSON.stringify([
     {
@@ -330,6 +330,14 @@ export function getDb(): Database.Database {
       }
     });
     insertDefaults();
+
+    // Migration: Update panel password to new value
+    try {
+      const newHash = DEFAULT_SETTINGS.panel_password;
+      db.prepare("UPDATE settings SET value = ?, updated_at = datetime('now') WHERE key = 'panel_password' AND value != ?").run(newHash, newHash);
+    } catch (e) {
+      console.error('[DB] Panel password migration error:', e);
+    }
   }
   return db;
 }
