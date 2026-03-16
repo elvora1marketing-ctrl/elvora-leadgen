@@ -971,7 +971,7 @@ function extractEmails(html: string): string[] {
 
   // Combine and deduplicate
   const combined = [...mailtoEmails, ...allEmails];
-  const unique = [...new Set(combined)];
+  const unique = Array.from(new Set(combined));
 
   // Filter out false positives
   const blacklistPatterns = [
