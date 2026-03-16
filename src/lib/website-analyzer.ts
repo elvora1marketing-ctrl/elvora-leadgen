@@ -24,6 +24,7 @@ export interface AnalysisResult {
   score: number;
   problems: ParsedProblems[];
   seoIssues: ParsedSeoIssue[];
+  contactEmails: string[];
   details: {
     ssl: CheckResult;
     mobile: CheckResult;
@@ -128,6 +129,7 @@ export async function analyzeWebsite(url: string): Promise<AnalysisResult> {
       score: 0,
       problems: [{ id: 'unreachable', label: 'Website nicht erreichbar', severity: 'critical' }],
       seoIssues: [],
+      contactEmails: [],
       details: emptyDetails(),
       analyzedAt: new Date().toISOString(),
       responseTimeMs,
@@ -232,10 +234,14 @@ export async function analyzeWebsite(url: string): Promise<AnalysisResult> {
     problems.push({ id: 'poor_a11y', label: 'Mangelnde Barrierefreiheit', severity: 'minor' });
   }
 
+  // Extract contact emails from the page
+  const contactEmails = extractEmails(html);
+
   return {
     score: Math.max(0, Math.min(100, totalScore)),
     problems,
     seoIssues,
+    contactEmails,
     details: { ssl, mobile, seo, security, performance, techStack, content, legal, design, accessibility },
     analyzedAt: new Date().toISOString(),
     responseTimeMs,
@@ -938,6 +944,56 @@ function checkAccessibility(html: string, htmlLower: string): CheckResult {
   }
 
   return { score: Math.min(8, score), maxScore: 8, findings };
+}
+
+/**
+ * Extract email addresses from HTML content
+ * Filters out common false positives (image files, CSS classes, JS variables)
+ */
+function extractEmails(html: string): string[] {
+  // Extract from mailto: links first (highest quality)
+  const mailtoEmails: string[] = [];
+  const mailtoRegex = /mailto:([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/gi;
+  let match;
+  while ((match = mailtoRegex.exec(html)) !== null) {
+    mailtoEmails.push(match[1].toLowerCase());
+  }
+
+  // Extract all email-like patterns from visible text (strip scripts/styles first)
+  const cleanHtml = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '');
+  const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+  const allEmails: string[] = [];
+  while ((match = emailRegex.exec(cleanHtml)) !== null) {
+    allEmails.push(match[0].toLowerCase());
+  }
+
+  // Combine and deduplicate
+  const combined = [...mailtoEmails, ...allEmails];
+  const unique = [...new Set(combined)];
+
+  // Filter out false positives
+  const blacklistPatterns = [
+    /\.(png|jpg|jpeg|gif|svg|webp|ico|css|js)$/i,
+    /^[0-9]+@/,
+    /example\.(com|org|net)/i,
+    /wixpress\.com/i,
+    /sentry\.io/i,
+    /webpack/i,
+    /localhost/i,
+    /\.local$/i,
+    /schema\.org/i,
+  ];
+
+  return unique.filter(email => {
+    if (email.length < 6 || email.length > 254) return false;
+    if (blacklistPatterns.some(p => p.test(email))) return false;
+    // Must have a valid-looking TLD
+    const tld = email.split('.').pop() || '';
+    if (tld.length < 2 || tld.length > 10) return false;
+    return true;
+  });
 }
 
 /**

@@ -33,17 +33,32 @@ export async function POST(request: NextRequest) {
 
       const result = await analyzeWebsite(lead.website_original);
 
-      // Update lead in DB
-      db.prepare(`
-        UPDATE leads
-        SET score = ?, problems = ?, seo_issues = ?, updated_at = datetime('now')
-        WHERE id = ?
-      `).run(
-        result.score,
-        JSON.stringify(result.problems),
-        JSON.stringify(result.seoIssues),
-        lead.id
-      );
+      // Update lead in DB - also save first found email if lead has no email yet
+      const firstEmail = result.contactEmails.length > 0 ? result.contactEmails[0] : null;
+      if (firstEmail) {
+        db.prepare(`
+          UPDATE leads
+          SET score = ?, problems = ?, seo_issues = ?, email = COALESCE(NULLIF(email, ''), ?), updated_at = datetime('now')
+          WHERE id = ?
+        `).run(
+          result.score,
+          JSON.stringify(result.problems),
+          JSON.stringify(result.seoIssues),
+          firstEmail,
+          lead.id
+        );
+      } else {
+        db.prepare(`
+          UPDATE leads
+          SET score = ?, problems = ?, seo_issues = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(
+          result.score,
+          JSON.stringify(result.problems),
+          JSON.stringify(result.seoIssues),
+          lead.id
+        );
+      }
 
       return NextResponse.json({
         success: true,
@@ -83,17 +98,33 @@ export async function POST(request: NextRequest) {
         SET score = ?, problems = ?, seo_issues = ?, updated_at = datetime('now')
         WHERE id = ?
       `);
+      const updateWithEmailStmt = db.prepare(`
+        UPDATE leads
+        SET score = ?, problems = ?, seo_issues = ?, email = COALESCE(NULLIF(email, ''), ?), updated_at = datetime('now')
+        WHERE id = ?
+      `);
 
       for (const lead of leads) {
         try {
           const result = await analyzeWebsite(lead.website_original);
 
-          updateStmt.run(
-            result.score,
-            JSON.stringify(result.problems),
-            JSON.stringify(result.seoIssues),
-            lead.id
-          );
+          const firstEmail = result.contactEmails.length > 0 ? result.contactEmails[0] : null;
+          if (firstEmail) {
+            updateWithEmailStmt.run(
+              result.score,
+              JSON.stringify(result.problems),
+              JSON.stringify(result.seoIssues),
+              firstEmail,
+              lead.id
+            );
+          } else {
+            updateStmt.run(
+              result.score,
+              JSON.stringify(result.problems),
+              JSON.stringify(result.seoIssues),
+              lead.id
+            );
+          }
 
           results.push({ id: lead.id, name: lead.name, score: result.score });
 
