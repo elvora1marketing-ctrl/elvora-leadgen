@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import getDb from '@/lib/db';
 import { scrapeGoogleMaps, normalizeWebsite, deduplicateBusinesses, type ScrapedBusiness } from '@/lib/maps-scraper';
 import { expandCityToStadtteile } from '@/lib/stadtteile';
+import { findCitiesInRadius } from '@/lib/umkreis';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,11 +16,13 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { keywords, cities, maxPages = 3, deepScan = false } = body as {
+  const { keywords, cities, maxPages = 3, deepScan = false, radiusSearch = false, radiusKm = 0 } = body as {
     keywords: string[];
     cities: string[];
     maxPages?: number;
     deepScan?: boolean;
+    radiusSearch?: boolean;
+    radiusKm?: number;
   };
 
   if (!keywords?.length || !cities?.length) {
@@ -29,10 +32,15 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // Umkreissuche: expand selected cities with nearby cities within radius
+  const effectiveCities: string[] = radiusSearch && radiusKm > 0
+    ? findCitiesInRadius(cities, radiusKm)
+    : cities;
+
   // Tiefenscan: expand cities into their Stadtteile
   const searchLocations: string[] = deepScan
-    ? cities.flatMap(city => expandCityToStadtteile(city))
-    : cities;
+    ? effectiveCities.flatMap(city => expandCityToStadtteile(city))
+    : effectiveCities;
 
   const db = getDb();
 
@@ -70,9 +78,10 @@ export async function POST(request: NextRequest) {
       const startTime = Date.now();
 
       // Create a batch job entry
+      const radiusLabel = radiusSearch && radiusKm > 0 ? ` +${radiusKm}km Umkreis` : '';
       const jobLabel = deepScan
-        ? `Tiefenscan: ${keywords.join(', ')} × ${cities.join(', ')} (${searchLocations.length} Stadtteile)`
-        : `Batch: ${keywords.join(', ')} × ${cities.join(', ')}`;
+        ? `Tiefenscan: ${keywords.join(', ')} × ${cities.join(', ')}${radiusLabel} (${searchLocations.length} Stadtteile)`
+        : `Batch: ${keywords.join(', ')} × ${effectiveCities.join(', ')}${radiusLabel}`;
       const jobResult = db.prepare(
         "INSERT INTO scraper_jobs (keyword, max_pages, status, started_at) VALUES (?, ?, 'running', datetime('now'))"
       ).run(jobLabel, pages);

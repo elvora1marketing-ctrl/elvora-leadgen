@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { STADTTEILE, countStadtteile } from '@/lib/stadtteile';
+import { countCitiesInRadius } from '@/lib/umkreis';
 
 interface ScrapedBusiness {
   name: string;
@@ -74,6 +75,10 @@ export default function ScraperPage() {
 
   // Tiefenscan (deep scan) mode
   const [deepScan, setDeepScan] = useState(false);
+
+  // Umkreissuche (radius search)
+  const [radiusSearch, setRadiusSearch] = useState(false);
+  const [radiusKm, setRadiusKm] = useState(15);
 
   // Live progress state
   const [liveProgress, setLiveProgress] = useState<LiveProgress | null>(null);
@@ -153,6 +158,8 @@ export default function ScraperPage() {
           cities: selectedCities,
           maxPages,
           deepScan,
+          radiusSearch,
+          radiusKm: radiusSearch ? radiusKm : 0,
         }),
         signal: abortController.signal,
       });
@@ -267,7 +274,8 @@ export default function ScraperPage() {
   };
 
   const keywordCount = keyword.split(/[,\n]+/).filter(k => k.trim().length > 0).length;
-  const cityOrDistrictCount = deepScan ? countStadtteile(selectedCities) : selectedCities.length;
+  const effectiveCityCount = radiusSearch ? countCitiesInRadius(selectedCities, radiusKm) : selectedCities.length;
+  const cityOrDistrictCount = deepScan ? countStadtteile(selectedCities) : effectiveCityCount;
   const totalSearches = keywordCount * cityOrDistrictCount;
   const showingResults = jobResults.length > 0;
 
@@ -420,6 +428,64 @@ export default function ScraperPage() {
           </button>
         </div>
 
+        {/* Umkreissuche Toggle */}
+        <div className="flex flex-col gap-3 bg-white/[0.03] rounded-xl p-4 border border-white/5">
+          <div className="flex items-center justify-between">
+            <div className="flex-1 mr-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-white">Umkreissuche</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-elvora-primary/20 text-elvora-primary uppercase tracking-wider">Nachbarstädte</span>
+              </div>
+              <p className="text-xs text-elvora-text-dim mt-1">
+                Durchsucht auch Nachbarstädte im gewählten Umkreis der ausgewählten Städte.
+              </p>
+            </div>
+            <button
+              onClick={() => setRadiusSearch(!radiusSearch)}
+              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${
+                radiusSearch ? 'bg-elvora-primary' : 'bg-white/10'
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-sm ${
+                  radiusSearch ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Radius Slider - only visible when enabled */}
+          {radiusSearch && (
+            <div className="pt-2 border-t border-white/5">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-elvora-text-muted">
+                  Radius
+                </label>
+                <span className="text-sm font-bold text-white">
+                  {radiusKm} km
+                  <span className="text-elvora-text-dim font-normal ml-1">
+                    ({countCitiesInRadius(selectedCities, radiusKm)} Städte gesamt)
+                  </span>
+                </span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={50}
+                step={5}
+                value={radiusKm}
+                onChange={(e) => setRadiusKm(Number(e.target.value))}
+                className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-elvora-primary"
+              />
+              <div className="flex justify-between text-[10px] text-elvora-text-dim mt-1">
+                <span>5 km</span>
+                <span>25 km</span>
+                <span>50 km</span>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Search Info */}
         {keyword.trim() && selectedCities.length > 0 && (
           <div className="bg-elvora-primary/5 border border-elvora-primary/20 rounded-xl px-4 py-3">
@@ -429,9 +495,10 @@ export default function ScraperPage() {
               </svg>
               <span className="text-elvora-text-muted">
                 <span className="text-white font-semibold">{totalSearches}</span> Suchanfragen
-                <span className="text-elvora-text-dim"> ({keywordCount} Keywords × {deepScan ? `${cityOrDistrictCount} Stadtteile` : `${selectedCities.length} Städte`} × {maxPages} Seiten)</span>
+                <span className="text-elvora-text-dim"> ({keywordCount} Keywords × {deepScan ? `${cityOrDistrictCount} Stadtteile` : `${effectiveCityCount} Städte`}{radiusSearch && !deepScan ? ` (${radiusKm}km Umkreis)` : ''} × {maxPages} Seiten)</span>
                 {' = '}bis zu <span className="text-white font-semibold">{totalSearches * maxPages * 20}</span> Ergebnisse
                 {deepScan && <span className="text-elvora-accent ml-1 font-medium">(Tiefenscan)</span>}
+                {radiusSearch && !deepScan && <span className="text-elvora-primary ml-1 font-medium">(Umkreis)</span>}
               </span>
             </div>
           </div>
