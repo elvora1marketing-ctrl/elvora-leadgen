@@ -320,6 +320,23 @@ export function getDb(): Database.Database {
       console.error('[DB] Engagement columns migration error:', e);
     }
 
+    // Migration: Add linkedin_url and company columns if missing
+    try {
+      const colCheck2 = db.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colNames2 = colCheck2.map(c => c.name);
+      if (!colNames2.includes('linkedin_url')) {
+        db.exec("ALTER TABLE leads ADD COLUMN linkedin_url TEXT");
+        db.exec("CREATE INDEX IF NOT EXISTS idx_leads_linkedin ON leads(linkedin_url)");
+        console.log('[DB] Migration: added linkedin_url column');
+      }
+      if (!colNames2.includes('company')) {
+        db.exec("ALTER TABLE leads ADD COLUMN company TEXT");
+        console.log('[DB] Migration: added company column');
+      }
+    } catch (e) {
+      console.error('[DB] LinkedIn columns migration error:', e);
+    }
+
     // Insert default settings (only if not already set)
     const insertSetting = db.prepare(
       "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))"

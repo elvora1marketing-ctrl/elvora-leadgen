@@ -61,6 +61,10 @@ export default function SettingsPage() {
   const [dataforseoLogin, setDataforseoLogin] = useState('');
   const [dataforseoPassword, setDataforseoPassword] = useState('');
 
+  // LinkedIn / RapidAPI
+  const [rapidapiKey, setRapidapiKey] = useState('');
+  const [rapidapiLinkedinHost, setRapidapiLinkedinHost] = useState('fresh-linkedin-profile-data.p.rapidapi.com');
+
   // Template settings
   const [tplSubject, setTplSubject] = useState('Website-Analyse für {firmenname} – {score}/100 Punkte');
   const [tplIntro, setTplIntro] = useState('mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.');
@@ -93,6 +97,8 @@ export default function SettingsPage() {
         }
         if (data.dataforseo_login) setDataforseoLogin(data.dataforseo_login);
         if (data.dataforseo_password) setDataforseoPassword(data.dataforseo_password);
+        if (data.rapidapi_key) setRapidapiKey(data.rapidapi_key);
+        if (data.rapidapi_linkedin_host) setRapidapiLinkedinHost(data.rapidapi_linkedin_host);
         if (data.ai_personalization_enabled) setAiEnabled(data.ai_personalization_enabled === 'true');
         if (data.ai_classify_enabled) setAiClassifyEnabled(data.ai_classify_enabled === 'true');
         if (data.openai_api_key) setOpenaiApiKey(data.openai_api_key);
@@ -148,6 +154,8 @@ export default function SettingsPage() {
         followup_sequence: JSON.stringify(followUpSequence),
         dataforseo_login: dataforseoLogin,
         dataforseo_password: dataforseoPassword,
+        rapidapi_key: rapidapiKey,
+        rapidapi_linkedin_host: rapidapiLinkedinHost,
         ai_personalization_enabled: aiEnabled ? 'true' : 'false',
         ai_classify_enabled: aiClassifyEnabled ? 'true' : 'false',
         openai_api_key: openaiApiKey,
@@ -385,6 +393,47 @@ export default function SettingsPage() {
             </div>
             <p className="text-[11px] text-elvora-text-dim">
               Registriere dich auf dataforseo.com &rarr; Dashboard &rarr; API Access
+            </p>
+          </div>
+        </div>
+
+        {/* LinkedIn Scraper / RapidAPI */}
+        <div className="glass rounded-xl p-5 border border-blue-500/20">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 6a2 2 0 100-4 2 2 0 000 4z" />
+            </svg>
+            <span className="text-sm font-semibold text-white">LinkedIn Scraper</span>
+            <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 text-[10px] font-bold border border-blue-500/20">RAPIDAPI</span>
+          </div>
+          <p className="text-xs text-elvora-text-dim mb-4">
+            Der LinkedIn Scraper nutzt die RapidAPI-Plattform um LinkedIn-Profile zu durchsuchen und E-Mail-Adressen zu extrahieren.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">RapidAPI Key</label>
+              <input
+                type="password"
+                value={rapidapiKey}
+                onChange={(e) => setRapidapiKey(e.target.value)}
+                placeholder="Dein RapidAPI Key..."
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-blue-500/50 transition-all font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">API Host</label>
+              <input
+                type="text"
+                value={rapidapiLinkedinHost}
+                onChange={(e) => setRapidapiLinkedinHost(e.target.value)}
+                placeholder="fresh-linkedin-profile-data.p.rapidapi.com"
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-blue-500/50 transition-all font-mono"
+              />
+            </div>
+            <p className="text-[11px] text-elvora-text-dim">
+              1. Registriere dich auf rapidapi.com<br />
+              2. Suche nach &quot;Fresh LinkedIn Profile Data&quot; und abonniere die API<br />
+              3. Kopiere deinen API-Key und füge ihn hier ein
             </p>
           </div>
         </div>
