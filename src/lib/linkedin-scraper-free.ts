@@ -586,7 +586,7 @@ export function guessCompanyDomain(company: string): string[] {
     domains.push(`${slugDash}.com`);
   }
 
-  return [...new Set(domains)];
+  return Array.from(new Set(domains));
 }
 
 /**
