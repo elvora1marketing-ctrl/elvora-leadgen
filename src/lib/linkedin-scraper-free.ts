@@ -734,7 +734,7 @@ export async function findVerifiedEmail(
     byDomain.get(domain)!.push(email);
   }
 
-  for (const [domain, emails] of byDomain) {
+  for (const [domain, emails] of Array.from(byDomain.entries())) {
     // Check cache
     let cached = domainCache.get(domain);
 
