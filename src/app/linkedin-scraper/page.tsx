@@ -66,7 +66,7 @@ interface ScraperJob {
 export default function LinkedInScraperPage() {
   const [keyword, setKeyword] = useState('');
   const [location, setLocation] = useState('Deutschland');
-  const [maxResults, setMaxResults] = useState(25);
+  const [maxResults, setMaxResults] = useState(0); // 0 = unlimited
   const [onlyWithEmail, setOnlyWithEmail] = useState(false);
   const [smtpVerification, setSmtpVerification] = useState(true);
   const [scraping, setScraping] = useState(false);
@@ -343,30 +343,39 @@ export default function LinkedInScraperPage() {
           />
         </div>
 
-        {/* Max Results Slider */}
+        {/* Max Results */}
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-elvora-text-muted">
-              Max. Profile pro Keyword
-            </label>
-            <span className="text-sm font-bold text-white">
-              {maxResults} Profile
-            </span>
+          <label className="block text-sm font-medium text-elvora-text-muted mb-2">
+            Max. Profile pro Keyword
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: 'Alle', value: 0 },
+              { label: '25', value: 25 },
+              { label: '50', value: 50 },
+              { label: '100', value: 100 },
+              { label: '250', value: 250 },
+              { label: '500', value: 500 },
+              { label: '1000', value: 1000 },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setMaxResults(opt.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  maxResults === opt.value
+                    ? 'bg-blue-500/30 text-blue-400 border border-blue-500/40'
+                    : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
-          <input
-            type="range"
-            min={5}
-            max={50}
-            step={5}
-            value={maxResults}
-            onChange={(e) => setMaxResults(Number(e.target.value))}
-            className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
-          />
-          <div className="flex justify-between text-[10px] text-elvora-text-dim mt-1">
-            <span>5</span>
-            <span>25</span>
-            <span>50</span>
-          </div>
+          <p className="text-[10px] text-elvora-text-dim mt-2">
+            {maxResults === 0
+              ? 'Scrapt ALLE verfügbaren Ergebnisse – kein Limit.'
+              : `Stoppt nach ${maxResults} Profilen pro Keyword.`}
+          </p>
         </div>
 
         {/* Only with Email Toggle */}
@@ -402,8 +411,10 @@ export default function LinkedInScraperPage() {
               </svg>
               <span className="text-elvora-text-muted">
                 <span className="text-white font-semibold">{keywordCount}</span> Keyword{keywordCount !== 1 ? 's' : ''}
-                {' × '}bis zu <span className="text-white font-semibold">{maxResults}</span> Profile
-                {' = '}max. <span className="text-white font-semibold">{keywordCount * maxResults}</span> Ergebnisse
+                {maxResults > 0
+                  ? <> {' × '}bis zu <span className="text-white font-semibold">{maxResults}</span> Profile</>
+                  : <> – <span className="text-white font-semibold">Alle</span> Ergebnisse</>
+                }
                 {location && <span className="text-elvora-text-dim"> in {location}</span>}
               </span>
             </div>

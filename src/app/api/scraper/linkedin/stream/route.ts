@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   const {
     keywords,
     location = '',
-    maxResults = 25,
+    maxResults = 0, // 0 = unlimited
     onlyWithEmail = false,
     smtpVerification = true,
   } = body as {

@@ -2,9 +2,10 @@
  * LinkedIn Profile & Email Scraper - FREE (Selbstgebaut)
  *
  * KEIN API-Key nötig. KEINE Kosten. Komplett unabhängig.
+ * KEIN Limit - scrapt ALLE verfügbaren Ergebnisse.
  *
  * Pipeline:
- * 1. Google Dorking - findet LinkedIn Profile via site:linkedin.com/in
+ * 1. DuckDuckGo/Bing Suche - findet LinkedIn Profile via site:linkedin.com/in
  * 2. Public Profile Fetch - extrahiert Name, Firma, Titel aus JSON-LD/Meta-Tags
  * 3. Email-Pattern-Generierung - baut Kandidaten (vorname.nachname@firma.de etc.)
  * 4. SMTP-Verifikation - prüft ob E-Mail existiert (ohne zu senden)
@@ -51,28 +52,10 @@ export interface FreeLinkedInPerson extends LinkedInPerson {
   companyDomain: string | null;
 }
 
-interface GoogleSearchResult {
+interface SearchResult {
   profileUrl: string;
   snippetName: string;
   snippetHeadline: string;
-}
-
-interface PuppeteerPage {
-  goto(url: string, options?: Record<string, unknown>): Promise<unknown>;
-  waitForSelector(selector: string, options?: Record<string, unknown>): Promise<unknown>;
-  evaluate<T>(fn: (...args: unknown[]) => T, ...args: unknown[]): Promise<T>;
-  $$(selector: string): Promise<unknown[]>;
-  close(): Promise<void>;
-  setViewport(viewport: { width: number; height: number }): Promise<void>;
-  setExtraHTTPHeaders(headers: Record<string, string>): Promise<void>;
-  click(selector: string): Promise<void>;
-  keyboard: { press(key: string): Promise<void> };
-  content(): Promise<string>;
-}
-
-interface PuppeteerBrowser {
-  newPage(): Promise<PuppeteerPage>;
-  close(): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,169 +97,188 @@ function getRandomUserAgent(): string {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
+/**
+ * Extract LinkedIn profile name/headline from a search result title.
+ * Titles usually look like: "Name – Position – Firma | LinkedIn"
+ */
+function parseSearchTitle(title: string): { name: string; headline: string } {
+  const cleaned = title
+    .replace(/\s*[\|–-]\s*LinkedIn\s*$/i, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"');
+  const parts = cleaned.split(/\s*[\|–]\s*/);
+  return {
+    name: parts[0]?.trim() || '',
+    headline: parts.slice(1).join(' – ').trim(),
+  };
+}
+
+/**
+ * Clean up a LinkedIn URL to canonical form
+ */
+function cleanLinkedInUrl(url: string): string | null {
+  // Extract linkedin.com/in/username from any URL
+  const match = url.match(/linkedin\.com\/in\/([a-zA-Z0-9_-]+)/);
+  if (!match) return null;
+  return `https://www.linkedin.com/in/${match[1]}`;
+}
+
 // ---------------------------------------------------------------------------
-// 1. Google Dorking - LinkedIn Profile Discovery
+// 1. Search Engines — DuckDuckGo + Bing (plain HTTP, kein Puppeteer)
 // ---------------------------------------------------------------------------
 
 /**
- * Search Google for LinkedIn profiles matching keyword + location
+ * Search DuckDuckGo HTML for LinkedIn profiles.
+ * DuckDuckGo HTML version: no JS required, no CAPTCHA, plain HTTP fetch.
+ * Paginates until no more results.
+ *
+ * maxResults: 0 = unlimited (scrape everything available)
  */
-export async function searchViaGoogle(
+async function searchDuckDuckGo(
   keyword: string,
   location: string,
   maxResults: number,
-  onProgress?: (msg: string) => void,
-): Promise<GoogleSearchResult[]> {
-  let browser: PuppeteerBrowser | null = null;
-  const results: GoogleSearchResult[] = [];
+  onProgress?: (msg: string, count: number) => void,
+): Promise<SearchResult[]> {
+  const results: SearchResult[] = [];
   const seenUrls = new Set<string>();
 
-  try {
-    const puppeteer = await import('puppeteer');
-    browser = await puppeteer.default.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--lang=de-DE',
-      ],
-    }) as PuppeteerBrowser;
+  const query = location
+    ? `site:linkedin.com/in ${keyword} ${location}`
+    : `site:linkedin.com/in ${keyword}`;
 
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1366, height: 768 });
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
-    });
+  let pageNum = 0;
+  let hasMore = true;
 
-    // Build search query
-    const query = location
-      ? `site:linkedin.com/in "${keyword}" "${location}"`
-      : `site:linkedin.com/in "${keyword}"`;
+  while (hasMore) {
+    pageNum++;
+    onProgress?.(`DuckDuckGo Seite ${pageNum}...`, results.length);
 
-    const pagesNeeded = Math.ceil(maxResults / 10);
+    try {
+      // DuckDuckGo HTML pagination uses POST with form data
+      let html: string;
 
-    for (let pageNum = 0; pageNum < pagesNeeded && results.length < maxResults; pageNum++) {
-      const start = pageNum * 10;
-      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&start=${start}&num=10&hl=de`;
-
-      onProgress?.(`Google-Suche Seite ${pageNum + 1}/${pagesNeeded}...`);
-
-      await page.goto(searchUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: 15000,
-      });
-
-      // Accept cookies on first page
-      if (pageNum === 0) {
-        try {
-          await page.evaluate(() => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            const acceptBtn = buttons.find(b =>
-              b.textContent?.includes('Alle akzeptieren') ||
-              b.textContent?.includes('Accept all') ||
-              b.textContent?.includes('Ich stimme zu')
-            );
-            if (acceptBtn) (acceptBtn as HTMLButtonElement).click();
-          });
-          await delay(1000);
-        } catch {
-          // No cookie banner
-        }
-      }
-
-      await delay(500);
-
-      // Check for CAPTCHA
-      const hasCaptcha = await page.evaluate(() => {
-        return document.querySelector('#captcha-form') !== null ||
-          document.querySelector('.g-recaptcha') !== null ||
-          document.body.textContent?.includes('unusual traffic') === true;
-      });
-
-      if (hasCaptcha) {
-        onProgress?.('Google CAPTCHA erkannt - versuche Bing als Fallback...');
-        // Fall back to Bing
-        const bingResults = await searchViaBing(page, keyword, location, maxResults - results.length);
-        for (const r of bingResults) {
-          const norm = normalizeLinkedInUrl(r.profileUrl);
-          if (!seenUrls.has(norm)) {
-            seenUrls.add(norm);
-            results.push(r);
-          }
-        }
-        break;
-      }
-
-      // Extract search results
-      const pageResults = await page.evaluate(() => {
-        const items: Array<{ url: string; title: string; snippet: string }> = [];
-        const resultDivs = document.querySelectorAll('#search .g, #rso .g');
-
-        resultDivs.forEach(div => {
-          const linkEl = div.querySelector('a[href*="linkedin.com/in/"]');
-          if (!linkEl) return;
-
-          const url = (linkEl as HTMLAnchorElement).href;
-          if (!url.includes('linkedin.com/in/')) return;
-
-          const titleEl = div.querySelector('h3');
-          const title = titleEl?.textContent?.trim() || '';
-
-          const snippetEl = div.querySelector('.VwiC3b, [data-sncf], .IsZvec');
-          const snippet = snippetEl?.textContent?.trim() || '';
-
-          items.push({ url, title, snippet });
+      if (pageNum === 1) {
+        // First page: GET request
+        const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        const res = await fetch(url, {
+          headers: {
+            'User-Agent': getRandomUserAgent(),
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'de-DE,de;q=0.9',
+          },
         });
-
-        return items;
-      });
-
-      for (const item of pageResults) {
-        // Clean up the LinkedIn URL
-        let profileUrl = item.url;
-        try {
-          const parsed = new URL(profileUrl);
-          profileUrl = `https://www.linkedin.com${parsed.pathname.replace(/\/+$/, '')}`;
-        } catch {
-          // Keep as-is
+        if (!res.ok) {
+          onProgress?.(`DuckDuckGo Fehler: ${res.status}`, results.length);
+          break;
         }
+        html = await res.text();
+      } else {
+        // Subsequent pages: POST with form data including vqd token and s offset
+        // DuckDuckGo HTML uses form-based pagination
+        const formData = new URLSearchParams();
+        formData.append('q', query);
+        formData.append('s', String((pageNum - 1) * 30));
+        formData.append('dc', String((pageNum - 1) * 30 + 1));
+        formData.append('o', 'json');
+        formData.append('api', 'd.js');
+
+        const res = await fetch('https://html.duckduckgo.com/html/', {
+          method: 'POST',
+          headers: {
+            'User-Agent': getRandomUserAgent(),
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'de-DE,de;q=0.9',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: formData.toString(),
+        });
+        if (!res.ok) break;
+        html = await res.text();
+      }
+
+      // Parse results from HTML
+      // DuckDuckGo HTML results are in <a class="result__a" href="..."> tags
+      const linkRegex = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+      let match: RegExpExecArray | null;
+      let foundOnPage = 0;
+
+      while ((match = linkRegex.exec(html)) !== null) {
+        const rawUrl = match[1];
+        const rawTitle = match[2].replace(/<[^>]+>/g, '').trim(); // Strip HTML tags
+
+        // DuckDuckGo wraps URLs in a redirect - extract actual URL
+        let actualUrl = rawUrl;
+        const uddgMatch = rawUrl.match(/uddg=([^&]+)/);
+        if (uddgMatch) {
+          actualUrl = decodeURIComponent(uddgMatch[1]);
+        }
+
+        const profileUrl = cleanLinkedInUrl(actualUrl);
+        if (!profileUrl) continue;
 
         const norm = normalizeLinkedInUrl(profileUrl);
         if (seenUrls.has(norm)) continue;
         seenUrls.add(norm);
 
-        // Extract name from Google title (format: "Name – Position – Firma | LinkedIn")
-        let snippetName = '';
-        let snippetHeadline = '';
+        const parsed = parseSearchTitle(rawTitle);
+        results.push({
+          profileUrl,
+          snippetName: parsed.name,
+          snippetHeadline: parsed.headline,
+        });
+        foundOnPage++;
 
-        if (item.title) {
-          const titleParts = item.title
-            .replace(/\s*[\|–-]\s*LinkedIn\s*$/i, '')
-            .split(/\s*[\|–-]\s*/);
-          snippetName = titleParts[0]?.trim() || '';
-          snippetHeadline = titleParts.slice(1).join(' – ').trim();
+        if (maxResults > 0 && results.length >= maxResults) break;
+      }
+
+      // Also try alternative DDG result format
+      if (foundOnPage === 0) {
+        const altRegex = /<a[^>]+href="(https?:\/\/[^"]*linkedin\.com\/in\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+        while ((altRegex.exec(html)) !== null) {
+          const altMatch = altRegex.exec(html);
+          if (!altMatch) break;
+          const profileUrl = cleanLinkedInUrl(altMatch[1]);
+          if (!profileUrl) continue;
+          const norm = normalizeLinkedInUrl(profileUrl);
+          if (seenUrls.has(norm)) continue;
+          seenUrls.add(norm);
+          const parsed = parseSearchTitle(altMatch[2].replace(/<[^>]+>/g, '').trim());
+          results.push({ profileUrl, snippetName: parsed.name, snippetHeadline: parsed.headline });
+          foundOnPage++;
+          if (maxResults > 0 && results.length >= maxResults) break;
         }
-
-        results.push({ profileUrl, snippetName, snippetHeadline });
-
-        if (results.length >= maxResults) break;
       }
 
-      // Random delay between pages
-      if (pageNum < pagesNeeded - 1 && results.length < maxResults) {
-        await randomDelay(1500, 3000);
-      }
-    }
+      onProgress?.(`DuckDuckGo Seite ${pageNum}: ${foundOnPage} neue Profile (gesamt: ${results.length})`, results.length);
 
-    await page.close();
-  } catch (err) {
-    console.error('[LinkedIn Free] Google-Suche Fehler:', err);
-    onProgress?.(`Suchfehler: ${err instanceof Error ? err.message : 'Unbekannt'}`);
-  } finally {
-    if (browser) {
-      try { await browser.close(); } catch { /* ignore */ }
+      // Stop conditions
+      if (foundOnPage === 0) {
+        hasMore = false;
+      } else if (maxResults > 0 && results.length >= maxResults) {
+        hasMore = false;
+      } else {
+        // Check if there's a "next" button
+        const hasNext = html.includes('name="s"') || html.includes('next') || html.includes('nächste');
+        if (!hasNext && pageNum > 1) {
+          hasMore = false;
+        }
+      }
+
+      // Rate limit between pages
+      if (hasMore) {
+        await randomDelay(1000, 2500);
+      }
+
+      // Safety: max 100 pages to avoid infinite loops
+      if (pageNum >= 100) {
+        onProgress?.('Maximale Seitenzahl erreicht (100 Seiten)', results.length);
+        hasMore = false;
+      }
+    } catch (err) {
+      onProgress?.(`DuckDuckGo Fehler Seite ${pageNum}: ${err instanceof Error ? err.message : 'Unbekannt'}`, results.length);
+      hasMore = false;
     }
   }
 
@@ -284,60 +286,133 @@ export async function searchViaGoogle(
 }
 
 /**
- * Fallback: Bing search when Google shows CAPTCHA
+ * Search Bing for LinkedIn profiles. Plain HTTP fetch, no Puppeteer.
+ * Used as fallback if DuckDuckGo fails.
  */
-async function searchViaBing(
-  page: PuppeteerPage,
+async function searchBing(
   keyword: string,
   location: string,
   maxResults: number,
-): Promise<GoogleSearchResult[]> {
-  const results: GoogleSearchResult[] = [];
+  onProgress?: (msg: string, count: number) => void,
+): Promise<SearchResult[]> {
+  const results: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+
   const query = location
     ? `site:linkedin.com/in "${keyword}" "${location}"`
     : `site:linkedin.com/in "${keyword}"`;
 
-  try {
-    const bingUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}&count=${Math.min(maxResults, 50)}`;
-    await page.goto(bingUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await delay(1000);
+  let offset = 0;
+  let hasMore = true;
+  let pageNum = 0;
 
-    const bingResults = await page.evaluate(() => {
-      const items: Array<{ url: string; title: string }> = [];
-      document.querySelectorAll('#b_results .b_algo').forEach(div => {
-        const linkEl = div.querySelector('a[href*="linkedin.com/in/"]');
-        if (!linkEl) return;
-        const url = (linkEl as HTMLAnchorElement).href;
-        const title = linkEl.textContent?.trim() || '';
-        items.push({ url, title });
-      });
-      return items;
-    });
+  while (hasMore) {
+    pageNum++;
+    onProgress?.(`Bing Seite ${pageNum}...`, results.length);
 
-    for (const item of bingResults) {
-      let profileUrl = item.url;
-      try {
-        const parsed = new URL(profileUrl);
-        profileUrl = `https://www.linkedin.com${parsed.pathname.replace(/\/+$/, '')}`;
-      } catch { /* keep as-is */ }
-
-      const titleParts = item.title
-        .replace(/\s*[\|–-]\s*LinkedIn\s*$/i, '')
-        .split(/\s*[\|–-]\s*/);
-
-      results.push({
-        profileUrl,
-        snippetName: titleParts[0]?.trim() || '',
-        snippetHeadline: titleParts.slice(1).join(' – ').trim(),
+    try {
+      const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&first=${offset + 1}&count=50`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': getRandomUserAgent(),
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'de-DE,de;q=0.9',
+        },
       });
 
-      if (results.length >= maxResults) break;
+      if (!res.ok) {
+        onProgress?.(`Bing Fehler: ${res.status}`, results.length);
+        break;
+      }
+
+      const html = await res.text();
+
+      // Parse Bing results — links in <li class="b_algo"> containers
+      const resultRegex = /<li\s+class="b_algo">([\s\S]*?)<\/li>/gi;
+      let resultMatch: RegExpExecArray | null;
+      let foundOnPage = 0;
+
+      while ((resultMatch = resultRegex.exec(html)) !== null) {
+        const block = resultMatch[1];
+        const linkMatch = block.match(/<a\s+href="(https?:\/\/[^"]*linkedin\.com\/in\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+        if (!linkMatch) continue;
+
+        const profileUrl = cleanLinkedInUrl(linkMatch[1]);
+        if (!profileUrl) continue;
+
+        const norm = normalizeLinkedInUrl(profileUrl);
+        if (seenUrls.has(norm)) continue;
+        seenUrls.add(norm);
+
+        const title = linkMatch[2].replace(/<[^>]+>/g, '').trim();
+        const parsed = parseSearchTitle(title);
+        results.push({
+          profileUrl,
+          snippetName: parsed.name,
+          snippetHeadline: parsed.headline,
+        });
+        foundOnPage++;
+
+        if (maxResults > 0 && results.length >= maxResults) break;
+      }
+
+      onProgress?.(`Bing Seite ${pageNum}: ${foundOnPage} neue Profile (gesamt: ${results.length})`, results.length);
+
+      if (foundOnPage === 0) {
+        hasMore = false;
+      } else if (maxResults > 0 && results.length >= maxResults) {
+        hasMore = false;
+      } else {
+        offset += 50;
+      }
+
+      if (hasMore) {
+        await randomDelay(1500, 3000);
+      }
+
+      // Safety limit
+      if (pageNum >= 50) {
+        hasMore = false;
+      }
+    } catch (err) {
+      onProgress?.(`Bing Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, results.length);
+      hasMore = false;
     }
-  } catch (err) {
-    console.error('[LinkedIn Free] Bing-Suche Fehler:', err);
   }
 
   return results;
+}
+
+/**
+ * Main search function: tries DuckDuckGo first, falls back to Bing.
+ * maxResults: 0 = unlimited
+ */
+export async function searchProfiles(
+  keyword: string,
+  location: string,
+  maxResults: number,
+  onProgress?: (msg: string, count: number) => void,
+): Promise<SearchResult[]> {
+  // Try DuckDuckGo first
+  onProgress?.('Starte Suche via DuckDuckGo...', 0);
+  const ddgResults = await searchDuckDuckGo(keyword, location, maxResults, onProgress);
+
+  if (ddgResults.length > 0) {
+    onProgress?.(`DuckDuckGo: ${ddgResults.length} Profile gefunden`, ddgResults.length);
+    return ddgResults;
+  }
+
+  // Fallback to Bing
+  onProgress?.('DuckDuckGo lieferte keine Ergebnisse - versuche Bing...', 0);
+  const bingResults = await searchBing(keyword, location, maxResults, onProgress);
+
+  if (bingResults.length > 0) {
+    onProgress?.(`Bing: ${bingResults.length} Profile gefunden`, bingResults.length);
+    return bingResults;
+  }
+
+  onProgress?.('Keine Profile gefunden. Versuche einen anderen Suchbegriff.', 0);
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -422,14 +497,12 @@ export async function fetchPublicProfile(
     const ogImage = html.match(/<meta\s+property="og:image"\s+content="([^"]+)"/i)?.[1];
 
     if (ogTitle && !base.fullName) {
-      const titleClean = ogTitle.replace(/\s*[\|–-]\s*LinkedIn\s*$/i, '');
-      const parts = titleClean.split(/\s*[\|–-]\s*/);
-      base.fullName = parts[0]?.trim() || base.fullName;
-      if (parts[1]) base.headline = parts[1].trim();
+      const parsed = parseSearchTitle(ogTitle);
+      base.fullName = parsed.name || base.fullName;
+      if (parsed.headline) base.headline = parsed.headline;
     }
 
     if (ogDesc && !base.company) {
-      // OG description often contains: "Title at Company. Location. ..."
       const atMatch = ogDesc.match(/(?:bei|at|@)\s+(.+?)(?:\.|,|$)/i);
       if (atMatch) base.company = atMatch[1].trim();
     }
@@ -441,18 +514,13 @@ export async function fetchPublicProfile(
     // --- Extract from HTML title ---
     const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
     if (titleMatch && !base.fullName) {
-      const titleClean = titleMatch[1]
-        .replace(/\s*[\|–-]\s*LinkedIn\s*$/i, '')
-        .replace(/&amp;/g, '&')
-        .replace(/&#39;/g, "'");
-      const parts = titleClean.split(/\s*[\|–-]\s*/);
-      base.fullName = parts[0]?.trim() || base.fullName;
+      const parsed = parseSearchTitle(titleMatch[1]);
+      base.fullName = parsed.name || base.fullName;
     }
 
     // --- Extract location from meta description ---
     const metaDesc = html.match(/<meta\s+name="description"\s+content="([^"]+)"/i)?.[1];
     if (metaDesc && !base.location) {
-      // Pattern: "... Location. ..."
       const locMatch = metaDesc.match(/(?:Standort|Location|Ort)[:\s]+([^.·,]+)/i);
       if (locMatch) base.location = locMatch[1].trim();
     }
@@ -475,7 +543,6 @@ export async function fetchPublicProfile(
 function extractCompanyFromHeadline(person: FreeLinkedInPerson): void {
   if (person.company || !person.headline) return;
 
-  // Common patterns: "Title at Company", "Title bei Firma", "Title | Company"
   const patterns = [
     /(?:bei|at|@)\s+(.+?)(?:\s*[\|–-]|$)/i,
     /[\|–-]\s*(.+?)(?:\s*[\|–-]|$)/,
@@ -494,7 +561,7 @@ function extractCompanyFromHeadline(person: FreeLinkedInPerson): void {
  * Fetch multiple profiles concurrently in batches
  */
 export async function fetchProfilesBatch(
-  searchResults: GoogleSearchResult[],
+  searchResults: SearchResult[],
   concurrency: number = 5,
   onProfile?: (person: FreeLinkedInPerson, index: number, total: number) => void,
 ): Promise<FreeLinkedInPerson[]> {
@@ -517,7 +584,7 @@ export async function fetchProfilesBatch(
 
     // Short delay between batches
     if (i + concurrency < searchResults.length) {
-      await randomDelay(500, 1200);
+      await randomDelay(300, 800);
     }
   }
 
@@ -528,9 +595,6 @@ export async function fetchProfilesBatch(
 // 3. Email Pattern Generation
 // ---------------------------------------------------------------------------
 
-/**
- * Normalize German umlauts and special characters for email
- */
 function normalizeForEmail(str: string): string {
   return str
     .toLowerCase()
@@ -547,9 +611,6 @@ function normalizeForEmail(str: string): string {
     .trim();
 }
 
-/**
- * Guess company domain from company name
- */
 export function guessCompanyDomain(company: string): string[] {
   if (!company) return [];
 
@@ -576,7 +637,6 @@ export function guessCompanyDomain(company: string): string[] {
 
   const domains: string[] = [];
 
-  // Most common German TLD first
   if (slug) {
     domains.push(`${slug}.de`);
     domains.push(`${slug}.com`);
@@ -589,9 +649,6 @@ export function guessCompanyDomain(company: string): string[] {
   return Array.from(new Set(domains));
 }
 
-/**
- * Generate candidate email addresses for a person
- */
 export function generateCandidateEmails(
   fullName: string,
   companyDomains: string[],
@@ -624,12 +681,8 @@ export function generateCandidateEmails(
 // 4. SMTP Email Verification
 // ---------------------------------------------------------------------------
 
-// Cache: domain -> { mx, catchAll }
 const domainCache = new Map<string, { mx: string | null; catchAll: boolean }>();
 
-/**
- * Resolve MX record for a domain
- */
 async function resolveMx(domain: string): Promise<string | null> {
   try {
     const dns = await import('dns');
@@ -637,7 +690,6 @@ async function resolveMx(domain: string): Promise<string | null> {
 
     const records = await dnsPromises.resolveMx(domain);
     if (records && records.length > 0) {
-      // Sort by priority and return highest priority (lowest number)
       records.sort((a: { priority: number }, b: { priority: number }) => a.priority - b.priority);
       return records[0].exchange;
     }
@@ -647,9 +699,6 @@ async function resolveMx(domain: string): Promise<string | null> {
   return null;
 }
 
-/**
- * Verify an email via SMTP RCPT TO handshake
- */
 async function smtpVerify(email: string, mxHost: string): Promise<boolean> {
   const net = await import('net');
 
@@ -676,15 +725,12 @@ async function smtpVerify(email: string, mxHost: string): Promise<boolean> {
       const code = parseInt(response.substring(0, 3));
 
       if (step === 0) {
-        // Got greeting
         socket.write('EHLO mail.example.com\r\n');
         step = 1;
       } else if (step === 1) {
-        // EHLO response
         socket.write(`MAIL FROM:<verify@example.com>\r\n`);
         step = 2;
       } else if (step === 2) {
-        // MAIL FROM response
         if (code === 250) {
           socket.write(`RCPT TO:<${email}>\r\n`);
           step = 3;
@@ -692,7 +738,6 @@ async function smtpVerify(email: string, mxHost: string): Promise<boolean> {
           cleanup();
         }
       } else if (step === 3) {
-        // RCPT TO response - this tells us if the email exists
         clearTimeout(timer);
         if (!resolved) {
           resolved = true;
@@ -709,24 +754,16 @@ async function smtpVerify(email: string, mxHost: string): Promise<boolean> {
   });
 }
 
-/**
- * Check if a domain is a catch-all (accepts all addresses)
- */
 async function isCatchAll(domain: string, mxHost: string): Promise<boolean> {
-  // Test with a random nonsense address
   const randomEmail = `xyztest${Date.now()}${Math.random().toString(36).slice(2)}@${domain}`;
   return smtpVerify(randomEmail, mxHost);
 }
 
-/**
- * Verify email candidates and return the best match
- */
 export async function findVerifiedEmail(
   candidates: string[],
 ): Promise<{ email: string; confidence: 'high' | 'medium' | 'low' } | null> {
   if (candidates.length === 0) return null;
 
-  // Group by domain
   const byDomain = new Map<string, string[]>();
   for (const email of candidates) {
     const domain = email.split('@')[1];
@@ -735,17 +772,15 @@ export async function findVerifiedEmail(
   }
 
   for (const [domain, emails] of Array.from(byDomain.entries())) {
-    // Check cache
     let cached = domainCache.get(domain);
 
     if (!cached) {
       const mx = await resolveMx(domain);
       if (!mx) {
         domainCache.set(domain, { mx: null, catchAll: false });
-        continue; // Domain has no mail server
+        continue;
       }
 
-      // Check catch-all
       const catchAll = await isCatchAll(domain, mx);
       cached = { mx, catchAll };
       domainCache.set(domain, cached);
@@ -754,11 +789,9 @@ export async function findVerifiedEmail(
     if (!cached.mx) continue;
 
     if (cached.catchAll) {
-      // Catch-all domain: accept the first pattern but with low confidence
       return { email: emails[0], confidence: 'low' };
     }
 
-    // Try each candidate
     for (const email of emails) {
       try {
         const exists = await smtpVerify(email, cached.mx);
@@ -771,7 +804,6 @@ export async function findVerifiedEmail(
     }
   }
 
-  // No verified email found — return best guess with low confidence
   return { email: candidates[0], confidence: 'low' };
 }
 
@@ -781,6 +813,7 @@ export async function findVerifiedEmail(
 
 /**
  * Run the full LinkedIn scraping pipeline for a single keyword.
+ * maxResults: 0 = unlimited (scrape EVERYTHING)
  */
 export async function scrapeLinkedInKeyword(
   keyword: string,
@@ -791,15 +824,15 @@ export async function scrapeLinkedInKeyword(
 ): Promise<FreeLinkedInPerson[]> {
   const people: FreeLinkedInPerson[] = [];
 
-  // Step 1: Google search
+  // Step 1: Search
   onProgress?.({
     type: 'search_start',
     keyword,
     profilesFound: 0,
   });
 
-  const searchResults = await searchViaGoogle(keyword, location, maxResults, (msg) => {
-    onProgress?.({ type: 'search_progress', keyword, error: msg });
+  const searchResults = await searchProfiles(keyword, location, maxResults, (msg, count) => {
+    onProgress?.({ type: 'search_progress', keyword, error: msg, profilesFound: count });
   });
 
   onProgress?.({
@@ -830,24 +863,20 @@ export async function scrapeLinkedInKeyword(
   for (let i = 0; i < profiles.length; i++) {
     const person = profiles[i];
 
-    // Generate company domains
     const companyDomains = guessCompanyDomain(person.company);
     person.companyDomain = companyDomains[0] || null;
 
     if (companyDomains.length > 0) {
-      // Generate candidate emails
       const candidates = generateCandidateEmails(person.fullName, companyDomains);
 
       if (candidates.length > 0) {
         if (smtpVerification) {
-          // SMTP verification
           const result = await findVerifiedEmail(candidates);
           if (result) {
             person.email = result.email;
             person.emailConfidence = result.confidence;
           }
         } else {
-          // No verification — just use best guess
           person.email = candidates[0];
           person.emailConfidence = 'low';
         }
