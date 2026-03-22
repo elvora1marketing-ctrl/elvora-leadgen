@@ -1,11 +1,13 @@
 import { NextRequest } from 'next/server';
 import getDb from '@/lib/db';
 import {
-  searchLinkedInPeople,
-  getLinkedInProfile,
   normalizeLinkedInUrl,
   type LinkedInPerson,
 } from '@/lib/linkedin-scraper';
+import {
+  scrapeLinkedInKeyword,
+  type FreeLinkedInPerson,
+} from '@/lib/linkedin-scraper-free';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,7 +15,7 @@ export const dynamic = 'force-dynamic';
 /**
  * POST /api/scraper/linkedin/stream - Start LinkedIn scraping with SSE live progress
  *
- * Body: { keywords: string[], location: string, maxResults: number, onlyWithEmail: boolean }
+ * Body: { keywords: string[], location: string, maxResults: number, onlyWithEmail: boolean, smtpVerification: boolean }
  */
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -22,11 +24,13 @@ export async function POST(request: NextRequest) {
     location = '',
     maxResults = 25,
     onlyWithEmail = false,
+    smtpVerification = true,
   } = body as {
     keywords: string[];
     location?: string;
     maxResults?: number;
     onlyWithEmail?: boolean;
+    smtpVerification?: boolean;
   };
 
   if (!keywords?.length) {
@@ -37,20 +41,6 @@ export async function POST(request: NextRequest) {
   }
 
   const db = getDb();
-
-  // Load API credentials
-  const apiKeySetting = db.prepare("SELECT value FROM settings WHERE key = 'rapidapi_key'").get() as { value: string } | undefined;
-  const apiHostSetting = db.prepare("SELECT value FROM settings WHERE key = 'rapidapi_linkedin_host'").get() as { value: string } | undefined;
-
-  const rapidapiKey = apiKeySetting?.value || '';
-  const rapidapiHost = apiHostSetting?.value || 'fresh-linkedin-profile-data.p.rapidapi.com';
-
-  if (!rapidapiKey) {
-    return new Response(JSON.stringify({ error: 'RapidAPI-Key fehlt. Bitte unter Einstellungen hinterlegen.' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -63,7 +53,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const allPeople: LinkedInPerson[] = [];
+      const allPeople: FreeLinkedInPerson[] = [];
       let totalImported = 0;
       let totalDuplicates = 0;
       let totalNoEmail = 0;
@@ -91,6 +81,10 @@ export async function POST(request: NextRequest) {
 
       for (const kw of keywords) {
         keywordIndex++;
+        let kwImported = 0;
+        let kwDuplicates = 0;
+        let kwNoEmail = 0;
+        const kwStartTime = Date.now();
 
         send({
           type: 'search_start',
@@ -104,32 +98,65 @@ export async function POST(request: NextRequest) {
         });
 
         try {
-          // Search for people
-          const searchResult = await searchLinkedInPeople(kw, location, rapidapiKey, rapidapiHost);
-          const people = searchResult.people.slice(0, maxResults);
+          // Use the free scraper pipeline
+          const people = await scrapeLinkedInKeyword(
+            kw,
+            location,
+            maxResults,
+            smtpVerification,
+            (progress) => {
+              // Forward progress events with batch counters
+              send({
+                ...progress,
+                currentKeyword: keywordIndex,
+                totalKeywords: keywords.length,
+                totalFound: allPeople.length + (progress.currentProfile || 0),
+                totalImported,
+                totalDuplicates,
+                totalNoEmail,
+              });
+            },
+          );
 
-          send({
-            type: 'search_results',
-            keyword: kw,
-            profilesFound: people.length,
-            totalResults: searchResult.totalResults,
-          });
-
-          // Fetch details for each profile
-          let profileIndex = 0;
-          let kwImported = 0;
-          let kwDuplicates = 0;
-          let kwNoEmail = 0;
-          const kwStartTime = Date.now();
-
+          // Import results
           for (const person of people) {
-            profileIndex++;
+            const linkedInPerson: LinkedInPerson = {
+              fullName: person.fullName,
+              profileUrl: person.profileUrl,
+              headline: person.headline,
+              location: person.location,
+              company: person.company,
+              title: person.title,
+              email: person.email,
+              profileImageUrl: person.profileImageUrl,
+            };
+
+            const importResult = importLinkedInLead(db, linkedInPerson, kw, onlyWithEmail);
+            if (importResult === 'imported') {
+              totalImported++;
+              kwImported++;
+            } else if (importResult === 'duplicate') {
+              totalDuplicates++;
+              kwDuplicates++;
+            } else if (importResult === 'no_email') {
+              totalNoEmail++;
+              kwNoEmail++;
+            } else {
+              totalSkipped++;
+            }
+
+            allPeople.push(person);
 
             send({
-              type: 'profile_fetch',
+              type: 'profile_complete',
               keyword: kw,
               profileName: person.fullName,
-              currentProfile: profileIndex,
+              profileCompany: person.company,
+              profileEmail: person.email ? '***' : null,
+              hasEmail: !!person.email,
+              emailConfidence: person.emailConfidence,
+              importStatus: importResult,
+              currentProfile: allPeople.length,
               totalProfiles: people.length,
               currentKeyword: keywordIndex,
               totalKeywords: keywords.length,
@@ -138,74 +165,6 @@ export async function POST(request: NextRequest) {
               totalDuplicates,
               totalNoEmail,
             });
-
-            try {
-              // Fetch full profile with email
-              const profile = await getLinkedInProfile(person.profileUrl, rapidapiKey, rapidapiHost);
-
-              // Merge search data with profile data
-              const mergedPerson: LinkedInPerson = {
-                ...person,
-                ...profile,
-                fullName: profile.fullName || person.fullName,
-                company: profile.company || person.company,
-                title: profile.title || person.title,
-                location: profile.location || person.location,
-              };
-
-              // Import to DB
-              const importResult = importLinkedInLead(db, mergedPerson, kw, onlyWithEmail);
-              if (importResult === 'imported') {
-                totalImported++;
-                kwImported++;
-              } else if (importResult === 'duplicate') {
-                totalDuplicates++;
-                kwDuplicates++;
-              } else if (importResult === 'no_email') {
-                totalNoEmail++;
-                kwNoEmail++;
-              } else {
-                totalSkipped++;
-              }
-
-              allPeople.push(mergedPerson);
-
-              send({
-                type: 'profile_complete',
-                keyword: kw,
-                profileName: mergedPerson.fullName,
-                profileCompany: mergedPerson.company,
-                profileEmail: mergedPerson.email ? '***' : null,
-                hasEmail: !!mergedPerson.email,
-                importStatus: importResult,
-                currentProfile: profileIndex,
-                totalProfiles: people.length,
-                currentKeyword: keywordIndex,
-                totalKeywords: keywords.length,
-                totalFound: allPeople.length,
-                totalImported,
-                totalDuplicates,
-                totalNoEmail,
-              });
-            } catch (err) {
-              const errMsg = `Profil ${person.fullName}: ${err instanceof Error ? err.message : 'Fehler'}`;
-              allErrors.push(errMsg);
-              send({
-                type: 'profile_error',
-                error: errMsg,
-                currentProfile: profileIndex,
-                totalProfiles: people.length,
-                totalFound: allPeople.length,
-                totalImported,
-                totalDuplicates,
-                totalNoEmail,
-              });
-            }
-
-            // Rate limiting between profile fetches
-            if (profileIndex < people.length) {
-              await new Promise(resolve => setTimeout(resolve, 1500));
-            }
           }
 
           send({
@@ -266,6 +225,7 @@ export async function POST(request: NextRequest) {
           company: p.company,
           title: p.title,
           email: p.email,
+          emailConfidence: p.emailConfidence,
           location: p.location,
           profileUrl: p.profileUrl,
         }))),

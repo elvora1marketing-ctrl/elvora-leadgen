@@ -7,6 +7,7 @@ interface LinkedInResult {
   company: string;
   title: string;
   email: string | null;
+  emailConfidence?: 'high' | 'medium' | 'low' | null;
   location: string;
   profileUrl: string;
 }
@@ -67,6 +68,7 @@ export default function LinkedInScraperPage() {
   const [location, setLocation] = useState('Deutschland');
   const [maxResults, setMaxResults] = useState(25);
   const [onlyWithEmail, setOnlyWithEmail] = useState(false);
+  const [smtpVerification, setSmtpVerification] = useState(true);
   const [scraping, setScraping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ScraperJob[]>([]);
@@ -130,6 +132,7 @@ export default function LinkedInScraperPage() {
           location: location.trim(),
           maxResults,
           onlyWithEmail,
+          smtpVerification,
         }),
         signal: abortController.signal,
       });
@@ -217,12 +220,13 @@ export default function LinkedInScraperPage() {
   };
 
   const exportCsv = (results: LinkedInResult[]) => {
-    const headers = ['Name', 'Position', 'Firma', 'E-Mail', 'Standort', 'LinkedIn URL'];
+    const headers = ['Name', 'Position', 'Firma', 'E-Mail', 'E-Mail Genauigkeit', 'Standort', 'LinkedIn URL'];
     const rows = results.map(r => [
       r.name,
       r.title || '',
       r.company || '',
       r.email || '',
+      r.emailConfidence || '',
       r.location || '',
       r.profileUrl || '',
     ]);
@@ -263,6 +267,7 @@ export default function LinkedInScraperPage() {
           <h1 className="text-xl sm:text-2xl font-bold text-white">LinkedIn Scraper</h1>
           <p className="text-xs sm:text-sm text-elvora-text-dim mt-1">
             Personen auf LinkedIn finden – Name, Firma und E-Mail extrahieren
+            <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">KOSTENLOS</span>
           </p>
         </div>
         {showingResults && (
@@ -405,19 +410,29 @@ export default function LinkedInScraperPage() {
           </div>
         )}
 
-        {/* API Cost Warning */}
-        {keywordCount * maxResults > 50 && (
-          <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-3">
-            <div className="flex items-center gap-2 text-sm">
-              <svg className="w-4 h-4 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-              <span className="text-amber-300 text-xs">
-                Viele API-Anfragen! Jedes Profil verbraucht einen API-Call. Prüfe dein RapidAPI-Kontingent.
-              </span>
+        {/* SMTP Verification Toggle */}
+        <div className="flex items-center justify-between bg-white/[0.03] rounded-xl p-4 border border-white/5">
+          <div className="flex-1 mr-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-white">SMTP-Verifikation</span>
             </div>
+            <p className="text-xs text-elvora-text-dim mt-1">
+              E-Mail-Adressen per SMTP prüfen (genauer, aber etwas langsamer).
+            </p>
           </div>
-        )}
+          <button
+            onClick={() => setSmtpVerification(!smtpVerification)}
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${
+              smtpVerification ? 'bg-blue-500' : 'bg-white/10'
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-sm ${
+                smtpVerification ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
 
         {/* Start / Cancel Button */}
         {!scraping ? (
@@ -457,11 +472,6 @@ export default function LinkedInScraperPage() {
             </svg>
             <div>
               <span className="text-red-300 text-sm">{error}</span>
-              {error.toLowerCase().includes('rapidapi') && (
-                <a href="/settings" className="block text-blue-400 text-xs mt-1 hover:underline">
-                  Jetzt in den Einstellungen hinterlegen &rarr;
-                </a>
-              )}
             </div>
           </div>
         </div>
@@ -657,6 +667,7 @@ export default function LinkedInScraperPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-elvora-text-dim uppercase tracking-wider">Position</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-elvora-text-dim uppercase tracking-wider">Firma</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-elvora-text-dim uppercase tracking-wider">E-Mail</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-elvora-text-dim uppercase tracking-wider">Genauigkeit</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-elvora-text-dim uppercase tracking-wider">Standort</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-elvora-text-dim uppercase tracking-wider">LinkedIn</th>
                 </tr>
@@ -679,6 +690,21 @@ export default function LinkedInScraperPage() {
                         <a href={`mailto:${person.email}`} className="text-blue-400 hover:underline text-xs">
                           {person.email}
                         </a>
+                      ) : (
+                        <span className="text-elvora-text-dim text-xs">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {person.emailConfidence ? (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                          person.emailConfidence === 'high' ? 'bg-emerald-500/15 text-emerald-400' :
+                          person.emailConfidence === 'medium' ? 'bg-amber-500/15 text-amber-400' :
+                          'bg-white/5 text-elvora-text-dim'
+                        }`}>
+                          {person.emailConfidence === 'high' ? 'Verifiziert' :
+                           person.emailConfidence === 'medium' ? 'Wahrscheinlich' :
+                           'Geschätzt'}
+                        </span>
                       ) : (
                         <span className="text-elvora-text-dim text-xs">-</span>
                       )}
