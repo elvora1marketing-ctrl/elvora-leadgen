@@ -80,6 +80,9 @@ export default function ScraperPage() {
   const [radiusSearch, setRadiusSearch] = useState(false);
   const [radiusKm, setRadiusKm] = useState(15);
 
+  // Free mode (Puppeteer, no API key needed)
+  const [freeMode, setFreeMode] = useState(false);
+
   // Live progress state
   const [liveProgress, setLiveProgress] = useState<LiveProgress | null>(null);
   const [completedSearches, setCompletedSearches] = useState<CompletedSearch[]>([]);
@@ -150,13 +153,14 @@ export default function ScraperPage() {
     abortRef.current = abortController;
 
     try {
-      const res = await fetch('/api/scraper/maps/stream', {
+      const endpoint = freeMode ? '/api/scraper/maps-free/stream' : '/api/scraper/maps/stream';
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           keywords,
           cities: selectedCities,
-          maxPages,
+          ...(freeMode ? {} : { maxPages }),
           deepScan,
           radiusSearch,
           radiusKm: radiusSearch ? radiusKm : 0,
@@ -378,29 +382,60 @@ export default function ScraperPage() {
           </div>
         </div>
 
-        {/* Pages Slider */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-elvora-text-muted">
-              Seiten pro Suche
-            </label>
-            <span className="text-sm font-bold text-white">
-              {maxPages} {maxPages === 1 ? 'Seite' : 'Seiten'} <span className="text-elvora-text-dim font-normal">(~{maxPages * 20} pro Suche)</span>
-            </span>
+        {/* Pages Slider - only in API mode */}
+        {!freeMode && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-elvora-text-muted">
+                Seiten pro Suche
+              </label>
+              <span className="text-sm font-bold text-white">
+                {maxPages} {maxPages === 1 ? 'Seite' : 'Seiten'} <span className="text-elvora-text-dim font-normal">(~{maxPages * 20} pro Suche)</span>
+              </span>
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={3}
+              value={maxPages}
+              onChange={(e) => setMaxPages(Number(e.target.value))}
+              className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-elvora-primary"
+            />
+            <div className="flex justify-between text-[10px] text-elvora-text-dim mt-1">
+              <span>~20 Ergebnisse</span>
+              <span>~40 Ergebnisse</span>
+              <span>~60 Ergebnisse</span>
+            </div>
           </div>
-          <input
-            type="range"
-            min={1}
-            max={3}
-            value={maxPages}
-            onChange={(e) => setMaxPages(Number(e.target.value))}
-            className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-elvora-primary"
-          />
-          <div className="flex justify-between text-[10px] text-elvora-text-dim mt-1">
-            <span>~20 Ergebnisse</span>
-            <span>~40 Ergebnisse</span>
-            <span>~60 Ergebnisse</span>
+        )}
+
+        {/* Ohne API Toggle (Free Puppeteer Mode) */}
+        <div className={`flex items-center justify-between rounded-xl p-4 border transition-all ${
+          freeMode ? 'bg-emerald-500/[0.06] border-emerald-500/20' : 'bg-white/[0.03] border-white/5'
+        }`}>
+          <div className="flex-1 mr-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-white">Ohne API</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 uppercase tracking-wider">Kostenlos</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 uppercase tracking-wider">Alle Ergebnisse</span>
+            </div>
+            <p className="text-xs text-elvora-text-dim mt-1">
+              Scrapt Google Maps direkt per Browser (Puppeteer). Kein API-Key nötig, kein Ergebnis-Limit.
+              Findet ALLE Firmen unter dem Keyword. Dauert etwas länger.
+            </p>
           </div>
+          <button
+            onClick={() => setFreeMode(!freeMode)}
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${
+              freeMode ? 'bg-emerald-500' : 'bg-white/10'
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-sm ${
+                freeMode ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
         </div>
 
         {/* Tiefenscan Toggle */}
@@ -495,8 +530,12 @@ export default function ScraperPage() {
               </svg>
               <span className="text-elvora-text-muted">
                 <span className="text-white font-semibold">{totalSearches}</span> Suchanfragen
-                <span className="text-elvora-text-dim"> ({keywordCount} Keywords × {deepScan ? `${cityOrDistrictCount} Stadtteile` : `${effectiveCityCount} Städte`}{radiusSearch && !deepScan ? ` (${radiusKm}km Umkreis)` : ''} × {maxPages} Seiten)</span>
-                {' = '}bis zu <span className="text-white font-semibold">{totalSearches * maxPages * 20}</span> Ergebnisse
+                <span className="text-elvora-text-dim"> ({keywordCount} Keywords × {deepScan ? `${cityOrDistrictCount} Stadtteile` : `${effectiveCityCount} Städte`}{radiusSearch && !deepScan ? ` (${radiusKm}km Umkreis)` : ''}{!freeMode ? ` × ${maxPages} Seiten` : ''})</span>
+                {freeMode
+                  ? <>{' = '}<span className="text-emerald-400 font-semibold">ALLE Ergebnisse</span> <span className="text-emerald-400/60">(kein Limit)</span></>
+                  : <>{' = '}bis zu <span className="text-white font-semibold">{totalSearches * maxPages * 20}</span> Ergebnisse</>
+                }
+                {freeMode && <span className="text-emerald-400 ml-1 font-medium">(Ohne API)</span>}
                 {deepScan && <span className="text-elvora-accent ml-1 font-medium">(Tiefenscan)</span>}
                 {radiusSearch && !deepScan && <span className="text-elvora-primary ml-1 font-medium">(Umkreis)</span>}
               </span>
@@ -518,7 +557,7 @@ export default function ScraperPage() {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            Batch-Scraping starten ({totalSearches} Suchanfragen)
+            {freeMode ? 'Free Scraping starten' : 'Batch-Scraping starten'} ({totalSearches} Suchanfragen)
           </button>
         ) : (
           <button
@@ -542,10 +581,18 @@ export default function ScraperPage() {
             </svg>
             <div>
               <span className="text-red-300 text-sm">{error}</span>
-              {error.toLowerCase().includes('api-key') && (
+              {error.toLowerCase().includes('api-key') && !freeMode && (
                 <a href="/settings" className="block text-elvora-primary text-xs mt-1 hover:underline">
                   Jetzt in den Einstellungen hinterlegen &rarr;
                 </a>
+              )}
+              {error.toLowerCase().includes('api-key') && !freeMode && (
+                <button
+                  onClick={() => setFreeMode(true)}
+                  className="block text-emerald-400 text-xs mt-1 hover:underline"
+                >
+                  Oder &quot;Ohne API&quot; Modus aktivieren (kostenlos) &rarr;
+                </button>
               )}
             </div>
           </div>
