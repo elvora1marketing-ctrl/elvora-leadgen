@@ -242,21 +242,37 @@ export function getDb(): Database.Database {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
 
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
+    const instance = new Database(DB_PATH);
+    instance.pragma('journal_mode = WAL');
+    instance.pragma('foreign_keys = ON');
 
     // Auto-create tables if they don't exist
-    db.exec(SCHEMA);
+    instance.exec(SCHEMA);
 
     // Migration: Update CHECK constraint to allow 'akquise' status
     // SQLite can't ALTER CHECK constraints, so we recreate the table
     try {
-      const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='leads'").get() as { sql: string } | undefined;
+      const tableInfo = instance.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='leads'").get() as { sql: string } | undefined;
       if (tableInfo?.sql && !tableInfo.sql.includes("'akquise'")) {
-        db.pragma('foreign_keys = OFF');
-        db.exec(`
-          CREATE TABLE IF NOT EXISTS leads_new (
+        // Get existing column names to handle INSERT correctly
+        const existingCols = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+        const colNames = existingCols.map(c => c.name);
+
+        // Target columns for leads_new (base set without engagement/linkedin columns that are added later)
+        const baseCols = [
+          'id', 'name', 'website_original', 'website_normalized', 'phone', 'phone_normalized',
+          'email', 'city', 'score', 'rating', 'screenshot_desktop', 'screenshot_mobile',
+          'problems', 'seo_issues', 'sales_pitch', 'status', 'contact_status', 'priority',
+          'notes', 'found_via_keywords', 'times_found', 'is_chain', 'deal_value',
+          'followup_date', 'created_at', 'reviewed_at', 'contacted_at', 'updated_at', 'last_seen_at',
+        ];
+        // Only select columns that exist in both old and new table
+        const selectCols = baseCols.filter(c => colNames.includes(c)).join(', ');
+
+        instance.pragma('foreign_keys = OFF');
+        instance.exec(`DROP TABLE IF EXISTS leads_new`);
+        instance.exec(`
+          CREATE TABLE leads_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             website_original TEXT,
@@ -287,7 +303,7 @@ export function getDb(): Database.Database {
             updated_at TEXT DEFAULT (datetime('now')),
             last_seen_at TEXT DEFAULT (datetime('now'))
           );
-          INSERT INTO leads_new SELECT * FROM leads;
+          INSERT INTO leads_new (${selectCols}) SELECT ${selectCols} FROM leads;
           DROP TABLE leads;
           ALTER TABLE leads_new RENAME TO leads;
           CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
@@ -296,24 +312,26 @@ export function getDb(): Database.Database {
           CREATE INDEX IF NOT EXISTS idx_leads_contact_status ON leads(contact_status);
           CREATE INDEX IF NOT EXISTS idx_leads_website ON leads(website_normalized);
         `);
-        db.pragma('foreign_keys = ON');
+        instance.pragma('foreign_keys = ON');
         console.log('[DB] Migration: akquise status added to leads table');
       }
     } catch (e) {
       console.error('[DB] Migration error:', e);
-      db.pragma('foreign_keys = ON');
+      instance.pragma('foreign_keys = ON');
+      // Clean up orphan table if migration failed
+      try { instance.exec('DROP TABLE IF EXISTS leads_new'); } catch { /* ignore */ }
     }
 
     // Migration: Add engagement_score and engagement_signals columns if missing
     try {
-      const colCheck = db.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colCheck = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
       const colNames = colCheck.map(c => c.name);
       if (!colNames.includes('engagement_score')) {
-        db.exec("ALTER TABLE leads ADD COLUMN engagement_score INTEGER DEFAULT 0");
+        instance.exec("ALTER TABLE leads ADD COLUMN engagement_score INTEGER DEFAULT 0");
         console.log('[DB] Migration: added engagement_score column');
       }
       if (!colNames.includes('engagement_signals')) {
-        db.exec("ALTER TABLE leads ADD COLUMN engagement_signals TEXT DEFAULT '{}'");
+        instance.exec("ALTER TABLE leads ADD COLUMN engagement_signals TEXT DEFAULT '{}'");
         console.log('[DB] Migration: added engagement_signals column');
       }
     } catch (e) {
@@ -322,15 +340,15 @@ export function getDb(): Database.Database {
 
     // Migration: Add linkedin_url and company columns if missing
     try {
-      const colCheck2 = db.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colCheck2 = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
       const colNames2 = colCheck2.map(c => c.name);
       if (!colNames2.includes('linkedin_url')) {
-        db.exec("ALTER TABLE leads ADD COLUMN linkedin_url TEXT");
-        db.exec("CREATE INDEX IF NOT EXISTS idx_leads_linkedin ON leads(linkedin_url)");
+        instance.exec("ALTER TABLE leads ADD COLUMN linkedin_url TEXT");
+        instance.exec("CREATE INDEX IF NOT EXISTS idx_leads_linkedin ON leads(linkedin_url)");
         console.log('[DB] Migration: added linkedin_url column');
       }
       if (!colNames2.includes('company')) {
-        db.exec("ALTER TABLE leads ADD COLUMN company TEXT");
+        instance.exec("ALTER TABLE leads ADD COLUMN company TEXT");
         console.log('[DB] Migration: added company column');
       }
     } catch (e) {
@@ -338,10 +356,10 @@ export function getDb(): Database.Database {
     }
 
     // Insert default settings (only if not already set)
-    const insertSetting = db.prepare(
+    const insertSetting = instance.prepare(
       "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))"
     );
-    const insertDefaults = db.transaction(() => {
+    const insertDefaults = instance.transaction(() => {
       for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
         insertSetting.run(key, value);
       }
@@ -351,10 +369,13 @@ export function getDb(): Database.Database {
     // Migration: Update panel password to new value
     try {
       const newHash = DEFAULT_SETTINGS.panel_password;
-      db.prepare("UPDATE settings SET value = ?, updated_at = datetime('now') WHERE key = 'panel_password' AND value != ?").run(newHash, newHash);
+      instance.prepare("UPDATE settings SET value = ?, updated_at = datetime('now') WHERE key = 'panel_password' AND value != ?").run(newHash, newHash);
     } catch (e) {
       console.error('[DB] Panel password migration error:', e);
     }
+
+    // Only set the singleton after ALL initialization succeeds
+    db = instance;
   }
   return db;
 }

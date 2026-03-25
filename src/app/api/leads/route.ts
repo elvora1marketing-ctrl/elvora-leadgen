@@ -162,7 +162,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error: unknown) {
-    console.error('Leads list error:', error);
-    return NextResponse.json({ error: 'Fehler beim Laden' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Unbekannter Fehler';
+    console.error('Leads list error:', message, error);
+    return NextResponse.json({ error: `Fehler beim Laden: ${message}` }, { status: 500 });
   }
 }
