@@ -172,13 +172,18 @@ export async function GET(request: NextRequest) {
     const filterCity = searchParams.get('city') || '';
     const filterKeyword = searchParams.get('keyword') || '';
 
+    const forceAll = searchParams.get('force') === '1';
+
     // Build WHERE conditions for filters
     const conditions: string[] = [
       "website_original IS NOT NULL",
       "website_original != ''",
-      "score = 0",
       "status != 'rejected'",
     ];
+    // Only filter unanalyzed leads unless force re-analyze is requested
+    if (!forceAll) {
+      conditions.push("score = 0");
+    }
     const params: (string | number)[] = [];
 
     if (filterStatus) {
@@ -246,10 +251,40 @@ export async function GET(request: NextRequest) {
       ORDER BY created_at DESC
     `).all(...params) as { id: number }[];
 
+    // Count total leads matching the category filter (without website/score conditions)
+    const categoryConditions: string[] = ["status != 'rejected'"];
+    const categoryParams: (string | number)[] = [];
+    if (filterStatus) {
+      categoryConditions.push("status = ?");
+      categoryParams.push(filterStatus);
+    }
+    if (filterCity) {
+      categoryConditions.push("(city = ? OR city LIKE ? || ' %' OR city LIKE ? || '-%')");
+      categoryParams.push(filterCity, filterCity, filterCity);
+    }
+    if (filterKeyword) {
+      categoryConditions.push("found_via_keywords LIKE '%' || ? || '%'");
+      categoryParams.push(filterKeyword);
+    }
+    const categoryTotal = db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN website_original IS NOT NULL AND website_original != '' THEN 1 ELSE 0 END) as with_website,
+        SUM(CASE WHEN website_original IS NOT NULL AND website_original != '' AND score > 0 THEN 1 ELSE 0 END) as already_analyzed
+      FROM leads
+      WHERE ${categoryConditions.join(' AND ')}
+    `).get(...categoryParams) as { total: number; with_website: number; already_analyzed: number };
+
     return NextResponse.json({
       stats,
       distribution,
       pendingIds: pendingIds.map(r => r.id),
+      categoryInfo: {
+        total: categoryTotal.total,
+        withWebsite: categoryTotal.with_website,
+        alreadyAnalyzed: categoryTotal.already_analyzed,
+        noWebsite: categoryTotal.total - categoryTotal.with_website,
+      },
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unbekannter Fehler';
