@@ -12,6 +12,7 @@
  */
 
 import { normalizeLinkedInUrl, type LinkedInPerson } from './linkedin-scraper';
+import { delay, randomDelay } from './utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,14 +85,6 @@ const EMAIL_PATTERNS = [
   (f: string, l: string) => `${f}_${l}`,         // vorname_nachname
   (f: string, l: string) => `${f}-${l}`,         // vorname-nachname
 ];
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function randomDelay(min: number, max: number): Promise<void> {
-  return delay(min + Math.random() * (max - min));
-}
 
 function getRandomUserAgent(): string {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];

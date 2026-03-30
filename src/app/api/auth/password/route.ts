@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import getDb from '@/lib/db';
-
-function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(32).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-  return `${salt}:${hash}`;
-}
+import { hashPassword } from '@/lib/utils';
 
 // POST /api/auth/password – Change password (requires valid session)
 export async function POST(request: NextRequest) {
@@ -31,8 +26,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Hash and store new password
-    const hashed = hashPassword(newPassword);
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('panel_password', ?, datetime('now'))").run(hashed);
+    const { hash, salt } = hashPassword(newPassword);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('panel_password', ?, datetime('now'))").run(`${salt}:${hash}`);
 
     // Refresh session token
     const newToken = crypto.randomUUID();

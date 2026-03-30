@@ -12,30 +12,9 @@
  */
 
 import type { ScrapedBusiness, ScrapeResult, ScrapeProgress } from './maps-scraper';
+import { delay, extractCity } from './utils';
 
 const GOOGLE_MAPS_URL = 'https://www.google.com/maps/search/';
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Extract city from German address string
- */
-function extractCityFromAddress(address: string, fallbackCity: string): string {
-  if (!address) return fallbackCity;
-  const plzMatch = address.match(/\d{5}\s+([\wäöüÄÖÜß]+(?:\s+(?:am|an|im|bei|ob)\s+[\wäöüÄÖÜß]+)?)/i);
-  if (plzMatch) return plzMatch[1].trim();
-  const parts = address.split(',').map(p => p.trim());
-  if (parts.length >= 2) {
-    const cityPart = parts[parts.length - 2] || parts[parts.length - 1];
-    const cityFromPart = cityPart.replace(/^\d{5}\s*/, '').trim();
-    if (cityFromPart.length >= 2 && cityFromPart !== 'Deutschland') {
-      return cityFromPart;
-    }
-  }
-  return fallbackCity;
-}
 
 interface PuppeteerPage {
   goto(url: string, options?: Record<string, unknown>): Promise<unknown>;
@@ -158,7 +137,7 @@ export async function scrapeGoogleMapsFree(
         const business: ScrapedBusiness = {
           name: singleResult.name,
           address: singleResult.address,
-          city: extractCityFromAddress(singleResult.address, searchCity),
+          city: extractCity(singleResult.address, searchCity),
           phone: singleResult.phone || null,
           website: singleResult.website || null,
           rating: singleResult.rating,
@@ -380,7 +359,7 @@ export async function scrapeGoogleMapsFree(
         businesses.push({
           name: raw.name,
           address: raw.address,
-          city: extractCityFromAddress(raw.address, searchCity),
+          city: extractCity(raw.address, searchCity),
           phone: raw.phone || null,
           website: raw.website || null,
           rating: raw.rating,
@@ -413,7 +392,7 @@ export async function scrapeGoogleMapsFree(
             businesses.push({
               name: raw.name,
               address: details.address || raw.address,
-              city: extractCityFromAddress(details.address || raw.address, searchCity),
+              city: extractCity(details.address || raw.address, searchCity),
               phone: details.phone || raw.phone || null,
               website: details.website || raw.website || null,
               rating: raw.rating,
@@ -444,7 +423,7 @@ export async function scrapeGoogleMapsFree(
       businesses.push({
         name: raw.name,
         address: raw.address,
-        city: extractCityFromAddress(raw.address, searchCity),
+        city: extractCity(raw.address, searchCity),
         phone: raw.phone || null,
         website: raw.website || null,
         rating: raw.rating,

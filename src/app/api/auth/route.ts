@@ -1,26 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import getDb from '@/lib/db';
-
-// Hash password with PBKDF2 (100k iterations, SHA-512)
-function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
-  const s = salt || crypto.randomBytes(32).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, s, 100000, 64, 'sha512').toString('hex');
-  return { hash, salt: s };
-}
-
-function verifyPassword(password: string, stored: string): boolean {
-  const [salt, hash] = stored.split(':');
-  if (!salt || !hash) return false;
-  const { hash: computed } = hashPassword(password, salt);
-  // Constant-time comparison
-  if (computed.length !== hash.length) return false;
-  let result = 0;
-  for (let i = 0; i < computed.length; i++) {
-    result |= computed.charCodeAt(i) ^ hash.charCodeAt(i);
-  }
-  return result === 0;
-}
+import { hashPassword, verifyPassword } from '@/lib/utils';
 
 // POST /api/auth – Login
 export async function POST(request: NextRequest) {

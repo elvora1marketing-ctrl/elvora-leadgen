@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { timingSafeEqual } from '@/lib/utils';
 
 /**
  * Validates API key from Authorization header or x-api-key header,
@@ -53,13 +54,4 @@ export function validateApiKey(request: NextRequest): NextResponse | null {
   }
 
   return null;
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return result === 0;
 }

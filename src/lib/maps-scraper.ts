@@ -12,6 +12,9 @@
  * To get more results, use batch scraping with multiple keyword/city combinations.
  */
 
+import { delay, extractCity, normalizeWebsite } from './utils';
+export { normalizeWebsite };
+
 export interface ScrapedBusiness {
   name: string;
   address: string;
@@ -74,41 +77,6 @@ const FIELD_MASK = [
 ].join(',');
 
 /**
- * Normalize website URL for deduplication
- */
-export function normalizeWebsite(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname.replace(/^www\./, '').toLowerCase();
-  } catch {
-    return url.replace(/^(?:https?:\/\/)?(?:www\.)?/i, '').toLowerCase().split('/')[0];
-  }
-}
-
-/**
- * Extract city from a German formatted address
- */
-function extractCity(address: string, fallbackCity: string): string {
-  if (!address) return fallbackCity;
-
-  // German format: "Straße 123, 45678 Stadtname, Deutschland"
-  const plzMatch = address.match(/\d{5}\s+([\wäöüÄÖÜß]+(?:\s+(?:am|an|im|bei|ob)\s+[\wäöüÄÖÜß]+)?)/i);
-  if (plzMatch) return plzMatch[1].trim();
-
-  // Try city from comma-separated parts (second-to-last part often is the city)
-  const parts = address.split(',').map(p => p.trim());
-  if (parts.length >= 2) {
-    const cityPart = parts[parts.length - 2] || parts[parts.length - 1];
-    const cityFromPart = cityPart.replace(/^\d{5}\s*/, '').trim();
-    if (cityFromPart.length >= 2 && cityFromPart !== 'Deutschland') {
-      return cityFromPart;
-    }
-  }
-
-  return fallbackCity;
-}
-
-/**
  * Deduplicate businesses by website or name
  */
 export function deduplicateBusinesses(businesses: ScrapedBusiness[]): ScrapedBusiness[] {
@@ -127,10 +95,6 @@ export function deduplicateBusinesses(businesses: ScrapedBusiness[]): ScrapedBus
   }
 
   return unique;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
