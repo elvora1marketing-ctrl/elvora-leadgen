@@ -21,6 +21,7 @@ export interface ScrapedBusiness {
   city: string;
   phone: string | null;
   website: string | null;
+  email: string | null;
   rating: number | null;
   reviews: number | null;
   category: string | null;
@@ -110,6 +111,7 @@ function parsePlaceResult(place: Record<string, unknown>, searchCity: string): S
     city: extractCity((place.formattedAddress as string) || '', searchCity),
     phone: (place.nationalPhoneNumber as string) || (place.internationalPhoneNumber as string) || null,
     website: (place.websiteUri as string) || null,
+    email: null,
     rating: typeof place.rating === 'number' ? place.rating : null,
     reviews: typeof place.userRatingCount === 'number' ? place.userRatingCount : null,
     category: primaryType?.text || null,

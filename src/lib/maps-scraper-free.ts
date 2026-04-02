@@ -143,6 +143,7 @@ export async function scrapeGoogleMapsFree(
           rating: singleResult.rating,
           reviews: singleResult.reviews,
           category: singleResult.category || null,
+          email: null,
           placeId: null,
         };
 
@@ -365,6 +366,7 @@ export async function scrapeGoogleMapsFree(
           rating: raw.rating,
           reviews: raw.reviews,
           category: raw.category || null,
+          email: null,
           placeId: null,
         });
         continue;
@@ -398,7 +400,8 @@ export async function scrapeGoogleMapsFree(
               rating: raw.rating,
               reviews: raw.reviews,
               category: raw.category || null,
-              placeId: null,
+              email: null,
+          placeId: null,
             });
 
             if (detailIndex % 10 === 0) {
@@ -429,6 +432,7 @@ export async function scrapeGoogleMapsFree(
         rating: raw.rating,
         reviews: raw.reviews,
         category: raw.category || null,
+        email: null,
         placeId: null,
       });
     }

@@ -950,7 +950,7 @@ function checkAccessibility(html: string, htmlLower: string): CheckResult {
  * Extract email addresses from HTML content
  * Filters out common false positives (image files, CSS classes, JS variables)
  */
-function extractEmails(html: string): string[] {
+export function extractEmails(html: string): string[] {
   // Extract from mailto: links first (highest quality)
   const mailtoEmails: string[] = [];
   const mailtoRegex = /mailto:([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/gi;

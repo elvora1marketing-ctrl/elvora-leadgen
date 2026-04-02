@@ -2,8 +2,58 @@ import { NextRequest } from 'next/server';
 import getDb from '@/lib/db';
 import { scrapeGoogleMapsFree } from '@/lib/maps-scraper-free';
 import { normalizeWebsite, deduplicateBusinesses, type ScrapedBusiness } from '@/lib/maps-scraper';
+import { extractEmails } from '@/lib/website-analyzer';
 import { expandCityToStadtteile } from '@/lib/stadtteile';
 import { findCitiesInRadius } from '@/lib/umkreis';
+
+const EMAIL_FETCH_TIMEOUT = 8000;
+const EMAIL_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+/**
+ * Fetch a business website and extract email addresses
+ */
+async function scrapeEmailFromWebsite(websiteUrl: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), EMAIL_FETCH_TIMEOUT);
+
+    let url = websiteUrl;
+    if (!url.startsWith('http')) url = 'https://' + url;
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': EMAIL_USER_AGENT },
+      redirect: 'follow',
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) return null;
+
+    const html = await response.text();
+    const emails = extractEmails(html);
+    return emails.length > 0 ? emails[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Scrape emails from websites for a batch of businesses
+ */
+async function scrapeEmailsForBusinesses(
+  businesses: ScrapedBusiness[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  const withWebsite = businesses.filter(b => b.website && !b.email);
+  let done = 0;
+
+  for (const biz of withWebsite) {
+    const email = await scrapeEmailFromWebsite(biz.website!);
+    if (email) biz.email = email;
+    done++;
+    if (done % 5 === 0) onProgress?.(done, withWebsite.length);
+  }
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -117,6 +167,34 @@ export async function POST(request: NextRequest) {
               });
             });
 
+            // Scrape emails from business websites
+            const bizWithWebsite = result.businesses.filter(b => b.website);
+            if (bizWithWebsite.length > 0) {
+              send({
+                type: 'email_scrape_start',
+                keyword: fullKeyword,
+                totalWebsites: bizWithWebsite.length,
+              });
+
+              await scrapeEmailsForBusinesses(result.businesses, (done, total) => {
+                send({
+                  type: 'email_scrape_progress',
+                  keyword: fullKeyword,
+                  emailsDone: done,
+                  emailsTotal: total,
+                  emailsFound: result.businesses.filter(b => b.email).length,
+                });
+              });
+
+              const emailsFound = result.businesses.filter(b => b.email).length;
+              send({
+                type: 'email_scrape_complete',
+                keyword: fullKeyword,
+                emailsFound,
+                totalWebsites: bizWithWebsite.length,
+              });
+            }
+
             // Import results
             const importResult = importBusinessesToLeads(db, result.businesses, fullKeyword);
             totalImported += importResult.imported;
@@ -229,8 +307,8 @@ function importBusinessesToLeads(
   let skipped = 0;
 
   const insertLead = db.prepare(`
-    INSERT INTO leads (name, website_original, website_normalized, phone, city, status, found_via_keywords, score, rating)
-    VALUES (?, ?, ?, ?, ?, 'pending', ?, 0, 'pending')
+    INSERT INTO leads (name, website_original, website_normalized, phone, email, city, status, found_via_keywords, score, rating)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, 'pending')
   `);
 
   const updateSeen = db.prepare(`
@@ -264,6 +342,10 @@ function importBusinessesToLeads(
 
       if (existing) {
         updateSeen.run(keyword, keyword, websiteNorm);
+        // If we found an email and the existing lead has none, update it
+        if (biz.email) {
+          db.prepare(`UPDATE leads SET email = COALESCE(NULLIF(email, ''), ?) WHERE id = ?`).run(biz.email, existing.id);
+        }
         duplicates++;
       } else {
         try {
@@ -272,6 +354,7 @@ function importBusinessesToLeads(
             biz.website || null,
             websiteNorm,
             biz.phone || null,
+            biz.email || null,
             biz.city || 'Unbekannt',
             keyword,
           );
