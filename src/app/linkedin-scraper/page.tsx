@@ -343,11 +343,10 @@ export default function LinkedInScraperPage() {
   // Calculate overall progress
   const overallProgress = liveProgress
     ? (() => {
-        const kw = liveProgress.currentKeyword || 0;
+        const kw = Math.max(liveProgress.currentKeyword || 0, 1);
         const totalKw = liveProgress.totalKeywords || 1;
         const prof = liveProgress.currentProfile || 0;
         const totalProf = liveProgress.totalProfiles || 1;
-        // Weight: each keyword is equal, profiles within each keyword
         return ((kw - 1) / totalKw + (prof / totalProf) / totalKw) * 100;
       })()
     : 0;
