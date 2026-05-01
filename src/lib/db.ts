@@ -434,6 +434,42 @@ export function getDb(): Database.Database {
       console.error('[DB] Tags tables migration error:', e);
     }
 
+    // Migration: Create website_snapshots + trigger_events for Phase 7 (Monitoring)
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS website_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lead_id INTEGER NOT NULL,
+          score INTEGER,
+          has_ssl INTEGER,
+          is_reachable INTEGER DEFAULT 1,
+          response_time_ms INTEGER,
+          status_code INTEGER,
+          problems_count INTEGER DEFAULT 0,
+          checked_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_snapshots_lead ON website_snapshots(lead_id, checked_at);
+
+        CREATE TABLE IF NOT EXISTS trigger_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lead_id INTEGER NOT NULL,
+          trigger_type TEXT NOT NULL,
+          severity TEXT DEFAULT 'medium' CHECK(severity IN ('low','medium','high','critical')),
+          title TEXT NOT NULL,
+          details TEXT,
+          is_acted_on INTEGER DEFAULT 0,
+          is_dismissed INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_triggers_lead ON trigger_events(lead_id);
+        CREATE INDEX IF NOT EXISTS idx_triggers_active ON trigger_events(is_acted_on, is_dismissed, created_at);
+      `);
+    } catch (e) {
+      console.error('[DB] Monitoring tables migration error:', e);
+    }
+
     // Migration: Update panel password to new value
     try {
       const newHash = DEFAULT_SETTINGS.panel_password;

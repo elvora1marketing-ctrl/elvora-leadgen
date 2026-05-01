@@ -12,6 +12,7 @@ interface NavItem {
   badge?: boolean;
   inboxBadge?: boolean;
   taskBadge?: boolean;
+  triggerBadge?: boolean;
 }
 
 interface NavSection {
@@ -57,6 +58,16 @@ const navSections: NavSection[] = [
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+        ),
+      },
+      {
+        label: 'Monitoring',
+        href: '/monitoring',
+        triggerBadge: true,
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
         ),
       },
@@ -139,13 +150,15 @@ export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
+  const [triggerCount, setTriggerCount] = useState(0);
   const { logout } = useAuth();
 
   const loadBadgeCounts = useCallback(async () => {
     try {
-      const [inboxRes, taskRes] = await Promise.all([
+      const [inboxRes, taskRes, triggerRes] = await Promise.all([
         fetch('/api/inbox?unread=1&limit=1'),
         fetch('/api/tasks?completed=0&limit=1'),
+        fetch('/api/monitoring/triggers?limit=1'),
       ]);
       if (inboxRes.ok) {
         const data = await inboxRes.json();
@@ -154,6 +167,10 @@ export default function Sidebar() {
       if (taskRes.ok) {
         const data = await taskRes.json();
         setTaskCount(data.counts?.overdue || 0);
+      }
+      if (triggerRes.ok) {
+        const data = await triggerRes.json();
+        setTriggerCount((data.counts?.critical || 0) + (data.counts?.high || 0));
       }
     } catch { /* silent */ }
   }, []);
@@ -263,6 +280,11 @@ export default function Sidebar() {
                       {item.taskBadge && taskCount > 0 && (
                         <span className="ml-auto bg-elvora-warning/20 text-elvora-warning text-xs font-semibold px-2 py-0.5 rounded-full">
                           {taskCount}
+                        </span>
+                      )}
+                      {item.triggerBadge && triggerCount > 0 && (
+                        <span className="ml-auto bg-red-500/20 text-red-400 text-xs font-semibold px-2 py-0.5 rounded-full animate-pulse">
+                          {triggerCount}
                         </span>
                       )}
                     </Link>

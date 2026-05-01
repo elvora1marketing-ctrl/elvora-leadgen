@@ -50,6 +50,70 @@ interface CheckResult {
 const FETCH_TIMEOUT = 15000;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+export interface QuickCheckResult {
+  isReachable: boolean;
+  hasSSL: boolean;
+  statusCode: number | null;
+  responseTimeMs: number;
+  finalUrl: string;
+  error: string | null;
+}
+
+/**
+ * Lightweight check: only verifies reachability, SSL, response time, status code.
+ * Used for continuous monitoring - much faster than full analyzeWebsite().
+ */
+export async function quickCheck(url: string): Promise<QuickCheckResult> {
+  const startTime = Date.now();
+  let normalizedUrl = url.trim();
+  if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+    normalizedUrl = 'http://' + normalizedUrl;
+  }
+
+  const tryFetch = async (u: string): Promise<QuickCheckResult> => {
+    const fetchStart = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(u, {
+        signal: controller.signal,
+        headers: { 'User-Agent': USER_AGENT },
+        redirect: 'follow',
+        method: 'GET',
+      });
+      clearTimeout(timeout);
+      // Drain body to avoid leaks but limit size
+      try { await response.text(); } catch { /* ignore */ }
+      return {
+        isReachable: response.status < 500,
+        hasSSL: response.url.startsWith('https://'),
+        statusCode: response.status,
+        responseTimeMs: Date.now() - fetchStart,
+        finalUrl: response.url,
+        error: null,
+      };
+    } catch (err: unknown) {
+      clearTimeout(timeout);
+      return {
+        isReachable: false,
+        hasSSL: false,
+        statusCode: null,
+        responseTimeMs: Date.now() - fetchStart,
+        finalUrl: u,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  };
+
+  let result = await tryFetch(normalizedUrl);
+  if (!result.isReachable && normalizedUrl.startsWith('http://')) {
+    result = await tryFetch(normalizedUrl.replace('http://', 'https://'));
+  }
+  // Total time guard
+  if (result.responseTimeMs === 0) result.responseTimeMs = Date.now() - startTime;
+  return result;
+}
+
 /**
  * Main analysis function - analyzes a website URL and returns a quality score
  */
