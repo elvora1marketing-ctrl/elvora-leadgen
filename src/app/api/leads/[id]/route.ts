@@ -51,7 +51,23 @@ export async function GET(
       LIMIT 1
     `).get(leadId);
 
-    return NextResponse.json({ lead, tags, tasks, audit });
+    const contacts = db.prepare(`
+      SELECT * FROM contacts WHERE lead_id = ? ORDER BY is_primary DESC, name ASC
+    `).all(leadId);
+
+    const competitors = db.prepare(`
+      SELECT * FROM competitor_analyses WHERE lead_id = ? ORDER BY competitor_score DESC
+    `).all(leadId);
+
+    const proposals = db.prepare(`
+      SELECT * FROM proposals WHERE lead_id = ? ORDER BY created_at DESC
+    `).all(leadId);
+
+    const reviews = db.prepare(`
+      SELECT * FROM review_snapshots WHERE lead_id = ? ORDER BY checked_at DESC LIMIT 10
+    `).all(leadId);
+
+    return NextResponse.json({ lead, tags, tasks, audit, contacts, competitors, proposals, reviews });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unbekannter Fehler';
     return NextResponse.json({ error: message }, { status: 500 });

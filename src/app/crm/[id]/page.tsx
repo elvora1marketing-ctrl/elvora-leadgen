@@ -36,6 +36,10 @@ interface Lead {
   replies_count: number;
   followups_sent: number;
   followups_pending: number;
+  best_contact_hour: number | null;
+  best_contact_day: string | null;
+  predicted_close_probability: number | null;
+  predicted_reasons: string | null;
 }
 
 interface Tag {
@@ -60,6 +64,40 @@ interface AuditPage {
   views: number;
   cta_clicks: number;
   created_at: string;
+}
+
+interface Contact {
+  id: number;
+  name: string;
+  role: string | null;
+  email: string | null;
+  phone: string | null;
+  is_primary: number;
+}
+
+interface Competitor {
+  id: number;
+  competitor_name: string;
+  competitor_website: string | null;
+  competitor_score: number | null;
+  competitor_has_ssl: number;
+  competitor_response_ms: number;
+}
+
+interface Proposal {
+  id: number;
+  title: string;
+  amount: number | null;
+  status: string;
+  sent_at: string | null;
+  created_at: string;
+}
+
+interface ReviewSnapshot {
+  id: number;
+  rating: number;
+  review_count: number;
+  checked_at: string;
 }
 
 interface Activity {
@@ -112,10 +150,32 @@ export default function CrmDetailPage() {
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [audit, setAudit] = useState<AuditPage | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [competitors, setCompetitors] = useState<Competitor[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [reviews, setReviews] = useState<ReviewSnapshot[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'thread' | 'activities' | 'tasks' | 'deal' | 'info'>('thread');
+  const [tab, setTab] = useState<'thread' | 'activities' | 'tasks' | 'deal' | 'info' | 'extras'>('thread');
+
+  // Extras: AI Predict / Call Script / Competitor / Contact / Proposal forms
+  const [predicting, setPredicting] = useState(false);
+  const [prediction, setPrediction] = useState<{ probability: number; reasons: string[]; estimated_days_to_close: number | null } | null>(null);
+  const [scriptGenerating, setScriptGenerating] = useState(false);
+  const [callScript, setCallScript] = useState<Record<string, string> | null>(null);
+  const [analyzingComp, setAnalyzingComp] = useState(false);
+  const [checkingReviews, setCheckingReviews] = useState(false);
+  const [reviewMsg, setReviewMsg] = useState('');
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [contactName, setContactName] = useState('');
+  const [contactRole, setContactRole] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [showProposalForm, setShowProposalForm] = useState(false);
+  const [propTitle, setPropTitle] = useState('');
+  const [propAmount, setPropAmount] = useState('');
+  const [propStatus, setPropStatus] = useState('draft');
 
   // Forms
   const [showTagPicker, setShowTagPicker] = useState(false);
@@ -154,6 +214,15 @@ export default function CrmDetailPage() {
         setLeadTags(d.tags || []);
         setTasks(d.tasks || []);
         setAudit(d.audit);
+        setContacts(d.contacts || []);
+        setCompetitors(d.competitors || []);
+        setProposals(d.proposals || []);
+        setReviews(d.reviews || []);
+        if (d.lead?.predicted_close_probability !== null && d.lead?.predicted_close_probability !== undefined) {
+          let reasons: string[] = [];
+          try { reasons = JSON.parse(d.lead.predicted_reasons || '[]'); } catch { /* ignore */ }
+          setPrediction({ probability: d.lead.predicted_close_probability, reasons, estimated_days_to_close: null });
+        }
         if (d.lead) {
           setDealValue(d.lead.deal_value?.toString() || '');
           setCloseDate(d.lead.expected_close_date || '');
@@ -274,6 +343,120 @@ export default function CrmDetailPage() {
       if (d.tag?.id) await addTag(d.tag.id);
       setNewTagName('');
     }
+  };
+
+  const runPredict = async () => {
+    setPredicting(true);
+    try {
+      const res = await fetch('/api/ai/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: leadId }),
+      });
+      const d = await res.json();
+      if (res.ok && d.success) {
+        setPrediction({ probability: d.probability, reasons: d.reasons, estimated_days_to_close: d.estimated_days_to_close });
+      }
+    } catch { /* silent */ }
+    finally { setPredicting(false); }
+  };
+
+  const generateScript = async () => {
+    setScriptGenerating(true);
+    try {
+      const res = await fetch('/api/ai/call-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: leadId }),
+      });
+      const d = await res.json();
+      if (res.ok && d.script) setCallScript(d.script);
+    } catch { /* silent */ }
+    finally { setScriptGenerating(false); }
+  };
+
+  const analyzeCompetitors = async () => {
+    setAnalyzingComp(true);
+    try {
+      const res = await fetch(`/api/competitors/${leadId}`, { method: 'POST' });
+      if (res.ok) loadAll();
+    } catch { /* silent */ }
+    finally { setAnalyzingComp(false); }
+  };
+
+  const checkReviews = async () => {
+    setCheckingReviews(true);
+    setReviewMsg('');
+    try {
+      const res = await fetch(`/api/leads/${leadId}/reviews`, { method: 'POST' });
+      const d = await res.json();
+      if (res.ok && d.success) {
+        setReviewMsg(`Aktuell: ${d.snapshot.rating}★ (${d.snapshot.review_count})`);
+        loadAll();
+      } else {
+        setReviewMsg(d.message || 'Fehler');
+      }
+    } catch { setReviewMsg('Netzwerkfehler'); }
+    finally { setCheckingReviews(false); }
+  };
+
+  const calcBestTime = async () => {
+    try {
+      await fetch(`/api/leads/${leadId}/best-time`);
+      loadAll();
+    } catch { /* silent */ }
+  };
+
+  const addContact = async () => {
+    if (!contactName.trim()) return;
+    await fetch(`/api/leads/${leadId}/contacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: contactName.trim(),
+        role: contactRole || undefined,
+        email: contactEmail || undefined,
+        phone: contactPhone || undefined,
+      }),
+    });
+    setContactName(''); setContactRole(''); setContactEmail(''); setContactPhone('');
+    setShowContactForm(false);
+    loadAll();
+  };
+
+  const deleteContact = async (id: number) => {
+    await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
+    loadAll();
+  };
+
+  const addProposal = async () => {
+    if (!propTitle.trim()) return;
+    await fetch(`/api/leads/${leadId}/proposals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: propTitle.trim(),
+        amount: propAmount ? parseFloat(propAmount) : undefined,
+        status: propStatus,
+      }),
+    });
+    setPropTitle(''); setPropAmount(''); setPropStatus('draft');
+    setShowProposalForm(false);
+    loadAll();
+  };
+
+  const updateProposalStatus = async (id: number, status: string) => {
+    await fetch(`/api/proposals/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    loadAll();
+  };
+
+  const deleteProposal = async (id: number) => {
+    await fetch(`/api/proposals/${id}`, { method: 'DELETE' });
+    loadAll();
   };
 
   const sendReply = async () => {
@@ -483,6 +666,7 @@ export default function CrmDetailPage() {
           ['tasks', 'Aufgaben', tasks.length],
           ['deal', 'Deal', null],
           ['info', 'Info', null],
+          ['extras', 'Mehr', contacts.length + proposals.length + competitors.length],
         ] as const).map(([key, label, count]) => (
           <button
             key={key}
@@ -885,6 +1069,256 @@ export default function CrmDetailPage() {
             <div>Gefunden: {lead.times_found}x</div>
             <div>Erstellt: {new Date(lead.created_at + 'Z').toLocaleString('de-DE')}</div>
             <div>Aktualisiert: {new Date(lead.updated_at + 'Z').toLocaleString('de-DE')}</div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'extras' && (
+        <div className="space-y-4">
+          {/* AI Predict */}
+          <div className="glass rounded-2xl p-5 border border-elvora-purple/20">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">KI-Prognose</span>
+                {prediction && <span className="px-1.5 py-0.5 rounded bg-elvora-purple/15 text-elvora-purple-light text-[9px] font-bold">Aktiv</span>}
+              </div>
+              <button
+                onClick={runPredict}
+                disabled={predicting}
+                className="px-3 py-1.5 rounded-lg bg-elvora-purple/15 border border-elvora-purple/30 text-elvora-purple-light text-xs font-semibold hover:bg-elvora-purple/25 disabled:opacity-50"
+              >
+                {predicting ? 'Berechne...' : prediction ? 'Neu berechnen' : 'Abschluss-Wahrscheinlichkeit'}
+              </button>
+            </div>
+            {prediction && (
+              <div>
+                <div className="flex items-baseline gap-3 mb-2">
+                  <span className={`text-4xl font-bold ${prediction.probability >= 70 ? 'text-elvora-success' : prediction.probability >= 40 ? 'text-elvora-warning' : 'text-red-400'}`}>{prediction.probability}%</span>
+                  <span className="text-xs text-elvora-text-dim">Abschluss-Wahrscheinlichkeit</span>
+                </div>
+                {prediction.reasons.length > 0 && (
+                  <ul className="space-y-1 mt-2">
+                    {prediction.reasons.map((r, i) => (
+                      <li key={i} className="text-xs text-elvora-text-muted flex items-start gap-2">
+                        <span className="text-elvora-purple-light mt-0.5">•</span>
+                        <span>{r}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* AI Call Script */}
+          <div className="glass rounded-2xl p-5 border border-elvora-accent/20">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">KI-Anruf-Coach</span>
+              <button
+                onClick={generateScript}
+                disabled={scriptGenerating}
+                className="px-3 py-1.5 rounded-lg bg-elvora-accent/15 border border-elvora-accent/30 text-elvora-accent text-xs font-semibold hover:bg-elvora-accent/25 disabled:opacity-50"
+              >
+                {scriptGenerating ? 'Generiere...' : callScript ? 'Neu generieren' : 'Skript erstellen'}
+              </button>
+            </div>
+            {callScript && (
+              <div className="space-y-3">
+                {(['einstieg', 'problem', 'loesung', 'cta'] as const).map(k => callScript[k] && (
+                  <div key={k}>
+                    <div className="text-[10px] uppercase tracking-wider text-elvora-accent font-semibold mb-1">{k}</div>
+                    <p className="text-sm text-white">{callScript[k]}</p>
+                  </div>
+                ))}
+                <div className="border-t border-white/5 pt-3 space-y-2">
+                  <div className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">Einwand-Antworten</div>
+                  {(['einwand_kein_interesse', 'einwand_zu_teuer', 'einwand_keine_zeit'] as const).map(k => callScript[k] && (
+                    <div key={k} className="text-xs">
+                      <span className="text-elvora-text-dim">{k.replace('einwand_', '').replace(/_/g, ' ')}: </span>
+                      <span className="text-elvora-text-muted">{callScript[k]}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Smart Timing */}
+          <div className="glass rounded-2xl p-5 border border-white/5">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">Beste Kontaktzeit</span>
+              <button
+                onClick={calcBestTime}
+                className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-elvora-text-muted text-xs font-semibold hover:bg-white/10"
+              >
+                Berechnen
+              </button>
+            </div>
+            {lead.best_contact_hour !== null && lead.best_contact_day ? (
+              <div className="text-sm text-white">
+                <span className="text-elvora-success font-bold">{lead.best_contact_day}</span> um <span className="text-elvora-success font-bold">{String(lead.best_contact_hour).padStart(2, '0')}:00</span>
+                <div className="text-[11px] text-elvora-text-dim mt-1">basiert auf E-Mail-Engagement</div>
+              </div>
+            ) : (
+              <div className="text-xs text-elvora-text-dim">Noch keine Engagement-Daten</div>
+            )}
+          </div>
+
+          {/* Kontakte */}
+          <div className="glass rounded-2xl p-5 border border-white/5">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">Kontaktpersonen ({contacts.length})</span>
+              <button onClick={() => setShowContactForm(!showContactForm)} className="text-xs text-elvora-purple-light hover:underline">
+                {showContactForm ? 'Abbrechen' : '+ Hinzufügen'}
+              </button>
+            </div>
+            {showContactForm && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                <input type="text" value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Name" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+                <input type="text" value={contactRole} onChange={e => setContactRole(e.target.value)} placeholder="Rolle" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+                <input type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="E-Mail" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+                <input type="tel" value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="Telefon" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+                <button onClick={addContact} className="md:col-span-2 px-3 py-1.5 rounded-lg bg-elvora-purple text-white text-sm">Hinzufügen</button>
+              </div>
+            )}
+            {contacts.length === 0 ? (
+              <div className="text-xs text-elvora-text-dim">Keine Kontakte</div>
+            ) : (
+              <div className="space-y-2">
+                {contacts.map(c => (
+                  <div key={c.id} className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 group">
+                    <div>
+                      <div className="text-sm text-white font-medium">{c.name} {c.is_primary === 1 && <span className="ml-1 px-1 py-0.5 rounded bg-elvora-purple/20 text-elvora-purple-light text-[9px] font-bold">PRIMARY</span>}</div>
+                      <div className="text-xs text-elvora-text-dim">
+                        {c.role && <span>{c.role}</span>}
+                        {c.email && <span className="ml-2">{c.email}</span>}
+                        {c.phone && <span className="ml-2">{c.phone}</span>}
+                      </div>
+                    </div>
+                    <button onClick={() => deleteContact(c.id)} className="opacity-0 group-hover:opacity-100 text-elvora-text-dim hover:text-red-400 transition-all p-1">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Konkurrenz-Vergleich */}
+          <div className="glass rounded-2xl p-5 border border-white/5">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">Konkurrenz-Vergleich ({competitors.length})</span>
+              <button onClick={analyzeCompetitors} disabled={analyzingComp} className="text-xs text-elvora-purple-light hover:underline disabled:opacity-50">
+                {analyzingComp ? 'Analysiere...' : '↻ Konkurrenten finden'}
+              </button>
+            </div>
+            {competitors.length === 0 ? (
+              <div className="text-xs text-elvora-text-dim">Noch keine Konkurrenten analysiert</div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs px-3 py-1.5 rounded-lg bg-elvora-purple/10 border border-elvora-purple/20">
+                  <span className="text-white font-bold">{lead.name} (Sie)</span>
+                  <span className="text-elvora-purple-light font-bold">{lead.score}/100</span>
+                </div>
+                {competitors.map(c => (
+                  <div key={c.id} className="flex items-center justify-between text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/5">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-white font-medium truncate">{c.competitor_name}</div>
+                      <div className="text-[10px] text-elvora-text-dim">
+                        {c.competitor_has_ssl === 1 ? '🔒 SSL' : '⚠ Kein SSL'} · {c.competitor_response_ms}ms
+                      </div>
+                    </div>
+                    <span className={`font-bold ml-2 ${(c.competitor_score || 0) >= (lead.score || 0) ? 'text-elvora-success' : 'text-red-400'}`}>
+                      {c.competitor_score || 0}/100
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Reviews */}
+          <div className="glass rounded-2xl p-5 border border-white/5">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">Google-Bewertungen</span>
+              <button onClick={checkReviews} disabled={checkingReviews} className="text-xs text-elvora-purple-light hover:underline disabled:opacity-50">
+                {checkingReviews ? 'Prüfe...' : '↻ Aktualisieren'}
+              </button>
+            </div>
+            {reviewMsg && <div className="text-xs text-elvora-text-muted mb-2">{reviewMsg}</div>}
+            {reviews.length === 0 ? (
+              <div className="text-xs text-elvora-text-dim">Noch keine Bewertungs-Snapshots</div>
+            ) : (
+              <div className="space-y-1">
+                {reviews.map(r => (
+                  <div key={r.id} className="flex items-center justify-between text-xs px-3 py-1.5 rounded bg-white/5">
+                    <span className="text-elvora-text-dim">{new Date(r.checked_at + 'Z').toLocaleDateString('de-DE')}</span>
+                    <span className="text-white font-bold">{r.rating}★ <span className="text-elvora-text-dim font-normal">({r.review_count} Bewertungen)</span></span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Angebote */}
+          <div className="glass rounded-2xl p-5 border border-white/5">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">Angebote ({proposals.length})</span>
+              <button onClick={() => setShowProposalForm(!showProposalForm)} className="text-xs text-elvora-purple-light hover:underline">
+                {showProposalForm ? 'Abbrechen' : '+ Angebot'}
+              </button>
+            </div>
+            {showProposalForm && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+                <input type="text" value={propTitle} onChange={e => setPropTitle(e.target.value)} placeholder="Titel" className="md:col-span-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+                <input type="number" value={propAmount} onChange={e => setPropAmount(e.target.value)} placeholder="Betrag (EUR)" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+                <select value={propStatus} onChange={e => setPropStatus(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white">
+                  <option value="draft">Entwurf</option>
+                  <option value="sent">Gesendet</option>
+                  <option value="viewed">Angesehen</option>
+                  <option value="accepted">Angenommen</option>
+                  <option value="rejected">Abgelehnt</option>
+                </select>
+                <button onClick={addProposal} className="md:col-span-2 px-3 py-1.5 rounded-lg bg-elvora-purple text-white text-sm">Hinzufügen</button>
+              </div>
+            )}
+            {proposals.length === 0 ? (
+              <div className="text-xs text-elvora-text-dim">Keine Angebote</div>
+            ) : (
+              <div className="space-y-2">
+                {proposals.map(p => {
+                  const statusColors: Record<string, string> = {
+                    draft: 'bg-white/10 text-elvora-text-muted',
+                    sent: 'bg-elvora-purple/15 text-elvora-purple-light',
+                    viewed: 'bg-elvora-accent/15 text-elvora-accent',
+                    accepted: 'bg-elvora-success/15 text-elvora-success',
+                    rejected: 'bg-red-500/15 text-red-400',
+                  };
+                  return (
+                    <div key={p.id} className="rounded-lg bg-white/5 px-3 py-2 group">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm text-white font-medium">{p.title}</div>
+                          <div className="text-xs text-elvora-text-dim">{p.amount ? `${p.amount.toLocaleString('de-DE')} EUR` : 'Kein Betrag'} · {new Date(p.created_at + 'Z').toLocaleDateString('de-DE')}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select value={p.status} onChange={e => updateProposalStatus(p.id, e.target.value)} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${statusColors[p.status]} border-0 focus:outline-none`}>
+                            <option value="draft">Entwurf</option>
+                            <option value="sent">Gesendet</option>
+                            <option value="viewed">Angesehen</option>
+                            <option value="accepted">Angenommen</option>
+                            <option value="rejected">Abgelehnt</option>
+                          </select>
+                          <button onClick={() => deleteProposal(p.id)} className="opacity-0 group-hover:opacity-100 text-elvora-text-dim hover:text-red-400 transition-all p-1">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

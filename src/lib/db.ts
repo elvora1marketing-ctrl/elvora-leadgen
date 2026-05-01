@@ -470,6 +470,106 @@ export function getDb(): Database.Database {
       console.error('[DB] Monitoring tables migration error:', e);
     }
 
+    // Migration: Phase 8 - Konkurrenz-Vergleich
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS competitor_analyses (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lead_id INTEGER NOT NULL,
+          competitor_name TEXT NOT NULL,
+          competitor_website TEXT,
+          competitor_score INTEGER,
+          competitor_has_ssl INTEGER,
+          competitor_response_ms INTEGER,
+          analyzed_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_competitor_lead ON competitor_analyses(lead_id);
+      `);
+    } catch (e) {
+      console.error('[DB] Competitor table migration error:', e);
+    }
+
+    // Migration: Phase 9 - Review Snapshots (Google-Bewertungs-Monitor)
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS review_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lead_id INTEGER NOT NULL,
+          rating REAL,
+          review_count INTEGER,
+          checked_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_reviews_lead ON review_snapshots(lead_id, checked_at);
+      `);
+    } catch (e) {
+      console.error('[DB] Review snapshots migration error:', e);
+    }
+
+    // Migration: Phase 4 - Contacts (Kontaktpersonen)
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS contacts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lead_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          role TEXT,
+          email TEXT,
+          phone TEXT,
+          is_primary INTEGER DEFAULT 0,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_contacts_lead ON contacts(lead_id);
+      `);
+    } catch (e) {
+      console.error('[DB] Contacts migration error:', e);
+    }
+
+    // Migration: Phase 6 - Proposals (Angebots-Tracking)
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS proposals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lead_id INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          amount REAL,
+          status TEXT DEFAULT 'draft' CHECK(status IN ('draft','sent','viewed','accepted','rejected')),
+          sent_at TEXT,
+          notes TEXT,
+          file_url TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_proposals_lead ON proposals(lead_id);
+      `);
+    } catch (e) {
+      console.error('[DB] Proposals migration error:', e);
+    }
+
+    // Migration: Phase 10 - Smart Timing columns + Phase 11 - Predictive Score
+    try {
+      const cols = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colNames = cols.map(c => c.name);
+      if (!colNames.includes('best_contact_hour')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN best_contact_hour INTEGER");
+      }
+      if (!colNames.includes('best_contact_day')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN best_contact_day TEXT");
+      }
+      if (!colNames.includes('predicted_close_probability')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN predicted_close_probability INTEGER");
+      }
+      if (!colNames.includes('predicted_reasons')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN predicted_reasons TEXT");
+      }
+    } catch (e) {
+      console.error('[DB] Smart timing/predict migration error:', e);
+    }
+
     // Migration: Update panel password to new value
     try {
       const newHash = DEFAULT_SETTINGS.panel_password;

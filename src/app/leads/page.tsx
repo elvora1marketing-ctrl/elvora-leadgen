@@ -36,6 +36,7 @@ const columns: Column[] = [
   { id: 'in_talks', title: 'Im Gespräch', color: 'bg-elvora-warning', statuses: ['called', 'meeting'] },
   { id: 'proposal', title: 'Angebot', color: 'bg-elvora-pink', statuses: ['proposal'] },
   { id: 'won', title: 'Gewonnen', color: 'bg-elvora-success', statuses: ['won'] },
+  { id: 'lost', title: 'Verloren', color: 'bg-red-500', statuses: ['lost'] },
 ];
 
 function getScoreClass(score: number): string {
@@ -155,6 +156,28 @@ export default function LeadsPage() {
     finally { setStatusUpdating(null); }
   };
 
+  // Drag & Drop
+  const handleDragStart = (e: React.DragEvent, leadId: number) => {
+    e.dataTransfer.setData('text/plain', leadId.toString());
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e: React.DragEvent, columnStatuses: string[]) => {
+    e.preventDefault();
+    const leadId = parseInt(e.dataTransfer.getData('text/plain'));
+    if (isNaN(leadId)) return;
+    const targetStatus = columnStatuses[0];
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead || lead.contact_status === targetStatus) return;
+    if (columnStatuses.includes(lead.contact_status)) return;
+    await updateStatus(leadId, targetStatus);
+  };
+
   const toggleExpand = async (leadId: number) => {
     if (expandedLead === leadId) {
       setExpandedLead(null);
@@ -252,19 +275,35 @@ export default function LeadsPage() {
       )}
 
       {/* Kanban Board */}
-      <div className="flex lg:grid lg:grid-cols-5 gap-3 overflow-x-auto pb-4 -mx-4 px-4 lg:mx-0 lg:px-0 snap-x snap-mandatory lg:snap-none">
+      <div className="flex lg:grid lg:grid-cols-6 gap-3 overflow-x-auto pb-4 -mx-4 px-4 lg:mx-0 lg:px-0 snap-x snap-mandatory lg:snap-none">
         {columns.map((col) => {
           const colLeads = getColumnLeads(col);
+          const colValue = colLeads.reduce((sum, l) => sum + (l.deal_value || 0), 0);
           return (
-            <div key={col.id} className="min-w-[260px] lg:min-w-0 snap-start">
+            <div
+              key={col.id}
+              className="min-w-[260px] lg:min-w-0 snap-start"
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, col.statuses)}
+            >
               <div className="flex items-center gap-2 mb-3 px-1">
                 <div className={`w-2 h-2 rounded-full ${col.color}`} />
                 <span className="text-xs font-semibold text-white">{col.title}</span>
                 <span className="ml-auto text-xs text-elvora-text-dim">{colLeads.length}</span>
               </div>
+              {colValue > 0 && (
+                <div className="text-[10px] text-elvora-accent font-semibold px-1 mb-2">
+                  {colValue.toLocaleString('de-DE')} EUR
+                </div>
+              )}
               <div className="space-y-2 min-h-[200px]">
                 {colLeads.map((lead) => (
-                  <div key={lead.id} className={`glass rounded-xl p-3 card-hover ${lead.priority === 'high' ? 'border border-red-500/20' : ''}`}>
+                  <div
+                    key={lead.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, lead.id)}
+                    className={`glass rounded-xl p-3 card-hover cursor-move ${lead.priority === 'high' ? 'border border-red-500/20' : ''}`}
+                  >
                     <div className="flex items-start justify-between mb-1.5">
                       <Link href={`/crm/${lead.id}`} className="text-sm font-medium text-white leading-tight pr-2 truncate hover:text-elvora-purple-light transition-colors">{lead.name}</Link>
                       <div className={`${getScoreClass(lead.score)} px-1.5 py-0.5 rounded-lg flex-shrink-0`}>
