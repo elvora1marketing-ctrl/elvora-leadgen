@@ -969,7 +969,8 @@ export default function LinkedInScraperPage() {
           </div>
           <div className="divide-y divide-white/5">
             {jobs.map((job) => {
-              const jobErrors = job.errors ? JSON.parse(job.errors) : [];
+              let jobErrors: string[] = [];
+              try { jobErrors = job.errors ? JSON.parse(job.errors) : []; } catch { /* malformed */ }
               return (
                 <div
                   key={job.id}

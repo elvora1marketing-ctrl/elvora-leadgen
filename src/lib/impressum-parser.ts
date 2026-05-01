@@ -26,12 +26,6 @@ const PHONE_EXTRACT = /(\+?[\d][\d\s/()-]{7,19})/;
 const UST_REGEX = /(?:USt-?Id(?:Nr)?\.?|VAT|Steuernummer)[:\s]*(DE\s?\d{9}|\d{2,3}\/\d{3}\/\d{4,5})/i;
 const HR_REGEX = /(?:HR[AB]|Handelsregister)[:\s]*([A-Z]*\s*\d{2,6}\s*[A-Z]*)/i;
 
-const GF_PATTERNS = [
-  /(?:Geschäftsführ(?:er|ung|erin)|Inhaber(?:in)?|Geschäftsleitung|Managing\s+Director|CEO|Vorstand|Einzelunternehmer(?:in)?)[:\s]*([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,3})/g,
-  /(?:Vertreten\s+durch|Vertretungsberechtig(?:t|te|ter))[:\s]*([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,3})/g,
-  /(?:V\.?i\.?S\.?d\.?P\.?)[:\s]*([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,3})/g,
-];
-
 function extractPhones(text: string): string[] {
   const phones: string[] = [];
   const matches = text.match(PHONE_REGEX);
@@ -61,9 +55,13 @@ function extractPhones(text: string): string[] {
 }
 
 function extractGeschaeftsfuehrer(text: string): string | null {
-  for (const pattern of GF_PATTERNS) {
-    pattern.lastIndex = 0;
-    const match = pattern.exec(text);
+  const patterns = [
+    /(?:Geschäftsführ(?:er|ung|erin)|Inhaber(?:in)?|Geschäftsleitung|Managing\s+Director|CEO|Vorstand|Einzelunternehmer(?:in)?)[:\s]*([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,3})/,
+    /(?:Vertreten\s+durch|Vertretungsberechtig(?:t|te|ter))[:\s]*([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,3})/,
+    /(?:V\.?i\.?S\.?d\.?P\.?)[:\s]*([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,3})/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
     if (match?.[1]) {
       const name = match[1].trim();
       if (name.split(/\s+/).length >= 2 && name.length <= 60) {

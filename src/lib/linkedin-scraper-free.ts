@@ -231,9 +231,8 @@ async function searchDuckDuckGo(
       // Also try alternative DDG result format
       if (foundOnPage === 0) {
         const altRegex = /<a[^>]+href="(https?:\/\/[^"]*linkedin\.com\/in\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-        while ((altRegex.exec(html)) !== null) {
-          const altMatch = altRegex.exec(html);
-          if (!altMatch) break;
+        let altMatch;
+        while ((altMatch = altRegex.exec(html)) !== null) {
           const profileUrl = cleanLinkedInUrl(altMatch[1]);
           if (!profileUrl) continue;
           const norm = normalizeLinkedInUrl(profileUrl);
@@ -438,10 +437,12 @@ async function searchGoogle(
         if (seenUrls.has(norm)) continue;
         seenUrls.add(norm);
 
-        const titleRegex = new RegExp(`<h3[^>]*>([^<]*${profileUrl.split('/in/')[1]}[^<]*)<\\/h3>`, 'i');
+        const username = profileUrl.split('/in/')[1] || '';
+        const escapedUsername = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const titleRegex = new RegExp(`<h3[^>]*>([^<]*${escapedUsername}[^<]*)<\\/h3>`, 'i');
         const titleMatch = html.match(titleRegex);
         const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-        const parsed = parseSearchTitle(title || profileUrl.split('/in/')[1] || '');
+        const parsed = parseSearchTitle(title || username);
 
         results.push({ profileUrl, snippetName: parsed.name, snippetHeadline: parsed.headline });
         foundOnPage++;
