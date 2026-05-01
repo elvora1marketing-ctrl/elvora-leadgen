@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 
 interface PoolLead {
   id: number;
@@ -893,7 +894,7 @@ export default function LeadPoolPage() {
                         <input type="checkbox" checked={selected.has(lead.id)} onChange={() => toggleSelect(lead.id)} className="rounded border-white/20 bg-white/5 text-elvora-primary focus:ring-elvora-primary/50 cursor-pointer" />
                       </td>
                       <td className="px-3 py-2.5">
-                        <span className="text-white font-medium text-sm block truncate max-w-[200px]">{lead.name}</span>
+                        <Link href={`/crm/${lead.id}`} className="text-white font-medium text-sm block truncate max-w-[200px] hover:text-elvora-purple-light transition-colors">{lead.name}</Link>
                         {lead.website && (
                           <a href={lead.website} target="_blank" rel="noopener noreferrer" className="text-elvora-primary text-[11px] hover:underline truncate block max-w-[200px]">
                             {lead.website.replace(/^https?:\/\/(www\.)?/, '').split('/')[0]}

@@ -366,6 +366,74 @@ export function getDb(): Database.Database {
     });
     insertDefaults();
 
+    // Migration: Add CRM fields (expected_close_date, win_probability, lost_reason)
+    try {
+      const colCheckCrm = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colNamesCrm = colCheckCrm.map(c => c.name);
+      if (!colNamesCrm.includes('expected_close_date')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN expected_close_date TEXT");
+        console.log('[DB] Migration: added expected_close_date column');
+      }
+      if (!colNamesCrm.includes('win_probability')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN win_probability INTEGER DEFAULT 50");
+        console.log('[DB] Migration: added win_probability column');
+      }
+      if (!colNamesCrm.includes('lost_reason')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN lost_reason TEXT");
+        console.log('[DB] Migration: added lost_reason column');
+      }
+    } catch (e) {
+      console.error('[DB] CRM columns migration error:', e);
+    }
+
+    // Migration: Create tasks table
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lead_id INTEGER,
+          title TEXT NOT NULL,
+          description TEXT,
+          type TEXT DEFAULT 'todo' CHECK(type IN ('todo','call','email','meeting','follow_up')),
+          due_date TEXT,
+          due_time TEXT,
+          completed_at TEXT,
+          is_completed INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_tasks_lead ON tasks(lead_id);
+        CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date, is_completed);
+        CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(is_completed);
+      `);
+    } catch (e) {
+      console.error('[DB] Tasks table migration error:', e);
+    }
+
+    // Migration: Create tags + lead_tags tables
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS tags (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT UNIQUE NOT NULL,
+          color TEXT DEFAULT '#8B5CF6',
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS lead_tags (
+          lead_id INTEGER NOT NULL,
+          tag_id INTEGER NOT NULL,
+          PRIMARY KEY (lead_id, tag_id),
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+          FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_lead_tags_lead ON lead_tags(lead_id);
+        CREATE INDEX IF NOT EXISTS idx_lead_tags_tag ON lead_tags(tag_id);
+      `);
+    } catch (e) {
+      console.error('[DB] Tags tables migration error:', e);
+    }
+
     // Migration: Update panel password to new value
     try {
       const newHash = DEFAULT_SETTINGS.panel_password;

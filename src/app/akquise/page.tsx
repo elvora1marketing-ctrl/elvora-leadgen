@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 
 interface AkquiseLead {
   id: number;
@@ -342,7 +343,13 @@ export default function AkquisePage() {
 
                 {/* Name + City */}
                 <div className="flex-1 min-w-0">
-                  <span className="text-white font-medium text-sm truncate block">{lead.name}</span>
+                  <Link
+                    href={`/crm/${lead.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-white font-medium text-sm truncate block hover:text-elvora-purple-light transition-colors"
+                  >
+                    {lead.name}
+                  </Link>
                   <span className="text-elvora-text-dim text-xs">{lead.city}</span>
                 </div>
 

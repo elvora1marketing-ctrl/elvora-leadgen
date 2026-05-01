@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 
 interface PipelineLead {
   id: number;
@@ -265,7 +266,7 @@ export default function LeadsPage() {
                 {colLeads.map((lead) => (
                   <div key={lead.id} className={`glass rounded-xl p-3 card-hover ${lead.priority === 'high' ? 'border border-red-500/20' : ''}`}>
                     <div className="flex items-start justify-between mb-1.5">
-                      <h4 className="text-sm font-medium text-white leading-tight pr-2 truncate">{lead.name}</h4>
+                      <Link href={`/crm/${lead.id}`} className="text-sm font-medium text-white leading-tight pr-2 truncate hover:text-elvora-purple-light transition-colors">{lead.name}</Link>
                       <div className={`${getScoreClass(lead.score)} px-1.5 py-0.5 rounded-lg flex-shrink-0`}>
                         <span className="text-[11px] font-bold text-white">{lead.score}</span>
                       </div>

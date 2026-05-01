@@ -18,6 +18,9 @@ export async function PATCH(
       notes?: string;
       deal_value?: number;
       followup_date?: string;
+      expected_close_date?: string;
+      win_probability?: number;
+      lost_reason?: string;
     };
 
     const db = getDb();
@@ -62,6 +65,21 @@ export async function PATCH(
     if (body.followup_date !== undefined) {
       updates.push('followup_date = ?');
       values.push(body.followup_date);
+    }
+
+    if (body.expected_close_date !== undefined) {
+      updates.push('expected_close_date = ?');
+      values.push(body.expected_close_date || null);
+    }
+
+    if (body.win_probability !== undefined) {
+      updates.push('win_probability = ?');
+      values.push(Math.min(100, Math.max(0, body.win_probability)));
+    }
+
+    if (body.lost_reason !== undefined) {
+      updates.push('lost_reason = ?');
+      values.push(body.lost_reason || null);
     }
 
     if (updates.length === 0) {

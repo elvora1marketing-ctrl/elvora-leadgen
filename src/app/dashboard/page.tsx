@@ -45,10 +45,46 @@ interface Stats {
   };
 }
 
+interface TaskItem {
+  id: number;
+  lead_id: number | null;
+  title: string;
+  type: string;
+  due_date: string | null;
+  is_completed: number;
+  lead_name: string | null;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [taskCounts, setTaskCounts] = useState({ overdue: 0, due_today: 0, open: 0 });
+
+  useEffect(() => {
+    fetch('/api/tasks?completed=0&limit=10')
+      .then(r => r.json())
+      .then(d => {
+        setTasks(d.tasks || []);
+        if (d.counts) setTaskCounts(d.counts);
+      })
+      .catch(() => {});
+  }, []);
+
+  const toggleTask = async (id: number) => {
+    await fetch(`/api/tasks/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_completed: true }),
+    });
+    const r = await fetch('/api/tasks?completed=0&limit=10');
+    if (r.ok) {
+      const d = await r.json();
+      setTasks(d.tasks || []);
+      if (d.counts) setTaskCounts(d.counts);
+    }
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -97,6 +133,57 @@ export default function DashboardPage() {
           <div className="text-[11px] text-elvora-text-dim mt-1">{stats ? `${stats.pipeline.activeDeals} aktive Deals` : '...'}</div>
         </div>
       </div>
+
+      {/* Tasks Widget */}
+      {(tasks.length > 0 || taskCounts.open > 0) && (
+        <div className={`glass rounded-xl p-4 mb-5 border ${taskCounts.overdue > 0 ? 'border-red-500/20' : 'border-white/5'}`}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-white">Offene Aufgaben</h3>
+              {taskCounts.overdue > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 text-[10px] font-bold">
+                  {taskCounts.overdue} überfällig
+                </span>
+              )}
+              {taskCounts.due_today > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-elvora-warning/15 text-elvora-warning text-[10px] font-bold">
+                  {taskCounts.due_today} heute
+                </span>
+              )}
+            </div>
+            <Link href="/tasks" className="text-xs text-elvora-purple-light hover:underline">Alle ansehen →</Link>
+          </div>
+          {tasks.length === 0 ? (
+            <div className="text-xs text-elvora-text-dim text-center py-2">Keine offenen Aufgaben</div>
+          ) : (
+            <div className="space-y-1">
+              {tasks.slice(0, 5).map(t => {
+                const overdue = t.due_date && t.due_date < new Date().toISOString().split('T')[0];
+                const today = t.due_date === new Date().toISOString().split('T')[0];
+                return (
+                  <div key={t.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 group">
+                    <button
+                      onClick={() => toggleTask(t.id)}
+                      className="w-4 h-4 rounded border-2 border-white/20 hover:border-elvora-purple flex-shrink-0 transition-colors"
+                    />
+                    <span className="text-sm text-white truncate flex-1">{t.title}</span>
+                    {t.lead_name && t.lead_id && (
+                      <Link href={`/crm/${t.lead_id}`} className="text-[11px] text-elvora-purple-light hover:underline truncate">
+                        {t.lead_name}
+                      </Link>
+                    )}
+                    {t.due_date && (
+                      <span className={`text-[11px] flex-shrink-0 ${overdue ? 'text-red-400 font-semibold' : today ? 'text-elvora-warning' : 'text-elvora-text-dim'}`}>
+                        {new Date(t.due_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Sales Funnel */}
       {stats && (
