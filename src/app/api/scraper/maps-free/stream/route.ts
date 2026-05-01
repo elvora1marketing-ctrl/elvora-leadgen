@@ -6,13 +6,28 @@ import { extractEmails } from '@/lib/website-analyzer';
 import { expandCityToStadtteile } from '@/lib/stadtteile';
 import { findCitiesInRadius } from '@/lib/umkreis';
 
-const EMAIL_FETCH_TIMEOUT = 8000;
+import { parseImpressum } from '@/lib/impressum-parser';
+
+const EMAIL_FETCH_TIMEOUT = 5000;
+const EMAIL_CONCURRENCY = 5;
 const EMAIL_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-/**
- * Fetch a business website and extract email addresses
- */
-async function scrapeEmailFromWebsite(websiteUrl: string): Promise<string | null> {
+const domainEmailCache = new Map<string, string | null>();
+
+function getDomain(url: string): string {
+  try {
+    return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+async function scrapeEmailFromWebsite(websiteUrl: string): Promise<{ email: string | null; phone: string | null; gf: string | null }> {
+  const domain = getDomain(websiteUrl);
+  if (domainEmailCache.has(domain)) {
+    return { email: domainEmailCache.get(domain) || null, phone: null, gf: null };
+  }
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), EMAIL_FETCH_TIMEOUT);
@@ -27,19 +42,33 @@ async function scrapeEmailFromWebsite(websiteUrl: string): Promise<string | null
     });
     clearTimeout(timeout);
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      domainEmailCache.set(domain, null);
+      return { email: null, phone: null, gf: null };
+    }
 
     const html = await response.text();
     const emails = extractEmails(html);
-    return emails.length > 0 ? emails[0] : null;
+
+    if (emails.length > 0) {
+      domainEmailCache.set(domain, emails[0]);
+      return { email: emails[0], phone: null, gf: null };
+    }
+
+    const impressum = await parseImpressum(websiteUrl);
+    const email = impressum.emails[0] || null;
+    domainEmailCache.set(domain, email);
+    return {
+      email,
+      phone: impressum.phones[0] || null,
+      gf: impressum.geschaeftsfuehrer,
+    };
   } catch {
-    return null;
+    domainEmailCache.set(domain, null);
+    return { email: null, phone: null, gf: null };
   }
 }
 
-/**
- * Scrape emails from websites for a batch of businesses
- */
 async function scrapeEmailsForBusinesses(
   businesses: ScrapedBusiness[],
   onProgress?: (done: number, total: number) => void,
@@ -47,11 +76,22 @@ async function scrapeEmailsForBusinesses(
   const withWebsite = businesses.filter(b => b.website && !b.email);
   let done = 0;
 
-  for (const biz of withWebsite) {
-    const email = await scrapeEmailFromWebsite(biz.website!);
-    if (email) biz.email = email;
-    done++;
-    if (done % 5 === 0) onProgress?.(done, withWebsite.length);
+  for (let i = 0; i < withWebsite.length; i += EMAIL_CONCURRENCY) {
+    const batch = withWebsite.slice(i, i + EMAIL_CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(biz => scrapeEmailFromWebsite(biz.website!))
+    );
+
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j];
+      if (r.status === 'fulfilled') {
+        if (r.value.email) batch[j].email = r.value.email;
+        if (r.value.phone && !batch[j].phone) batch[j].phone = r.value.phone;
+      }
+    }
+
+    done += batch.length;
+    onProgress?.(done, withWebsite.length);
   }
 }
 

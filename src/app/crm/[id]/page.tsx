@@ -177,6 +177,11 @@ export default function CrmDetailPage() {
   const [propAmount, setPropAmount] = useState('');
   const [propStatus, setPropStatus] = useState('draft');
 
+  // Decision Maker Finder
+  const [findingDM, setFindingDM] = useState(false);
+  const [dmResults, setDmResults] = useState<Array<{ name: string; headline: string; linkedinUrl: string; relevanceScore: number; source: string; email: string | null; phone: string | null }>>([]);
+  const [impressumData, setImpressumData] = useState<{ geschaeftsfuehrer: string | null; emails: string[]; phones: string[]; ustIdNr: string | null } | null>(null);
+
   // Forms
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -405,6 +410,40 @@ export default function CrmDetailPage() {
       await fetch(`/api/leads/${leadId}/best-time`);
       loadAll();
     } catch { /* silent */ }
+  };
+
+  const findDecisionMaker = async () => {
+    setFindingDM(true);
+    try {
+      const res = await fetch(`/api/leads/${leadId}/find-decision-maker`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoSave: true }),
+      });
+      const d = await res.json();
+      if (res.ok && d.success) {
+        setDmResults(d.results || []);
+        if (d.impressum) setImpressumData(d.impressum);
+        loadAll();
+      }
+    } catch { /* silent */ }
+    finally { setFindingDM(false); }
+  };
+
+  const saveDmAsContact = async (person: { name: string; headline: string; linkedinUrl: string; email: string | null; phone: string | null }) => {
+    await fetch(`/api/leads/${leadId}/contacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: person.name,
+        role: person.headline,
+        email: person.email || undefined,
+        phone: person.phone || undefined,
+        is_primary: true,
+        notes: person.linkedinUrl ? `LinkedIn: ${person.linkedinUrl}` : undefined,
+      }),
+    });
+    loadAll();
   };
 
   const addContact = async () => {
@@ -1161,6 +1200,67 @@ export default function CrmDetailPage() {
               </div>
             ) : (
               <div className="text-xs text-elvora-text-dim">Noch keine Engagement-Daten</div>
+            )}
+          </div>
+
+          {/* Entscheider-Finder */}
+          <div className="glass rounded-2xl p-5 border border-elvora-pink/20">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">Entscheider finden</span>
+                {dmResults.length > 0 && <span className="px-1.5 py-0.5 rounded bg-elvora-pink/15 text-elvora-pink text-[9px] font-bold">{dmResults.length} gefunden</span>}
+              </div>
+              <button
+                onClick={findDecisionMaker}
+                disabled={findingDM}
+                className="px-3 py-1.5 rounded-lg bg-elvora-pink/15 border border-elvora-pink/30 text-elvora-pink text-xs font-semibold hover:bg-elvora-pink/25 disabled:opacity-50"
+              >
+                {findingDM ? 'Suche...' : 'LinkedIn + Impressum durchsuchen'}
+              </button>
+            </div>
+            <div className="text-[10px] text-elvora-text-dim mb-3">Durchsucht LinkedIn und das Impressum der Website nach Geschäftsführer / Inhaber</div>
+
+            {impressumData && (impressumData.geschaeftsfuehrer || impressumData.emails.length > 0) && (
+              <div className="mb-3 rounded-lg bg-elvora-success/10 border border-elvora-success/20 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-elvora-success font-semibold mb-1">Impressum-Daten</div>
+                {impressumData.geschaeftsfuehrer && <div className="text-sm text-white font-medium">{impressumData.geschaeftsfuehrer}</div>}
+                {impressumData.emails.map((e, i) => <div key={i} className="text-xs text-elvora-text-muted">{e}</div>)}
+                {impressumData.phones.map((p, i) => <div key={i} className="text-xs text-elvora-text-muted">{p}</div>)}
+                {impressumData.ustIdNr && <div className="text-[10px] text-elvora-text-dim mt-1">USt-IdNr: {impressumData.ustIdNr}</div>}
+              </div>
+            )}
+
+            {dmResults.length > 0 && (
+              <div className="space-y-2">
+                {dmResults.map((p, i) => (
+                  <div key={i} className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 border border-white/5">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-white font-medium truncate">{p.name}</span>
+                        <span className={`px-1 py-0.5 rounded text-[8px] font-bold ${p.source === 'impressum' ? 'bg-elvora-success/15 text-elvora-success' : 'bg-elvora-accent/15 text-elvora-accent'}`}>
+                          {p.source === 'impressum' ? 'Impressum' : 'LinkedIn'}
+                        </span>
+                        {p.relevanceScore >= 90 && <span className="px-1 py-0.5 rounded bg-elvora-pink/15 text-elvora-pink text-[8px] font-bold">Top</span>}
+                      </div>
+                      <div className="text-xs text-elvora-text-dim truncate">{p.headline}</div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {p.email && <span className="text-[10px] text-elvora-text-muted">{p.email}</span>}
+                        {p.linkedinUrl && (
+                          <a href={p.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-elvora-accent hover:underline">LinkedIn</a>
+                        )}
+                      </div>
+                    </div>
+                    {!contacts.find(c => c.name === p.name) && (
+                      <button
+                        onClick={() => saveDmAsContact(p)}
+                        className="ml-2 px-2 py-1 rounded bg-elvora-purple/15 text-elvora-purple-light text-[10px] font-semibold hover:bg-elvora-purple/25 whitespace-nowrap"
+                      >
+                        + Kontakt
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 

@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const contactStatus = url.searchParams.get('contact_status');
     const city = url.searchParams.get('city');
     const minScore = url.searchParams.get('min_score');
+    const scoreMax = url.searchParams.get('score_max');
     const search = url.searchParams.get('search');
     const hasWebsite = url.searchParams.get('has_website');
     const hasPhone = url.searchParams.get('has_phone');
@@ -53,11 +54,19 @@ export async function GET(request: NextRequest) {
     } else if (hasWebsite === '0') {
       conditions.push("(l.website_original IS NULL OR l.website_original = '')");
     }
-    if (hasPhone === '1') {
+    if (hasPhone === '1' || hasPhone === 'yes') {
       conditions.push("l.phone IS NOT NULL AND l.phone != ''");
+    } else if (hasPhone === '0' || hasPhone === 'no') {
+      conditions.push("(l.phone IS NULL OR l.phone = '')");
     }
-    if (hasEmail === '1') {
+    if (hasEmail === '1' || hasEmail === 'yes') {
       conditions.push("l.email IS NOT NULL AND l.email != ''");
+    } else if (hasEmail === '0' || hasEmail === 'no') {
+      conditions.push("(l.email IS NULL OR l.email = '')");
+    }
+    if (scoreMax) {
+      conditions.push('l.score <= ? AND l.score > 0');
+      values.push(parseInt(scoreMax));
     }
     if (keyword) {
       // Smart keyword filter: matches partial keywords too

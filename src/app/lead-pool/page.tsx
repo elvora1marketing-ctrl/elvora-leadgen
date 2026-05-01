@@ -81,6 +81,11 @@ export default function LeadPoolPage() {
   // Email panel
   const [showEmailPanel, setShowEmailPanel] = useState(false);
 
+  // Smart filters
+  const [filterHasEmail, setFilterHasEmail] = useState<'' | 'yes' | 'no'>('');
+  const [filterHasPhone, setFilterHasPhone] = useState<'' | 'yes' | 'no'>('');
+  const [filterScoreMax, setFilterScoreMax] = useState('');
+
   const metaLoaded = useRef(false);
 
   // Debounce search
@@ -108,6 +113,9 @@ export default function LeadPoolPage() {
       if (filterCity) params.set('city', filterCity);
       if (filterStatus) params.set('status', filterStatus);
       if (filterKeyword) params.set('keyword', filterKeyword);
+      if (filterHasEmail) params.set('has_email', filterHasEmail);
+      if (filterHasPhone) params.set('has_phone', filterHasPhone);
+      if (filterScoreMax) params.set('score_max', filterScoreMax);
       if (!metaLoaded.current) params.set('include_meta', '1');
 
       const res = await fetch(`/api/leads?${params}`);
@@ -126,7 +134,7 @@ export default function LeadPoolPage() {
       }
     } catch (e) { setApiError(`Netzwerkfehler: ${e instanceof Error ? e.message : 'Unbekannt'}`); }
     finally { setLoading(false); }
-  }, [page, sortBy, sortDir, debouncedSearch, filterCity, filterStatus, filterKeyword]);
+  }, [page, sortBy, sortDir, debouncedSearch, filterCity, filterStatus, filterKeyword, filterHasEmail, filterHasPhone, filterScoreMax]);
 
   useEffect(() => { loadLeads(); }, [loadLeads]);
 
@@ -238,6 +246,34 @@ export default function LeadPoolPage() {
       setBulkLoading(false);
       setTimeout(() => setBulkMessage(null), 3000);
     }
+  };
+
+  // Bulk find decision makers
+  const [bulkDmProgress, setBulkDmProgress] = useState<{ current: number; total: number; found: number } | null>(null);
+
+  const bulkFindDecisionMakers = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setBulkLoading(true);
+    setBulkDmProgress({ current: 0, total: ids.length, found: 0 });
+    let found = 0;
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        const res = await fetch(`/api/leads/${ids[i]}/find-decision-maker`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ autoSave: true }),
+        });
+        const d = await res.json();
+        if (d.success && d.results?.length > 0) found++;
+      } catch { /* continue */ }
+      setBulkDmProgress({ current: i + 1, total: ids.length, found });
+    }
+    setBulkMessage({ type: 'success', text: `Entscheider für ${found}/${ids.length} Leads gefunden` });
+    setBulkDmProgress(null);
+    setBulkLoading(false);
+    setTimeout(() => setBulkMessage(null), 5000);
+    loadLeads();
   };
 
   // Collect all emails from current leads that have one
@@ -751,6 +787,32 @@ export default function LeadPoolPage() {
         )}
       </div>
 
+      {/* Smart Filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">Filter:</span>
+        <select value={filterHasEmail} onChange={e => { setFilterHasEmail(e.target.value as '' | 'yes' | 'no'); setPage(0); }} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white">
+          <option value="">E-Mail: Alle</option>
+          <option value="yes">Hat E-Mail</option>
+          <option value="no">Ohne E-Mail</option>
+        </select>
+        <select value={filterHasPhone} onChange={e => { setFilterHasPhone(e.target.value as '' | 'yes' | 'no'); setPage(0); }} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white">
+          <option value="">Telefon: Alle</option>
+          <option value="yes">Hat Telefon</option>
+          <option value="no">Ohne Telefon</option>
+        </select>
+        <select value={filterScoreMax} onChange={e => { setFilterScoreMax(e.target.value); setPage(0); }} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white">
+          <option value="">Score: Alle</option>
+          <option value="30">Score 0-30 (Hot)</option>
+          <option value="50">Score 0-50</option>
+          <option value="70">Score 0-70</option>
+        </select>
+        {(filterHasEmail || filterHasPhone || filterScoreMax) && (
+          <button onClick={() => { setFilterHasEmail(''); setFilterHasPhone(''); setFilterScoreMax(''); setPage(0); }} className="text-[10px] text-elvora-text-dim hover:text-white">
+            Filter zurücksetzen
+          </button>
+        )}
+      </div>
+
       {/* Bulk Actions Bar */}
       {selected.size > 0 && (
         <div className="card-glass p-3 border border-elvora-primary/20 flex items-center gap-3 animate-fade-in flex-wrap">
@@ -758,6 +820,9 @@ export default function LeadPoolPage() {
           <div className="flex-1" />
           <button onClick={() => bulkUpdateStatus('akquise')} disabled={bulkLoading} className="px-3 py-1.5 rounded-lg bg-elvora-accent/15 text-elvora-accent text-xs font-semibold border border-elvora-accent/20 hover:bg-elvora-accent/25 transition-all disabled:opacity-50">Akquise</button>
           <button onClick={() => bulkUpdateStatus('qualified')} disabled={bulkLoading} className="px-3 py-1.5 rounded-lg bg-elvora-success/15 text-elvora-success text-xs font-semibold border border-elvora-success/20 hover:bg-elvora-success/25 transition-all disabled:opacity-50">Qualifizieren</button>
+          <button onClick={bulkFindDecisionMakers} disabled={bulkLoading} className="px-3 py-1.5 rounded-lg bg-elvora-pink/15 text-elvora-pink text-xs font-semibold border border-elvora-pink/20 hover:bg-elvora-pink/25 transition-all disabled:opacity-50">
+            {bulkDmProgress ? `Entscheider ${bulkDmProgress.current}/${bulkDmProgress.total}` : 'Entscheider finden'}
+          </button>
           <button onClick={() => bulkUpdateStatus('rejected')} disabled={bulkLoading} className="px-3 py-1.5 rounded-lg bg-elvora-warning/15 text-elvora-warning text-xs font-semibold border border-elvora-warning/20 hover:bg-elvora-warning/25 transition-all disabled:opacity-50">Ablehnen</button>
           <button onClick={() => bulkUpdateStatus('archived')} disabled={bulkLoading} className="px-3 py-1.5 rounded-lg bg-white/5 text-elvora-text-muted text-xs font-semibold border border-white/10 hover:bg-white/10 transition-all disabled:opacity-50">Archiv</button>
           <button onClick={bulkDelete} disabled={bulkLoading} className="px-3 py-1.5 rounded-lg bg-red-500/15 text-red-400 text-xs font-semibold border border-red-500/20 hover:bg-red-500/25 transition-all disabled:opacity-50">Löschen</button>
