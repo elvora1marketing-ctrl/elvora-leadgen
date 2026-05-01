@@ -163,6 +163,46 @@ const navSections: NavSection[] = [
   },
 ];
 
+function ElvoraIcon({ size = 36 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id={`eiG1_${size}`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#7C3AED" />
+          <stop offset="100%" stopColor="#A855F7" />
+        </linearGradient>
+        <linearGradient id={`eiG2_${size}`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#EC4899" />
+          <stop offset="100%" stopColor="#F472B6" />
+        </linearGradient>
+        <clipPath id={`eiClip_${size}`}>
+          <path d="M38 4 C60 4 96 20 96 50 C96 78 75 96 50 96 C22 96 4 78 4 50 C4 30 18 12 38 4 Z" />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#eiClip_${size})`}>
+        <rect x="-20" y="-15" width="50" height="150" transform="rotate(-45 50 50)" fill={`url(#eiG1_${size})`} />
+        <rect x="30" y="-15" width="50" height="150" transform="rotate(-45 50 50)" fill={`url(#eiG2_${size})`} />
+      </g>
+    </svg>
+  );
+}
+
+function ElvoraText({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 170 36" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <defs>
+        <linearGradient id="elvoraTextGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#8B5CF6" />
+          <stop offset="35%" stopColor="#EC4899" />
+          <stop offset="70%" stopColor="#F97316" />
+          <stop offset="100%" stopColor="#ef4444" />
+        </linearGradient>
+      </defs>
+      <text x="0" y="28" fontFamily="Inter, system-ui, sans-serif" fontWeight="800" fontSize="32" fill="url(#elvoraTextGrad)" letterSpacing="4">ELVORA</text>
+    </svg>
+  );
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -225,11 +265,9 @@ export default function Sidebar() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <div className="flex items-center gap-2.5 ml-3">
-          <div className="w-7 h-7 rounded-lg bg-elvora-gradient flex items-center justify-center">
-            <span className="text-white text-xs font-bold">E</span>
-          </div>
-          <span className="text-sm font-bold gradient-text tracking-tight">ELVORA</span>
+        <div className="flex items-center gap-2 ml-3">
+          <ElvoraIcon size={28} />
+          <ElvoraText className="h-4 w-auto" />
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-elvora-success pulse-dot" />
@@ -253,12 +291,10 @@ export default function Sidebar() {
         <div className="px-5 py-5 border-b border-white/[0.04]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-elvora-gradient flex items-center justify-center shadow-elvora-glow-sm">
-                <span className="text-white text-sm font-bold">E</span>
-              </div>
+              <ElvoraIcon size={36} />
               <div>
-                <span className="text-[15px] font-bold gradient-text tracking-tight">ELVORA</span>
-                <div className="text-[10px] text-elvora-text-dim -mt-0.5">Lead Generator</div>
+                <ElvoraText className="h-[16px] w-auto" />
+                <div className="text-[10px] text-elvora-text-dim mt-0.5">Lead Generator</div>
               </div>
             </div>
             <button
