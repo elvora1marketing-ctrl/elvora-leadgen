@@ -21,7 +21,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: 'cover',
-  themeColor: '#0a0a0f',
+  themeColor: '#080810',
 };
 
 export default function RootLayout({
@@ -33,9 +33,9 @@ export default function RootLayout({
     <html lang="de" className="dark">
       <body className={inter.className}>
         <AuthProvider>
-          <div className="flex min-h-screen bg-elvora-bg">
+          <div className="flex min-h-screen bg-elvora-bg bg-grid-pattern">
             <Sidebar />
-            <main className="flex-1 ml-0 lg:ml-56 p-4 pt-16 lg:pt-6 lg:p-6 overflow-auto safe-area-pad">
+            <main className="flex-1 ml-0 lg:ml-[240px] p-4 pt-16 lg:pt-6 lg:p-6 overflow-auto safe-area-pad">
               {children}
             </main>
           </div>
