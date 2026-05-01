@@ -5,14 +5,16 @@
  * KEIN Limit - scrapt ALLE verfügbaren Ergebnisse.
  *
  * Pipeline:
- * 1. DuckDuckGo/Bing Suche - findet LinkedIn Profile via site:linkedin.com/in
+ * 1. DuckDuckGo/Google/Bing Suche - findet LinkedIn Profile via site:linkedin.com/in
  * 2. Public Profile Fetch - extrahiert Name, Firma, Titel aus JSON-LD/Meta-Tags
  * 3. Email-Pattern-Generierung - baut Kandidaten (vorname.nachname@firma.de etc.)
  * 4. SMTP-Verifikation - prüft ob E-Mail existiert (ohne zu senden)
+ * 5. Impressum-Fallback - parst /impressum der Firmen-Website für E-Mail
  */
 
 import { normalizeLinkedInUrl, type LinkedInPerson } from './linkedin-scraper';
 import { delay, randomDelay } from './utils';
+import { parseImpressum } from './impressum-parser';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -380,6 +382,106 @@ async function searchBing(
  * Main search function: tries DuckDuckGo first, falls back to Bing.
  * maxResults: 0 = unlimited
  */
+async function searchGoogle(
+  keyword: string,
+  location: string,
+  maxResults: number,
+  onProgress?: (msg: string, count: number) => void,
+): Promise<SearchResult[]> {
+  const results: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+
+  const query = location
+    ? `site:linkedin.com/in ${keyword} ${location}`
+    : `site:linkedin.com/in ${keyword}`;
+
+  let start = 0;
+  let pageNum = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    pageNum++;
+    onProgress?.(`Google Seite ${pageNum}...`, results.length);
+
+    try {
+      const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&start=${start}&num=10&hl=de`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': getRandomUserAgent(),
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'de-DE,de;q=0.9',
+          'Accept-Encoding': 'gzip, deflate',
+        },
+      });
+
+      if (res.status === 429 || !res.ok) {
+        onProgress?.(`Google Rate-Limit oder Fehler: ${res.status}`, results.length);
+        break;
+      }
+
+      const html = await res.text();
+
+      if (html.includes('detected unusual traffic') || html.includes('CAPTCHA')) {
+        onProgress?.('Google CAPTCHA erkannt - wechsle Suchmaschine', results.length);
+        break;
+      }
+
+      const linkRegex = /<a[^>]+href="(https?:\/\/[^"]*linkedin\.com\/in\/[^"&]+)"[^>]*>/gi;
+      let match;
+      let foundOnPage = 0;
+
+      while ((match = linkRegex.exec(html)) !== null) {
+        const profileUrl = cleanLinkedInUrl(match[1]);
+        if (!profileUrl) continue;
+
+        const norm = normalizeLinkedInUrl(profileUrl);
+        if (seenUrls.has(norm)) continue;
+        seenUrls.add(norm);
+
+        const titleRegex = new RegExp(`<h3[^>]*>([^<]*${profileUrl.split('/in/')[1]}[^<]*)<\\/h3>`, 'i');
+        const titleMatch = html.match(titleRegex);
+        const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+        const parsed = parseSearchTitle(title || profileUrl.split('/in/')[1] || '');
+
+        results.push({ profileUrl, snippetName: parsed.name, snippetHeadline: parsed.headline });
+        foundOnPage++;
+        if (maxResults > 0 && results.length >= maxResults) break;
+      }
+
+      if (foundOnPage === 0) {
+        const altRegex = /href="\/url\?q=(https?%3A%2F%2F[^"]*linkedin\.com%2Fin%2F[^"&]+)/gi;
+        while ((match = altRegex.exec(html)) !== null) {
+          const decoded = decodeURIComponent(match[1]);
+          const profileUrl = cleanLinkedInUrl(decoded);
+          if (!profileUrl) continue;
+          const norm = normalizeLinkedInUrl(profileUrl);
+          if (seenUrls.has(norm)) continue;
+          seenUrls.add(norm);
+          results.push({ profileUrl, snippetName: '', snippetHeadline: '' });
+          foundOnPage++;
+          if (maxResults > 0 && results.length >= maxResults) break;
+        }
+      }
+
+      onProgress?.(`Google Seite ${pageNum}: ${foundOnPage} Profile (gesamt: ${results.length})`, results.length);
+
+      if (foundOnPage === 0 || (maxResults > 0 && results.length >= maxResults)) {
+        hasMore = false;
+      } else {
+        start += 10;
+        await randomDelay(2000, 4000);
+      }
+
+      if (pageNum >= 30) hasMore = false;
+    } catch (err) {
+      onProgress?.(`Google Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, results.length);
+      hasMore = false;
+    }
+  }
+
+  return results;
+}
+
 export async function searchProfiles(
   keyword: string,
   location: string,
@@ -395,8 +497,17 @@ export async function searchProfiles(
     return ddgResults;
   }
 
+  // Fallback to Google
+  onProgress?.('DuckDuckGo lieferte keine Ergebnisse - versuche Google...', 0);
+  const googleResults = await searchGoogle(keyword, location, maxResults, onProgress);
+
+  if (googleResults.length > 0) {
+    onProgress?.(`Google: ${googleResults.length} Profile gefunden`, googleResults.length);
+    return googleResults;
+  }
+
   // Fallback to Bing
-  onProgress?.('DuckDuckGo lieferte keine Ergebnisse - versuche Bing...', 0);
+  onProgress?.('Google lieferte keine Ergebnisse - versuche Bing...', 0);
   const bingResults = await searchBing(keyword, location, maxResults, onProgress);
 
   if (bingResults.length > 0) {
@@ -852,7 +963,7 @@ export async function scrapeLinkedInKeyword(
     },
   );
 
-  // Step 3 & 4: Email generation + verification
+  // Step 3 & 4: Email generation + verification + Impressum fallback
   for (let i = 0; i < profiles.length; i++) {
     const person = profiles[i];
 
@@ -874,6 +985,17 @@ export async function scrapeLinkedInKeyword(
           person.emailConfidence = 'low';
         }
       }
+    }
+
+    // Step 5: Impressum fallback - if no email found, try the company website
+    if (!person.email && person.companyDomain) {
+      try {
+        const impressum = await parseImpressum(`https://${person.companyDomain}`);
+        if (impressum.emails.length > 0) {
+          person.email = impressum.emails[0];
+          person.emailConfidence = 'medium';
+        }
+      } catch { /* silent */ }
     }
 
     people.push(person);

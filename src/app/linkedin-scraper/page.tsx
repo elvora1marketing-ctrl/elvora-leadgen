@@ -63,10 +63,21 @@ interface ScraperJob {
   completed_at: string | null;
 }
 
+type ScrapeMode = 'keyword' | 'company' | 'enrich';
+
+interface LeadForEnrich {
+  id: number;
+  name: string;
+  company: string | null;
+  city: string;
+  email: string | null;
+}
+
 export default function LinkedInScraperPage() {
+  const [mode, setMode] = useState<ScrapeMode>('keyword');
   const [keyword, setKeyword] = useState('');
   const [location, setLocation] = useState('Deutschland');
-  const [maxResults, setMaxResults] = useState(0); // 0 = unlimited
+  const [maxResults, setMaxResults] = useState(0);
   const [onlyWithEmail, setOnlyWithEmail] = useState(false);
   const [smtpVerification, setSmtpVerification] = useState(true);
   const [scraping, setScraping] = useState(false);
@@ -75,21 +86,41 @@ export default function LinkedInScraperPage() {
   const [selectedJob, setSelectedJob] = useState<number | null>(null);
   const [jobResults, setJobResults] = useState<LinkedInResult[]>([]);
 
+  // Company mode
+  const [companyNames, setCompanyNames] = useState('');
+
+  // Enrich mode
+  const [enrichLeads, setEnrichLeads] = useState<LeadForEnrich[]>([]);
+  const [enrichLoading, setEnrichLoading] = useState(false);
+  const [enrichProgress, setEnrichProgress] = useState<{ current: number; total: number; found: number } | null>(null);
+  const [enrichCity, setEnrichCity] = useState('');
+
   // Live progress
   const [liveProgress, setLiveProgress] = useState<LiveProgress | null>(null);
   const [completedSearches, setCompletedSearches] = useState<CompletedSearch[]>([]);
   const [finalResult, setFinalResult] = useState<LiveProgress | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const presets = [
-    'Bauleiter',
-    'Projektmanager Bau',
-    'Architekt',
-    'Bauingenieur',
-    'Geschäftsführer SHK',
-    'Facility Manager',
-    'Immobilienverwalter',
-    'Hausverwalter',
+  const entscheiderPresets = [
+    'Geschäftsführer',
+    'Inhaber',
+    'CEO',
+    'Managing Director',
+    'Gründer',
+    'Founder',
+    'Geschäftsleitung',
+    'Eigentümer',
+  ];
+
+  const branchenPresets = [
+    'Geschäftsführer Handwerk',
+    'Inhaber Sanitär Heizung',
+    'Geschäftsführer Elektro',
+    'Inhaber Malerbetrieb',
+    'Geschäftsführer Dachdecker',
+    'Inhaber Schreinerei',
+    'Geschäftsführer Restaurant',
+    'Inhaber Friseursalon',
   ];
 
   const loadJobs = useCallback(async () => {
@@ -106,19 +137,79 @@ export default function LinkedInScraperPage() {
     loadJobs();
   }, [loadJobs]);
 
+  const loadLeadsForEnrich = useCallback(async () => {
+    setEnrichLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: '200', sort: 'created_at', dir: 'desc' });
+      if (enrichCity) params.set('city', enrichCity);
+      const res = await fetch(`/api/leads?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setEnrichLeads((data.leads || []).map((l: Record<string, unknown>) => ({
+          id: l.id as number,
+          name: l.name as string,
+          company: (l.company as string) || null,
+          city: l.city as string,
+          email: (l.email as string) || null,
+        })));
+      }
+    } catch { /* silent */ }
+    finally { setEnrichLoading(false); }
+  }, [enrichCity]);
+
+  useEffect(() => {
+    if (mode === 'enrich') loadLeadsForEnrich();
+  }, [mode, loadLeadsForEnrich]);
+
+  const startEnrich = async () => {
+    const leads = enrichLeads.filter(l => l.company || l.name);
+    if (leads.length === 0) return;
+    setScraping(true);
+    setEnrichProgress({ current: 0, total: leads.length, found: 0 });
+    setError(null);
+    let found = 0;
+    for (let i = 0; i < leads.length; i++) {
+      try {
+        const res = await fetch(`/api/leads/${leads[i].id}/find-decision-maker`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ autoSave: true }),
+        });
+        const d = await res.json();
+        if (d.success && d.results?.length > 0) found++;
+      } catch { /* continue */ }
+      setEnrichProgress({ current: i + 1, total: leads.length, found });
+    }
+    setEnrichProgress(null);
+    setScraping(false);
+    setError(null);
+    setFinalResult({
+      type: 'enrich_complete',
+      totalFound: found,
+      totalImported: found,
+      totalDuplicates: 0,
+      totalNoEmail: leads.length - found,
+      duration: 0,
+    });
+  };
+
   const startScraping = async () => {
-    if (!keyword.trim()) return;
+    // Company mode: convert company names to Entscheider search queries
+    let keywordsToSearch: string[];
+    if (mode === 'company') {
+      const companies = companyNames.split(/[,\n]+/).map(k => k.trim()).filter(k => k.length > 0);
+      if (companies.length === 0) return;
+      keywordsToSearch = companies.map(c => `"${c}" Geschäftsführer OR Inhaber OR CEO`);
+    } else {
+      if (!keyword.trim()) return;
+      keywordsToSearch = keyword.split(/[,\n]+/).map(k => k.trim()).filter(k => k.length > 0);
+    }
 
     setScraping(true);
     setFinalResult(null);
     setError(null);
     setLiveProgress(null);
     setCompletedSearches([]);
-
-    const keywords = keyword
-      .split(/[,\n]+/)
-      .map(k => k.trim())
-      .filter(k => k.length > 0);
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -128,7 +219,7 @@ export default function LinkedInScraperPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          keywords,
+          keywords: keywordsToSearch,
           location: location.trim(),
           maxResults,
           onlyWithEmail,
@@ -244,7 +335,9 @@ export default function LinkedInScraperPage() {
     URL.revokeObjectURL(url);
   };
 
-  const keywordCount = keyword.split(/[,\n]+/).filter(k => k.trim().length > 0).length;
+  const keywordCount = mode === 'company'
+    ? companyNames.split(/[,\n]+/).filter(k => k.trim().length > 0).length
+    : keyword.split(/[,\n]+/).filter(k => k.trim().length > 0).length;
   const showingResults = jobResults.length > 0;
 
   // Calculate overall progress
@@ -264,9 +357,9 @@ export default function LinkedInScraperPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">LinkedIn Scraper</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Entscheider-Finder</h1>
           <p className="text-xs sm:text-sm text-elvora-text-dim mt-1">
-            Personen auf LinkedIn finden – Name, Firma und E-Mail extrahieren
+            Geschäftsführer &amp; Inhaber auf LinkedIn finden – mit E-Mail
             <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">KOSTENLOS</span>
           </p>
         </div>
@@ -283,51 +376,175 @@ export default function LinkedInScraperPage() {
         )}
       </div>
 
-      {/* Search Form */}
-      <div className="card-glass p-6 space-y-5">
-        {/* Keyword Input */}
-        <div>
-          <label className="block text-sm font-medium text-elvora-text-muted mb-2">
-            Suchbegriffe <span className="text-elvora-text-dim font-normal">(mehrere mit Komma trennen)</span>
-          </label>
-          <input
-            type="text"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="z.B. Bauleiter, Projektmanager Bau, Architekt..."
-            className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
-            onKeyDown={(e) => e.key === 'Enter' && !scraping && startScraping()}
-          />
-        </div>
+      {/* Mode Tabs */}
+      <div className="flex gap-1 bg-white/5 rounded-xl p-1">
+        {([
+          { key: 'keyword' as ScrapeMode, label: 'Keyword-Suche', desc: 'Nach Rolle/Branche suchen' },
+          { key: 'company' as ScrapeMode, label: 'Firmen-Suche', desc: 'GF einer bestimmten Firma finden' },
+          { key: 'enrich' as ScrapeMode, label: 'Leads anreichern', desc: 'Entscheider für bestehende Leads' },
+        ]).map(m => (
+          <button
+            key={m.key}
+            onClick={() => setMode(m.key)}
+            className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-semibold transition-all ${
+              mode === m.key
+                ? 'bg-elvora-purple text-white shadow-lg'
+                : 'text-elvora-text-muted hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <div>{m.label}</div>
+            <div className="text-[9px] font-normal mt-0.5 opacity-70">{m.desc}</div>
+          </button>
+        ))}
+      </div>
 
-        {/* Quick Presets */}
-        <div>
-          <label className="block text-xs font-medium text-elvora-text-dim mb-2">
-            Schnellauswahl
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {presets.map(preset => (
-              <button
-                key={preset}
-                onClick={() => {
-                  const current = keyword.split(/,/).map(k => k.trim()).filter(Boolean);
-                  if (current.includes(preset)) {
-                    setKeyword(current.filter(k => k !== preset).join(', '));
-                  } else {
-                    setKeyword(current.length > 0 ? `${keyword}, ${preset}` : preset);
-                  }
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  keyword.includes(preset)
-                    ? 'bg-blue-500/30 text-blue-400 border border-blue-500/40'
-                    : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
-                }`}
-              >
-                {preset}
-              </button>
-            ))}
+      {/* Enrich Mode */}
+      {mode === 'enrich' && (
+        <div className="card-glass p-6 space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-semibold text-white">Bestehende Leads anreichern</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={enrichCity}
+                  onChange={e => setEnrichCity(e.target.value)}
+                  placeholder="Stadt filtern..."
+                  className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-white w-32"
+                />
+                <button onClick={loadLeadsForEnrich} className="px-3 py-1.5 rounded-lg bg-white/5 text-xs text-elvora-text-muted hover:text-white border border-white/10">Laden</button>
+              </div>
+            </div>
+            <p className="text-xs text-elvora-text-dim mb-3">
+              Durchsucht LinkedIn + Impressum für jeden Lead und speichert den Entscheider als Kontaktperson.
+            </p>
+            {enrichLoading ? (
+              <div className="text-sm text-elvora-text-dim text-center py-8">Leads werden geladen...</div>
+            ) : (
+              <div className="text-xs text-elvora-text-muted mb-3">
+                {enrichLeads.length} Leads geladen {enrichCity && `(Stadt: ${enrichCity})`}
+              </div>
+            )}
+            {enrichProgress && (
+              <div className="space-y-2 mb-3">
+                <div className="w-full h-2.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-elvora-purple rounded-full transition-all" style={{ width: `${(enrichProgress.current / enrichProgress.total) * 100}%` }} />
+                </div>
+                <div className="flex justify-between text-xs text-elvora-text-dim">
+                  <span>{enrichProgress.current} / {enrichProgress.total} Leads</span>
+                  <span className="text-elvora-success">{enrichProgress.found} Entscheider gefunden</span>
+                </div>
+              </div>
+            )}
+            <button
+              onClick={startEnrich}
+              disabled={scraping || enrichLeads.length === 0}
+              className={`w-full py-3 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
+                !scraping && enrichLeads.length > 0
+                  ? 'bg-elvora-purple text-white hover:bg-elvora-purple/80'
+                  : 'bg-white/5 text-elvora-text-dim cursor-not-allowed'
+              }`}
+            >
+              {scraping ? `Anreichern... (${enrichProgress?.current || 0}/${enrichProgress?.total || 0})` : `${enrichLeads.length} Leads anreichern`}
+            </button>
           </div>
         </div>
+      )}
+
+      {/* Search Form (keyword + company modes) */}
+      {mode !== 'enrich' && (
+      <div className="card-glass p-6 space-y-5">
+        {mode === 'keyword' ? (
+          <>
+            {/* Keyword Input */}
+            <div>
+              <label className="block text-sm font-medium text-elvora-text-muted mb-2">
+                Suchbegriffe <span className="text-elvora-text-dim font-normal">(mehrere mit Komma trennen)</span>
+              </label>
+              <input
+                type="text"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="z.B. Geschäftsführer Handwerk, Inhaber SHK..."
+                className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-elvora-purple/50 focus:border-elvora-purple/50 transition-all"
+                onKeyDown={(e) => e.key === 'Enter' && !scraping && startScraping()}
+              />
+            </div>
+
+            {/* Entscheider Presets */}
+            <div>
+              <label className="block text-xs font-medium text-elvora-text-dim mb-2">Entscheider-Rollen</label>
+              <div className="flex flex-wrap gap-2">
+                {entscheiderPresets.map(preset => (
+                  <button
+                    key={preset}
+                    onClick={() => {
+                      const current = keyword.split(/,/).map(k => k.trim()).filter(Boolean);
+                      if (current.includes(preset)) {
+                        setKeyword(current.filter(k => k !== preset).join(', '));
+                      } else {
+                        setKeyword(current.length > 0 ? `${keyword}, ${preset}` : preset);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      keyword.includes(preset)
+                        ? 'bg-elvora-purple/30 text-elvora-purple-light border border-elvora-purple/40'
+                        : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Branche + Rolle Presets */}
+            <div>
+              <label className="block text-xs font-medium text-elvora-text-dim mb-2">Branche + Entscheider</label>
+              <div className="flex flex-wrap gap-2">
+                {branchenPresets.map(preset => (
+                  <button
+                    key={preset}
+                    onClick={() => {
+                      const current = keyword.split(/,/).map(k => k.trim()).filter(Boolean);
+                      if (current.includes(preset)) {
+                        setKeyword(current.filter(k => k !== preset).join(', '));
+                      } else {
+                        setKeyword(current.length > 0 ? `${keyword}, ${preset}` : preset);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      keyword.includes(preset)
+                        ? 'bg-elvora-pink/30 text-elvora-pink border border-elvora-pink/40'
+                        : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Company Names Input */}
+            <div>
+              <label className="block text-sm font-medium text-elvora-text-muted mb-2">
+                Firmennamen <span className="text-elvora-text-dim font-normal">(einer pro Zeile oder mit Komma getrennt)</span>
+              </label>
+              <textarea
+                value={companyNames}
+                onChange={(e) => setCompanyNames(e.target.value)}
+                placeholder={"Müller Heizung GmbH\nSchmidt Elektrotechnik\nBäckerei Weber..."}
+                rows={5}
+                className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-elvora-purple/50 focus:border-elvora-purple/50 transition-all text-sm"
+              />
+              <p className="text-[10px] text-elvora-text-dim mt-2">
+                Sucht automatisch nach Geschäftsführer / Inhaber / CEO jeder Firma auf LinkedIn.
+              </p>
+            </div>
+          </>
+        )}
 
         {/* Location Input */}
         <div>
@@ -403,14 +620,14 @@ export default function LinkedInScraperPage() {
         </div>
 
         {/* Search Info */}
-        {keyword.trim() && (
-          <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl px-4 py-3">
+        {keywordCount > 0 && (
+          <div className="bg-elvora-purple/5 border border-elvora-purple/20 rounded-xl px-4 py-3">
             <div className="flex items-center gap-2 text-sm">
-              <svg className="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-elvora-purple-light flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <span className="text-elvora-text-muted">
-                <span className="text-white font-semibold">{keywordCount}</span> Keyword{keywordCount !== 1 ? 's' : ''}
+                <span className="text-white font-semibold">{keywordCount}</span> {mode === 'company' ? 'Firma' : 'Keyword'}{keywordCount !== 1 ? (mode === 'company' ? 'n' : 's') : ''}
                 {maxResults > 0
                   ? <> {' × '}bis zu <span className="text-white font-semibold">{maxResults}</span> Profile</>
                   : <> – <span className="text-white font-semibold">Alle</span> Ergebnisse</>
@@ -434,7 +651,7 @@ export default function LinkedInScraperPage() {
           <button
             onClick={() => setSmtpVerification(!smtpVerification)}
             className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${
-              smtpVerification ? 'bg-blue-500' : 'bg-white/10'
+              smtpVerification ? 'bg-elvora-purple' : 'bg-white/10'
             }`}
           >
             <span
@@ -449,17 +666,17 @@ export default function LinkedInScraperPage() {
         {!scraping ? (
           <button
             onClick={startScraping}
-            disabled={!keyword.trim()}
+            disabled={keywordCount === 0}
             className={`w-full py-3.5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-3 ${
-              keyword.trim()
-                ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:shadow-lg hover:shadow-blue-500/20 hover:scale-[1.01] active:scale-[0.99]'
+              keywordCount > 0
+                ? 'bg-elvora-gradient text-white hover:shadow-lg hover:shadow-elvora-purple/20 hover:scale-[1.01] active:scale-[0.99]'
                 : 'bg-white/5 text-elvora-text-dim cursor-not-allowed'
             }`}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 6a2 2 0 100-4 2 2 0 000 4z" />
             </svg>
-            LinkedIn Scraping starten
+            {mode === 'company' ? 'Entscheider suchen' : 'LinkedIn Scraping starten'}
           </button>
         ) : (
           <button
@@ -473,6 +690,7 @@ export default function LinkedInScraperPage() {
           </button>
         )}
       </div>
+      )}
 
       {/* Error Message */}
       {error && (
