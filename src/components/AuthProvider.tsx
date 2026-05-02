@@ -17,7 +17,6 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-// Pages that don't require authentication
 const PUBLIC_PATHS = ['/audit'];
 
 function isPublicPath(pathname: string): boolean {
@@ -30,7 +29,6 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Login form state
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -127,12 +125,10 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Public pages don't need auth
   if (isPublicPath(pathname || '')) {
     return <>{children}</>;
   }
 
-  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-elvora-bg flex items-center justify-center">
@@ -144,7 +140,6 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  // Authenticated – show app
   if (authenticated) {
     return (
       <AuthContext.Provider value={{ authenticated, loading, logout }}>
@@ -153,18 +148,17 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  // Setup – first time, set password
   if (needsSetup) {
     return (
       <div className="min-h-screen bg-elvora-bg flex items-center justify-center p-4">
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
             <img src="/elvora-icon.svg" alt="Elvora" width={56} height={56} className="mb-3" />
-            <h1 className="text-lg font-bold text-white">Panel einrichten</h1>
+            <h1 className="text-lg font-semibold text-elvora-text">Panel einrichten</h1>
             <p className="text-sm text-elvora-text-dim text-center mt-1">Lege dein Passwort fest, um dein Panel zu schützen.</p>
           </div>
 
-          <form onSubmit={handleSetup} className="glass rounded-xl p-5 space-y-4">
+          <form onSubmit={handleSetup} className="card rounded-xl p-5 space-y-4">
             <div>
               <label className="block text-xs text-elvora-text-dim mb-1.5">Passwort</label>
               <input
@@ -172,7 +166,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Min. 8 Zeichen"
-                className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
+                className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors"
                 autoFocus
               />
             </div>
@@ -183,7 +177,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Nochmal eingeben"
-                className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
+                className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors"
               />
             </div>
             {error && (
@@ -194,7 +188,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full px-5 py-2.5 rounded-xl bg-elvora-gradient text-white text-sm font-medium hover:shadow-elvora-lg transition-all disabled:opacity-50"
+              className="w-full px-5 py-2.5 rounded-lg bg-elvora-primary text-white text-sm font-medium hover:bg-elvora-primary-dark transition-colors disabled:opacity-50"
             >
               {submitting ? 'Einrichten...' : 'Passwort festlegen'}
             </button>
@@ -212,17 +206,16 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  // Login
   return (
     <div className="min-h-screen bg-elvora-bg flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           <img src="/elvora-icon.svg" alt="Elvora" width={56} height={56} className="mb-3" />
-          <h1 className="text-lg font-bold text-white">Elvora Panel</h1>
+          <h1 className="text-lg font-semibold text-elvora-text">Elvora Panel</h1>
           <p className="text-sm text-elvora-text-dim">Melde dich an, um fortzufahren.</p>
         </div>
 
-        <form onSubmit={handleLogin} className="glass rounded-xl p-5 space-y-4">
+        <form onSubmit={handleLogin} className="card rounded-xl p-5 space-y-4">
           <div>
             <label className="block text-xs text-elvora-text-dim mb-1.5">Passwort</label>
             <input
@@ -230,7 +223,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Dein Passwort"
-              className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
+              className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors"
               autoFocus
             />
           </div>
@@ -242,7 +235,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full px-5 py-2.5 rounded-xl bg-elvora-gradient text-white text-sm font-medium hover:shadow-elvora-lg transition-all disabled:opacity-50"
+            className="w-full px-5 py-2.5 rounded-lg bg-elvora-primary text-white text-sm font-medium hover:bg-elvora-primary-dark transition-colors disabled:opacity-50"
           >
             {submitting ? 'Anmelden...' : 'Anmelden'}
           </button>

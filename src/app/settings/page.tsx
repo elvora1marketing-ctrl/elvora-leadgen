@@ -2,6 +2,9 @@
 
 import { useState, useEffect, KeyboardEvent } from 'react';
 
+const inputClass = 'w-full px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors';
+const inputMonoClass = `${inputClass} font-mono`;
+
 export default function SettingsPage() {
   const [cities, setCities] = useState<string[]>(['Essen', 'Dortmund', 'Bochum', 'Duisburg']);
   const [cityInput, setCityInput] = useState('');
@@ -12,7 +15,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Email settings (Resend)
   const [resendApiKey, setResendApiKey] = useState('');
   const [emailFromName, setEmailFromName] = useState('');
   const [emailFromEmail, setEmailFromEmail] = useState('');
@@ -21,20 +23,16 @@ export default function SettingsPage() {
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  // Google Maps API
   const [googleMapsApiKey, setGoogleMapsApiKey] = useState('');
 
-  // API / OpenClaw settings
   const [apiKey, setApiKey] = useState('');
   const [openclawUrl, setOpenclawUrl] = useState('');
 
-  // Password change
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [pwChanging, setPwChanging] = useState(false);
   const [pwResult, setPwResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  // Follow-Up Sequenz
   interface FollowUpStep {
     step: number;
     days: number;
@@ -49,7 +47,6 @@ export default function SettingsPage() {
   ]);
   const [followUpStats, setFollowUpStats] = useState<{ pending: number; sent: number } | null>(null);
 
-  // KI-Personalisierung (Phase 5) & Klassifizierung (Phase 6)
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiClassifyEnabled, setAiClassifyEnabled] = useState(false);
   const [openaiApiKey, setOpenaiApiKey] = useState('');
@@ -57,22 +54,18 @@ export default function SettingsPage() {
   const [aiTestLoading, setAiTestLoading] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string; data?: { subject: string; intro: string; pitch: string } } | null>(null);
 
-  // DataForSEO
   const [dataforseoLogin, setDataforseoLogin] = useState('');
   const [dataforseoPassword, setDataforseoPassword] = useState('');
 
-  // LinkedIn / RapidAPI
   const [rapidapiKey, setRapidapiKey] = useState('');
   const [rapidapiLinkedinHost, setRapidapiLinkedinHost] = useState('fresh-linkedin-profile-data.p.rapidapi.com');
 
-  // Template settings
   const [tplSubject, setTplSubject] = useState('Website-Analyse für {firmenname} – {score}/100 Punkte');
   const [tplIntro, setTplIntro] = useState('mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.');
   const [tplPitch, setTplPitch] = useState('Ich habe mir Ihre Website {website} angeschaut und dabei ein paar Punkte gefunden, die Sie vermutlich Kunden kosten:');
   const [tplLeistungen, setTplLeistungen] = useState('Moderne, mobiloptimierte Website\nGoogle-Optimierung für {stadt}\nSSL-Zertifikat & Sicherheits-Setup\nGoogle Business Profil optimieren\nAutomatische Kundenanfragen generieren');
   const [tplCta, setTplCta] = useState('Lassen Sie uns kurz sprechen – 15 Minuten, die sich lohnen.');
 
-  // Load settings from DB
   useEffect(() => {
     fetch('/api/settings')
       .then(res => res.json())
@@ -106,7 +99,6 @@ export default function SettingsPage() {
       })
       .catch(() => {});
 
-    // Load follow-up stats
     fetch('/api/followups/process')
       .then(res => res.json())
       .then(data => {
@@ -189,7 +181,6 @@ export default function SettingsPage() {
     setTestResult(null);
 
     try {
-      // Auto-save settings first so the API key is in the DB
       await saveSettings();
 
       const res = await fetch('/api/email/send', {
@@ -226,19 +217,25 @@ export default function SettingsPage() {
     }
   }
 
+  const toggleClass = (enabled: boolean) =>
+    `relative w-10 h-5 rounded-full transition-colors ${enabled ? 'bg-elvora-success' : 'bg-elvora-border'}`;
+
+  const toggleDotClass = (enabled: boolean) =>
+    `absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0.5'}`;
+
   return (
-    <div className="max-w-2xl mx-auto animate-fade-in">
+    <div className="max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-lg font-bold text-white">Einstellungen</h1>
+        <h1 className="text-xl font-semibold text-elvora-text">Einstellungen</h1>
         <button
           onClick={handleSave}
           disabled={saving}
-          className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
+          className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
             saved
-              ? 'bg-elvora-success/20 text-elvora-success border border-elvora-success/30'
+              ? 'bg-elvora-success/15 text-elvora-success border border-elvora-success/20'
               : saveError
-              ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-              : 'bg-elvora-gradient text-white hover:shadow-elvora-lg disabled:opacity-50'
+              ? 'bg-red-500/15 text-red-400 border border-red-500/20'
+              : 'bg-elvora-primary text-white hover:bg-elvora-primary-dark disabled:opacity-50'
           }`}
         >
           {saved ? 'Gespeichert!' : saving ? 'Speichere...' : saveError ? 'Fehler!' : 'Speichern'}
@@ -246,20 +243,20 @@ export default function SettingsPage() {
       </div>
 
       {saveError && (
-        <div className="mb-4 p-3 rounded-xl text-sm bg-red-500/10 border border-red-500/20 text-red-400 animate-fade-in">
+        <div className="mb-4 p-3 rounded-lg text-sm bg-red-500/10 border border-red-500/20 text-red-400">
           {saveError}
         </div>
       )}
 
       <div className="space-y-4">
         {/* Cities */}
-        <div className="glass rounded-xl p-5">
-          <div className="text-sm font-semibold text-white mb-3">Zielstädte</div>
+        <div className="card rounded-xl p-5">
+          <div className="text-sm font-semibold text-elvora-text mb-3">Zielstädte</div>
           <div className="flex flex-wrap gap-2 mb-3">
             {cities.map((c) => (
-              <span key={c} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-elvora-purple/10 text-elvora-purple-light text-sm border border-elvora-purple/20">
+              <span key={c} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-elvora-purple/10 text-elvora-purple-light text-sm border border-elvora-purple/15">
                 {c}
-                <button onClick={() => setCities(cities.filter((x) => x !== c))} className="text-elvora-purple-light/50 hover:text-elvora-danger">
+                <button onClick={() => setCities(cities.filter((x) => x !== c))} className="text-elvora-purple-light/50 hover:text-elvora-danger transition-colors">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </span>
@@ -271,18 +268,18 @@ export default function SettingsPage() {
             onChange={(e) => setCityInput(e.target.value)}
             onKeyDown={addCity}
             placeholder="Stadt eingeben + Enter"
-            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
+            className={inputClass}
           />
         </div>
 
         {/* Keywords */}
-        <div className="glass rounded-xl p-5">
-          <div className="text-sm font-semibold text-white mb-3">Suchbegriffe</div>
+        <div className="card rounded-xl p-5">
+          <div className="text-sm font-semibold text-elvora-text mb-3">Suchbegriffe</div>
           <div className="flex flex-wrap gap-2 mb-3">
             {keywords.map((k) => (
-              <span key={k} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-elvora-pink/10 text-elvora-pink-light text-sm border border-elvora-pink/20">
+              <span key={k} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-elvora-pink/10 text-elvora-pink-light text-sm border border-elvora-pink/15">
                 {k}
-                <button onClick={() => setKeywords(keywords.filter((x) => x !== k))} className="text-elvora-pink-light/50 hover:text-elvora-danger">
+                <button onClick={() => setKeywords(keywords.filter((x) => x !== k))} className="text-elvora-pink-light/50 hover:text-elvora-danger transition-colors">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </span>
@@ -294,15 +291,15 @@ export default function SettingsPage() {
             onChange={(e) => setKeywordInput(e.target.value)}
             onKeyDown={addKeyword}
             placeholder="Keyword eingeben + Enter"
-            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
+            className={inputClass}
           />
         </div>
 
         {/* Score Threshold */}
-        <div className="glass rounded-xl p-5">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-semibold text-white">Score-Schwelle</span>
-            <span className="text-lg font-bold text-elvora-purple-light font-mono">{scoreThreshold}</span>
+            <span className="text-sm font-semibold text-elvora-text">Score-Schwelle</span>
+            <span className="text-lg font-semibold text-elvora-purple-light font-mono">{scoreThreshold}</span>
           </div>
           <input
             type="range"
@@ -310,15 +307,15 @@ export default function SettingsPage() {
             max={100}
             value={scoreThreshold}
             onChange={(e) => setScoreThreshold(parseInt(e.target.value))}
-            className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer
+            className="w-full h-1.5 bg-elvora-border rounded-full appearance-none cursor-pointer
               [&::-webkit-slider-thumb]:appearance-none
               [&::-webkit-slider-thumb]:w-4
               [&::-webkit-slider-thumb]:h-4
               [&::-webkit-slider-thumb]:rounded-full
-              [&::-webkit-slider-thumb]:bg-elvora-gradient
+              [&::-webkit-slider-thumb]:bg-elvora-primary
               [&::-webkit-slider-thumb]:cursor-pointer
               [&::-webkit-slider-thumb]:border-2
-              [&::-webkit-slider-thumb]:border-white/20
+              [&::-webkit-slider-thumb]:border-elvora-card
             "
           />
           <div className="flex justify-between text-xs text-elvora-text-dim mt-1">
@@ -328,14 +325,14 @@ export default function SettingsPage() {
         </div>
 
         {/* Google Maps API */}
-        <div className="glass rounded-xl p-5 border border-blue-500/20">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <span className="text-sm font-semibold text-white">Google Maps Scraper</span>
-            <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 text-[10px] font-bold border border-blue-500/20">PLACES API</span>
+            <span className="text-sm font-semibold text-elvora-text">Google Maps Scraper</span>
+            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 text-[10px] font-semibold">PLACES API</span>
           </div>
           <p className="text-xs text-elvora-text-dim mb-4">
             Der Scraper nutzt die Google Places API. Du brauchst einen API-Key mit aktivierter &quot;Places API (New)&quot;.
@@ -348,7 +345,7 @@ export default function SettingsPage() {
               value={googleMapsApiKey}
               onChange={(e) => setGoogleMapsApiKey(e.target.value)}
               placeholder="AIzaSy..."
-              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-blue-500/50 transition-all font-mono"
+              className={inputMonoClass}
             />
             <p className="text-[11px] text-elvora-text-dim mt-2">
               1. Google Cloud Console &rarr; APIs &amp; Services &rarr; Credentials<br />
@@ -359,13 +356,13 @@ export default function SettingsPage() {
         </div>
 
         {/* DataForSEO API */}
-        <div className="glass rounded-xl p-5 border border-emerald-500/20">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
             </svg>
-            <span className="text-sm font-semibold text-white">DataForSEO API</span>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">KEYWORD &amp; SERP</span>
+            <span className="text-sm font-semibold text-elvora-text">DataForSEO API</span>
+            <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold">KEYWORD &amp; SERP</span>
           </div>
           <p className="text-xs text-elvora-text-dim mb-4">
             Keyword-Recherche und SERP-Analyse für lokale SEO. Pay-per-use Abrechnung über dataforseo.com.
@@ -378,7 +375,7 @@ export default function SettingsPage() {
                 value={dataforseoLogin}
                 onChange={(e) => setDataforseoLogin(e.target.value)}
                 placeholder="deine@email.de"
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-emerald-500/50 transition-all font-mono"
+                className={inputMonoClass}
               />
             </div>
             <div>
@@ -388,7 +385,7 @@ export default function SettingsPage() {
                 value={dataforseoPassword}
                 onChange={(e) => setDataforseoPassword(e.target.value)}
                 placeholder="API-Passwort"
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-emerald-500/50 transition-all font-mono"
+                className={inputMonoClass}
               />
             </div>
             <p className="text-[11px] text-elvora-text-dim">
@@ -398,13 +395,13 @@ export default function SettingsPage() {
         </div>
 
         {/* LinkedIn Scraper / RapidAPI */}
-        <div className="glass rounded-xl p-5 border border-blue-500/20">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 6a2 2 0 100-4 2 2 0 000 4z" />
             </svg>
-            <span className="text-sm font-semibold text-white">LinkedIn Scraper</span>
-            <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 text-[10px] font-bold border border-blue-500/20">RAPIDAPI</span>
+            <span className="text-sm font-semibold text-elvora-text">LinkedIn Scraper</span>
+            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 text-[10px] font-semibold">RAPIDAPI</span>
           </div>
           <p className="text-xs text-elvora-text-dim mb-4">
             Der LinkedIn Scraper nutzt die RapidAPI-Plattform um LinkedIn-Profile zu durchsuchen und E-Mail-Adressen zu extrahieren.
@@ -417,7 +414,7 @@ export default function SettingsPage() {
                 value={rapidapiKey}
                 onChange={(e) => setRapidapiKey(e.target.value)}
                 placeholder="Dein RapidAPI Key..."
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-blue-500/50 transition-all font-mono"
+                className={inputMonoClass}
               />
             </div>
             <div>
@@ -427,7 +424,7 @@ export default function SettingsPage() {
                 value={rapidapiLinkedinHost}
                 onChange={(e) => setRapidapiLinkedinHost(e.target.value)}
                 placeholder="fresh-linkedin-profile-data.p.rapidapi.com"
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-blue-500/50 transition-all font-mono"
+                className={inputMonoClass}
               />
             </div>
             <p className="text-[11px] text-elvora-text-dim">
@@ -439,13 +436,13 @@ export default function SettingsPage() {
         </div>
 
         {/* E-Mail Konfiguration (Resend) */}
-        <div className="glass rounded-xl p-5 border border-elvora-pink/20">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
-            <svg className="w-5 h-5 text-elvora-pink-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-elvora-pink" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
-            <span className="text-sm font-semibold text-white">E-Mail Konfiguration</span>
-            <span className="px-2 py-0.5 rounded-full bg-elvora-success/15 text-elvora-success text-[10px] font-bold border border-elvora-success/20">RESEND</span>
+            <span className="text-sm font-semibold text-elvora-text">E-Mail Konfiguration</span>
+            <span className="px-2 py-0.5 rounded-md bg-elvora-success/10 text-elvora-success text-[10px] font-semibold">RESEND</span>
           </div>
           <p className="text-xs text-elvora-text-dim mb-4">
             E-Mail-Versand über Resend.com – 100 Mails/Tag kostenlos. Hol dir deinen API-Key auf resend.com.
@@ -459,7 +456,7 @@ export default function SettingsPage() {
                 value={resendApiKey}
                 onChange={(e) => setResendApiKey(e.target.value)}
                 placeholder="re_xxxxxxxxx..."
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all font-mono"
+                className={inputMonoClass}
               />
             </div>
 
@@ -471,7 +468,7 @@ export default function SettingsPage() {
                   value={emailFromName}
                   onChange={(e) => setEmailFromName(e.target.value)}
                   placeholder="Luan von Elvora"
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
+                  className={inputClass}
                 />
               </div>
               <div>
@@ -481,7 +478,7 @@ export default function SettingsPage() {
                   value={emailFromEmail}
                   onChange={(e) => setEmailFromEmail(e.target.value)}
                   placeholder="luan@elvora.me"
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
+                  className={inputClass}
                 />
                 <p className="text-[11px] text-elvora-text-dim mt-1">Verifizierte Domain: elvora.me</p>
               </div>
@@ -494,13 +491,13 @@ export default function SettingsPage() {
                 value={calendlyUrl}
                 onChange={(e) => setCalendlyUrl(e.target.value)}
                 placeholder="https://calendly.com/dein-name/15min"
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
+                className={inputClass}
               />
               <p className="text-[11px] text-elvora-text-dim mt-1">Wird als &quot;Termin vereinbaren&quot; Button in der Pitch-Mail angezeigt</p>
             </div>
 
             {/* Test E-Mail */}
-            <div className="pt-3 mt-3 border-t border-white/5">
+            <div className="pt-3 mt-3 border-t border-elvora-border">
               <label className="block text-xs text-elvora-text-dim mb-1">Test-Mail senden</label>
               <div className="flex gap-2">
                 <input
@@ -508,12 +505,12 @@ export default function SettingsPage() {
                   value={testEmailTo}
                   onChange={(e) => setTestEmailTo(e.target.value)}
                   placeholder="test@deine-email.de"
-                  className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-pink/50 transition-all"
+                  className={`flex-1 ${inputClass}`}
                 />
                 <button
                   onClick={sendTestEmail}
                   disabled={testSending || !testEmailTo || !resendApiKey}
-                  className="px-4 py-2 rounded-lg bg-elvora-pink/15 border border-elvora-pink/30 text-elvora-pink-light text-xs font-semibold hover:bg-elvora-pink/25 transition-all disabled:opacity-50 flex-shrink-0"
+                  className="px-4 py-2 rounded-lg bg-elvora-pink/10 text-elvora-pink text-xs font-medium hover:bg-elvora-pink/20 transition-colors disabled:opacity-50 flex-shrink-0"
                 >
                   {testSending ? 'Sende...' : 'Testen'}
                 </button>
@@ -528,12 +525,12 @@ export default function SettingsPage() {
         </div>
 
         {/* E-Mail Template Editor */}
-        <div className="glass rounded-xl p-5 border border-elvora-purple/20">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <svg className="w-5 h-5 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
-            <span className="text-sm font-semibold text-white">E-Mail Template</span>
+            <span className="text-sm font-semibold text-elvora-text">E-Mail Template</span>
           </div>
           <p className="text-xs text-elvora-text-dim mb-4">
             Passe den E-Mail-Text an. Platzhalter: <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{firmenname}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{ansprechpartner}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{website}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{stadt}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{score}'}</code> <code className="text-elvora-purple-light bg-elvora-purple/10 px-1 rounded">{'{absender}'}</code>
@@ -542,75 +539,43 @@ export default function SettingsPage() {
           <div className="space-y-3">
             <div>
               <label className="block text-xs text-elvora-text-dim mb-1">Betreff</label>
-              <input
-                type="text"
-                value={tplSubject}
-                onChange={(e) => setTplSubject(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
-              />
+              <input type="text" value={tplSubject} onChange={(e) => setTplSubject(e.target.value)} className={inputClass} />
             </div>
-
             <div>
               <label className="block text-xs text-elvora-text-dim mb-1">Intro-Text <span className="text-elvora-text-dim/50">(nach &quot;Guten Tag {'{ansprechpartner}'},...&quot;)</span></label>
-              <textarea
-                value={tplIntro}
-                onChange={(e) => setTplIntro(e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all resize-none"
-              />
+              <textarea value={tplIntro} onChange={(e) => setTplIntro(e.target.value)} rows={3} className={`${inputClass} resize-none`} />
             </div>
-
             <div>
               <label className="block text-xs text-elvora-text-dim mb-1">Pitch-Text <span className="text-elvora-text-dim/50">(Überleitung zu den Problemen)</span></label>
-              <textarea
-                value={tplPitch}
-                onChange={(e) => setTplPitch(e.target.value)}
-                rows={2}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all resize-none"
-              />
+              <textarea value={tplPitch} onChange={(e) => setTplPitch(e.target.value)} rows={2} className={`${inputClass} resize-none`} />
             </div>
-
             <div>
               <label className="block text-xs text-elvora-text-dim mb-1">Leistungen <span className="text-elvora-text-dim/50">(eine pro Zeile)</span></label>
-              <textarea
-                value={tplLeistungen}
-                onChange={(e) => setTplLeistungen(e.target.value)}
-                rows={5}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all resize-none"
-              />
+              <textarea value={tplLeistungen} onChange={(e) => setTplLeistungen(e.target.value)} rows={5} className={`${inputClass} resize-none`} />
             </div>
-
             <div>
               <label className="block text-xs text-elvora-text-dim mb-1">CTA-Text <span className="text-elvora-text-dim/50">(Call to Action)</span></label>
-              <input
-                type="text"
-                value={tplCta}
-                onChange={(e) => setTplCta(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-all"
-              />
+              <input type="text" value={tplCta} onChange={(e) => setTplCta(e.target.value)} className={inputClass} />
             </div>
           </div>
         </div>
 
         {/* Follow-Up Sequenz */}
-        <div className="glass rounded-xl p-5 border border-elvora-accent/20">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <svg className="w-5 h-5 text-elvora-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span className="text-sm font-semibold text-white">Auto Follow-Up Sequenz</span>
+              <span className="text-sm font-semibold text-elvora-text">Auto Follow-Up Sequenz</span>
               {followUpStats && (
-                <span className="px-2 py-0.5 rounded-full bg-elvora-accent/15 text-elvora-accent text-[10px] font-bold border border-elvora-accent/20">
+                <span className="px-2 py-0.5 rounded-md bg-elvora-accent/10 text-elvora-accent text-[10px] font-semibold">
                   {followUpStats.pending} ausstehend &middot; {followUpStats.sent} gesendet
                 </span>
               )}
             </div>
-            <button
-              onClick={() => setFollowUpEnabled(!followUpEnabled)}
-              className={`relative w-10 h-5 rounded-full transition-colors ${followUpEnabled ? 'bg-elvora-success' : 'bg-white/10'}`}
-            >
-              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${followUpEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            <button onClick={() => setFollowUpEnabled(!followUpEnabled)} className={toggleClass(followUpEnabled)}>
+              <div className={toggleDotClass(followUpEnabled)} />
             </button>
           </div>
 
@@ -624,11 +589,11 @@ export default function SettingsPage() {
 
               <div className="space-y-4">
                 {followUpSequence.map((step, idx) => (
-                  <div key={step.step} className="relative rounded-lg bg-white/[0.03] border border-white/5 p-4">
+                  <div key={step.step} className="relative rounded-lg bg-elvora-bg-alt border border-elvora-border p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-elvora-accent/20 text-elvora-accent text-xs font-bold flex items-center justify-center">{step.step}</span>
-                        <span className="text-sm font-medium text-white">Follow-Up {step.step}</span>
+                        <span className="w-6 h-6 rounded-full bg-elvora-accent/15 text-elvora-accent text-xs font-semibold flex items-center justify-center">{step.step}</span>
+                        <span className="text-sm font-medium text-elvora-text">Follow-Up {step.step}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-elvora-text-dim">nach</span>
@@ -642,7 +607,7 @@ export default function SettingsPage() {
                             updated[idx] = { ...updated[idx], days: parseInt(e.target.value) || 1 };
                             setFollowUpSequence(updated);
                           }}
-                          className="w-14 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-white text-sm text-center focus:outline-none focus:border-elvora-accent/50"
+                          className="w-14 px-2 py-1 rounded-lg bg-elvora-bg border border-elvora-border text-elvora-text text-sm text-center focus:outline-none focus:border-elvora-accent/50"
                         />
                         <span className="text-xs text-elvora-text-dim">Tagen</span>
                         {followUpSequence.length > 1 && (
@@ -668,7 +633,7 @@ export default function SettingsPage() {
                             updated[idx] = { ...updated[idx], subject: e.target.value };
                             setFollowUpSequence(updated);
                           }}
-                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-elvora-accent/50 transition-all"
+                          className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-elvora-border text-elvora-text text-sm focus:outline-none focus:border-elvora-accent/50 transition-colors"
                         />
                       </div>
                       <div>
@@ -681,7 +646,7 @@ export default function SettingsPage() {
                             setFollowUpSequence(updated);
                           }}
                           rows={4}
-                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-elvora-accent/50 transition-all resize-none"
+                          className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-elvora-border text-elvora-text text-sm focus:outline-none focus:border-elvora-accent/50 transition-colors resize-none"
                         />
                       </div>
                     </div>
@@ -699,7 +664,7 @@ export default function SettingsPage() {
                         body: '',
                       }]);
                     }}
-                    className="w-full py-2 rounded-lg border border-dashed border-white/10 text-elvora-text-dim text-xs hover:border-elvora-accent/30 hover:text-elvora-accent transition-all"
+                    className="w-full py-2 rounded-lg border border-dashed border-elvora-border text-elvora-text-dim text-xs hover:border-elvora-accent/30 hover:text-elvora-accent transition-colors"
                   >
                     + Stufe hinzufügen
                   </button>
@@ -714,20 +679,17 @@ export default function SettingsPage() {
         </div>
 
         {/* KI-Personalisierung */}
-        <div className="glass rounded-xl p-5 border border-amber-500/20">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
-              <span className="text-sm font-semibold text-white">KI-Personalisierung</span>
-              <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[10px] font-bold border border-amber-500/20">OPENAI</span>
+              <span className="text-sm font-semibold text-elvora-text">KI-Personalisierung</span>
+              <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 text-[10px] font-semibold">OPENAI</span>
             </div>
-            <button
-              onClick={() => setAiEnabled(!aiEnabled)}
-              className={`relative w-10 h-5 rounded-full transition-colors ${aiEnabled ? 'bg-elvora-success' : 'bg-white/10'}`}
-            >
-              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${aiEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            <button onClick={() => setAiEnabled(!aiEnabled)} className={toggleClass(aiEnabled)}>
+              <div className={toggleDotClass(aiEnabled)} />
             </button>
           </div>
 
@@ -745,7 +707,7 @@ export default function SettingsPage() {
                     value={openaiApiKey}
                     onChange={(e) => setOpenaiApiKey(e.target.value)}
                     placeholder="sk-..."
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-amber-500/50 transition-all font-mono"
+                    className={inputMonoClass}
                   />
                   <p className="text-[11px] text-elvora-text-dim mt-1">
                     Hol dir deinen Key auf platform.openai.com/api-keys
@@ -757,17 +719,17 @@ export default function SettingsPage() {
                   <select
                     value={aiModel}
                     onChange={(e) => setAiModel(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-amber-500/50 transition-all"
+                    className="w-full px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm focus:outline-none focus:border-amber-500/50 transition-colors"
                   >
-                    <option value="gpt-4o-mini" className="bg-[#0a0a0f]">GPT-4o Mini (schnell & günstig)</option>
-                    <option value="gpt-4o" className="bg-[#0a0a0f]">GPT-4o (beste Qualität)</option>
-                    <option value="gpt-4.1-mini" className="bg-[#0a0a0f]">GPT-4.1 Mini</option>
-                    <option value="gpt-4.1-nano" className="bg-[#0a0a0f]">GPT-4.1 Nano (am günstigsten)</option>
+                    <option value="gpt-4o-mini" className="bg-elvora-card">GPT-4o Mini (schnell & günstig)</option>
+                    <option value="gpt-4o" className="bg-elvora-card">GPT-4o (beste Qualität)</option>
+                    <option value="gpt-4.1-mini" className="bg-elvora-card">GPT-4.1 Mini</option>
+                    <option value="gpt-4.1-nano" className="bg-elvora-card">GPT-4.1 Nano (am günstigsten)</option>
                   </select>
                 </div>
 
                 {/* AI Test */}
-                <div className="pt-3 mt-3 border-t border-white/5">
+                <div className="pt-3 mt-3 border-t border-elvora-border">
                   <label className="block text-xs text-elvora-text-dim mb-2">KI testen</label>
                   <button
                     onClick={async () => {
@@ -811,7 +773,7 @@ export default function SettingsPage() {
                       }
                     }}
                     disabled={aiTestLoading || !openaiApiKey}
-                    className="px-4 py-2 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/25 transition-all disabled:opacity-50"
+                    className="px-4 py-2 rounded-lg bg-amber-500/10 text-amber-400 text-xs font-medium hover:bg-amber-500/20 transition-colors disabled:opacity-50"
                   >
                     {aiTestLoading ? 'Generiere...' : 'Test-Personalisierung generieren'}
                   </button>
@@ -822,17 +784,17 @@ export default function SettingsPage() {
                         {aiTestResult.message}
                       </div>
                       {aiTestResult.data && (
-                        <div className="space-y-2 rounded-lg bg-white/[0.03] border border-white/5 p-3">
+                        <div className="space-y-2 rounded-lg bg-elvora-bg-alt border border-elvora-border p-3">
                           <div>
-                            <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-semibold">Betreff</span>
-                            <p className="text-xs text-white mt-0.5">{aiTestResult.data.subject}</p>
+                            <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-medium">Betreff</span>
+                            <p className="text-xs text-elvora-text mt-0.5">{aiTestResult.data.subject}</p>
                           </div>
                           <div>
-                            <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-semibold">Intro</span>
+                            <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-medium">Intro</span>
                             <p className="text-xs text-elvora-text-muted mt-0.5">{aiTestResult.data.intro}</p>
                           </div>
                           <div>
-                            <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-semibold">Pitch</span>
+                            <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-medium">Pitch</span>
                             <p className="text-xs text-elvora-text-muted mt-0.5">{aiTestResult.data.pitch}</p>
                           </div>
                         </div>
@@ -842,21 +804,18 @@ export default function SettingsPage() {
                 </div>
 
                 {/* Auto-Classify Toggle */}
-                <div className="pt-3 mt-3 border-t border-white/5">
+                <div className="pt-3 mt-3 border-t border-elvora-border">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-semibold text-white block">Auto-Klassifizierung</span>
+                      <span className="text-xs font-semibold text-elvora-text block">Auto-Klassifizierung</span>
                       <span className="text-[11px] text-elvora-text-dim">Eingehende Antworten automatisch analysieren (Interesse, Absage, Frage, Out-of-Office)</span>
                     </div>
-                    <button
-                      onClick={() => setAiClassifyEnabled(!aiClassifyEnabled)}
-                      className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ml-3 ${aiClassifyEnabled ? 'bg-elvora-success' : 'bg-white/10'}`}
-                    >
-                      <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${aiClassifyEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    <button onClick={() => setAiClassifyEnabled(!aiClassifyEnabled)} className={`${toggleClass(aiClassifyEnabled)} flex-shrink-0 ml-3`}>
+                      <div className={toggleDotClass(aiClassifyEnabled)} />
                     </button>
                   </div>
                   {aiClassifyEnabled && (
-                    <div className="mt-2 rounded-lg bg-white/[0.03] border border-white/5 p-2.5">
+                    <div className="mt-2 rounded-lg bg-elvora-bg-alt border border-elvora-border p-2.5">
                       <ul className="text-[11px] text-elvora-text-dim space-y-1">
                         <li>- <span className="text-elvora-success">Interesse</span>: Lead wird automatisch auf &quot;Meeting&quot; gesetzt</li>
                         <li>- <span className="text-red-400">Absage/Abmeldung</span>: Lead wird auf &quot;Verloren&quot; gesetzt</li>
@@ -868,8 +827,8 @@ export default function SettingsPage() {
                 </div>
 
                 {/* Info Box */}
-                <div className="rounded-lg bg-amber-500/5 border border-amber-500/10 p-3 mt-2">
-                  <div className="text-[10px] font-semibold text-amber-400/70 uppercase tracking-wider mb-1">So funktioniert es</div>
+                <div className="rounded-lg bg-amber-500/5 border border-elvora-border p-3 mt-2">
+                  <div className="text-[10px] font-medium text-amber-400/70 uppercase tracking-wider mb-1">So funktioniert es</div>
                   <ul className="text-xs text-elvora-text-dim space-y-1">
                     <li>1. Beim Email-Versand analysiert die KI die Website-Probleme des Leads</li>
                     <li>2. Betreff, Intro und Pitch werden individuell formuliert</li>
@@ -890,11 +849,11 @@ export default function SettingsPage() {
         </div>
 
         {/* OpenClaw Integration */}
-        <div className="glass rounded-xl p-5 border border-elvora-success/20">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <span className="text-lg">🦞</span>
-            <span className="text-sm font-semibold text-white">OpenClaw Integration</span>
-            <span className="px-2 py-0.5 rounded-full bg-elvora-success/15 text-elvora-success text-[10px] font-bold border border-elvora-success/20">API</span>
+            <span className="text-sm font-semibold text-elvora-text">OpenClaw Integration</span>
+            <span className="px-2 py-0.5 rounded-md bg-elvora-success/10 text-elvora-success text-[10px] font-semibold">API</span>
           </div>
           <p className="text-xs text-elvora-text-dim mb-4">
             Verbinde Elvora mit OpenClaw für WhatsApp-Nachfass, automatische Lead-Qualifizierung und AI-gestütztes Gespräch mit Leads.
@@ -909,11 +868,11 @@ export default function SettingsPage() {
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="Einen sicheren Key eingeben..."
-                  className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-success/50 transition-all font-mono"
+                  className={`flex-1 ${inputMonoClass}`}
                 />
                 <button
                   onClick={() => setApiKey(crypto.randomUUID())}
-                  className="px-3 py-2 rounded-lg bg-elvora-success/15 border border-elvora-success/30 text-elvora-success text-xs font-semibold hover:bg-elvora-success/25 transition-all flex-shrink-0"
+                  className="px-3 py-2 rounded-lg bg-elvora-success/10 text-elvora-success text-xs font-medium hover:bg-elvora-success/20 transition-colors flex-shrink-0"
                 >
                   Generieren
                 </button>
@@ -928,56 +887,40 @@ export default function SettingsPage() {
                 value={openclawUrl}
                 onChange={(e) => setOpenclawUrl(e.target.value)}
                 placeholder="http://localhost:3100"
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-success/50 transition-all"
+                className={inputClass}
               />
             </div>
 
             {/* API Endpoints Reference */}
-            <div className="pt-3 mt-3 border-t border-white/5">
-              <div className="text-[10px] font-semibold text-elvora-text-dim uppercase tracking-wider mb-2">API-Endpoints für OpenClaw</div>
+            <div className="pt-3 mt-3 border-t border-elvora-border">
+              <div className="text-[10px] font-medium text-elvora-text-dim uppercase tracking-wider mb-2">API-Endpoints für OpenClaw</div>
               <div className="space-y-1 text-xs font-mono">
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded bg-elvora-success/20 text-elvora-success text-[10px]">GET</span>
-                  <span className="text-elvora-text-muted">/api/leads</span>
-                  <span className="text-elvora-text-dim ml-auto">Lead-Liste</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded bg-elvora-warning/20 text-elvora-warning text-[10px]">PATCH</span>
-                  <span className="text-elvora-text-muted">/api/leads/:id/status</span>
-                  <span className="text-elvora-text-dim ml-auto">Status ändern</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded bg-elvora-pink/20 text-elvora-pink-light text-[10px]">POST</span>
-                  <span className="text-elvora-text-muted">/api/webhooks/openclaw</span>
-                  <span className="text-elvora-text-dim ml-auto">Webhook</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded bg-elvora-pink/20 text-elvora-pink-light text-[10px]">POST</span>
-                  <span className="text-elvora-text-muted">/api/email/send</span>
-                  <span className="text-elvora-text-dim ml-auto">Mail senden</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded bg-elvora-pink/20 text-elvora-pink-light text-[10px]">POST</span>
-                  <span className="text-elvora-text-muted">/api/email/bulk</span>
-                  <span className="text-elvora-text-dim ml-auto">Bulk-Versand</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded bg-elvora-purple/20 text-elvora-purple-light text-[10px]">POST</span>
-                  <span className="text-elvora-text-muted">/api/cron/scan</span>
-                  <span className="text-elvora-text-dim ml-auto">Scan + Follow-Ups</span>
-                </div>
+                {[
+                  { method: 'GET', color: 'text-elvora-success bg-elvora-success/10', path: '/api/leads', desc: 'Lead-Liste' },
+                  { method: 'PATCH', color: 'text-elvora-warning bg-elvora-warning/10', path: '/api/leads/:id/status', desc: 'Status ändern' },
+                  { method: 'POST', color: 'text-elvora-pink bg-elvora-pink/10', path: '/api/webhooks/openclaw', desc: 'Webhook' },
+                  { method: 'POST', color: 'text-elvora-pink bg-elvora-pink/10', path: '/api/email/send', desc: 'Mail senden' },
+                  { method: 'POST', color: 'text-elvora-pink bg-elvora-pink/10', path: '/api/email/bulk', desc: 'Bulk-Versand' },
+                  { method: 'POST', color: 'text-elvora-purple-light bg-elvora-purple/10', path: '/api/cron/scan', desc: 'Scan + Follow-Ups' },
+                ].map((ep, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${ep.color}`}>{ep.method}</span>
+                    <span className="text-elvora-text-muted">{ep.path}</span>
+                    <span className="text-elvora-text-dim ml-auto">{ep.desc}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
         </div>
 
         {/* Passwort ändern */}
-        <div className="glass rounded-xl p-5 border border-white/10">
+        <div className="card rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-elvora-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
-            <span className="text-sm font-semibold text-white">Panel-Passwort ändern</span>
+            <span className="text-sm font-semibold text-elvora-text">Panel-Passwort ändern</span>
           </div>
           <div className="space-y-3">
             <div>
@@ -987,7 +930,7 @@ export default function SettingsPage() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Min. 8 Zeichen"
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-white/30 transition-all"
+                className={inputClass}
               />
             </div>
             <div>
@@ -997,7 +940,7 @@ export default function SettingsPage() {
                 value={confirmNewPassword}
                 onChange={(e) => setConfirmNewPassword(e.target.value)}
                 placeholder="Nochmal eingeben"
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-white/30 transition-all"
+                className={inputClass}
               />
             </div>
             {pwResult && (
@@ -1027,7 +970,7 @@ export default function SettingsPage() {
                 finally { setPwChanging(false); setTimeout(() => setPwResult(null), 4000); }
               }}
               disabled={pwChanging || !newPassword || !confirmNewPassword}
-              className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs font-medium hover:bg-white/10 transition-all disabled:opacity-50"
+              className="px-4 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-xs font-medium hover:bg-elvora-surface transition-colors disabled:opacity-50"
             >
               {pwChanging ? 'Ändere...' : 'Passwort ändern'}
             </button>
@@ -1035,13 +978,13 @@ export default function SettingsPage() {
         </div>
 
         {/* Danger Zone */}
-        <div className="glass rounded-xl p-5 border-elvora-danger/20">
+        <div className="card rounded-xl p-5 border-elvora-danger/20">
           <div className="text-sm font-semibold text-elvora-danger mb-3">Gefahrenzone</div>
           <div className="flex gap-3">
-            <button className="px-3 py-2 rounded-lg bg-elvora-danger/10 border border-elvora-danger/20 text-elvora-danger text-xs font-medium hover:bg-elvora-danger/20 transition-all">
+            <button className="px-3 py-2 rounded-lg bg-elvora-danger/10 text-elvora-danger text-xs font-medium hover:bg-elvora-danger/20 transition-colors">
               Alle Leads löschen
             </button>
-            <button className="px-3 py-2 rounded-lg bg-elvora-danger/10 border border-elvora-danger/20 text-elvora-danger text-xs font-medium hover:bg-elvora-danger/20 transition-all">
+            <button className="px-3 py-2 rounded-lg bg-elvora-danger/10 text-elvora-danger text-xs font-medium hover:bg-elvora-danger/20 transition-colors">
               Datenbank zurücksetzen
             </button>
           </div>
