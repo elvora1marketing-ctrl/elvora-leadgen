@@ -82,41 +82,54 @@ const navSections: NavSection[] = [
 ];
 
 function ElvoraIcon({ size = 36 }: { size?: number }) {
+  const id = `ei_${size}`;
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width={size} height={size} viewBox="0 0 141 141" fill="none" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <linearGradient id={`eiG1_${size}`} x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#7C3AED" />
-          <stop offset="100%" stopColor="#A855F7" />
+        <linearGradient id={`${id}_g1`} x1="48.7" y1="8.08" x2="85.52" y2="73.15" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#5c67db" />
+          <stop offset="1" stopColor="#7944d0" />
         </linearGradient>
-        <linearGradient id={`eiG2_${size}`} x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#EC4899" />
-          <stop offset="100%" stopColor="#F472B6" />
+        <linearGradient id={`${id}_g2`} x1="91.59" y1="36.08" x2="86.01" y2="128.67" gradientUnits="userSpaceOnUse">
+          <stop offset=".31" stopColor="#be34ad" />
+          <stop offset="1" stopColor="#e42b79" />
         </linearGradient>
-        <clipPath id={`eiClip_${size}`}>
-          <path d="M38 4 C60 4 96 20 96 50 C96 78 75 96 50 96 C22 96 4 78 4 50 C4 30 18 12 38 4 Z" />
-        </clipPath>
       </defs>
-      <g clipPath={`url(#eiClip_${size})`}>
-        <rect x="-20" y="-15" width="50" height="150" transform="rotate(-45 50 50)" fill={`url(#eiG1_${size})`} />
-        <rect x="30" y="-15" width="50" height="150" transform="rotate(-45 50 50)" fill={`url(#eiG2_${size})`} />
-      </g>
+      <path d="M138.4,0L18.24,117.31C6.91,104.86,0,88.3,0,70.14,0,31.4,31.4,0,70.13,0h68.27Z" fill={`url(#${id}_g1)`} />
+      <path d="M140.26,26.17v43.97c-1.52,40.91-32.33,71.45-70.14,70.13-12.74-.44-24.7-3.41-35.01-9.36L140.26,26.17Z" fill={`url(#${id}_g2)`} />
     </svg>
   );
 }
 
 function ElvoraText({ className = '' }: { className?: string }) {
   return (
-    <svg viewBox="0 0 170 36" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <svg viewBox="170 20 460 100" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
       <defs>
-        <linearGradient id="elvoraTextGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#8B5CF6" />
-          <stop offset="35%" stopColor="#EC4899" />
-          <stop offset="70%" stopColor="#F97316" />
-          <stop offset="100%" stopColor="#ef4444" />
+        <linearGradient id="et_e" x1="198.15" y1="25.51" x2="198.15" y2="114.61" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#725bcd" /><stop offset="1" stopColor="#933ba3" />
+        </linearGradient>
+        <linearGradient id="et_l" x1="263.41" y1="25.51" x2="263.41" y2="114.61" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#725bcd" /><stop offset="1" stopColor="#933ba3" />
+        </linearGradient>
+        <linearGradient id="et_v" x1="278.02" y1="24.21" x2="354.99" y2="83.89" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#8553c6" /><stop offset="1" stopColor="#b23a94" />
+        </linearGradient>
+        <linearGradient id="et_o" x1="365.02" y1="71.16" x2="453.76" y2="71.16" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#d0407d" /><stop offset=".99" stopColor="#ea4064" />
+        </linearGradient>
+        <linearGradient id="et_r" x1="464.86" y1="71.06" x2="527.91" y2="71.06" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#e54d5a" /><stop offset=".99" stopColor="#f04e43" />
+        </linearGradient>
+        <linearGradient id="et_a" x1="585.84" y1="21.42" x2="585.84" y2="121.27" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#f45e3d" /><stop offset=".99" stopColor="#ef3c35" />
         </linearGradient>
       </defs>
-      <text x="0" y="28" fontFamily="Inter, system-ui, sans-serif" fontWeight="800" fontSize="32" fill="url(#elvoraTextGrad)" letterSpacing="4">ELVORA</text>
+      <path d="M172.63,27.9v87.16h51.04v-16.36h-33.19v-18.69h32.54v-16.08h-32.72v-20.64h32.82v-15.4s-50.57,0-50.48,0Z" fill="url(#et_e)" />
+      <path d="M237.68,27.9v87.16h51.45v-16.25h-32.77V27.9h-18.69Z" fill="url(#et_l)" />
+      <path d="M281.46,27.9l31.79,87.16h19.94l31.51-87.16h-19.24l-21.2,63.95h-1.19l-21.54-63.95h-20.08Z" fill="url(#et_v)" />
+      <path d="M453.76,71.16c.22,17.49-11.2,34.16-27.43,40.56-28.79,11.84-61.29-9.21-61.31-40.56.02-31.36,32.51-52.41,61.31-40.56,16.23,6.4,27.65,23.07,27.43,40.56ZM437.12,71.16c0-19.4-20.38-32.31-38.12-24.95-22.49,9.29-22.49,40.61,0,49.9,17.74,7.36,38.11-5.55,38.12-24.95Z" fill="url(#et_o)" />
+      <path d="M515.51,82.49s2.15-.88,2.39-1.01c1.62-.82,3.14-1.83,4.55-2.98,4.54-3.69,7.66-8.82,8.93-14.52,1.71-7.74.74-16.28-3.42-23.1-4.8-7.89-13.51-11.85-22.43-13.01-1.86-.24-3.72-.36-5.59-.4-10.35-.16-31.46-.43-31.46.09v87.31h17.3v-28.72h13.94l15.48,28.72h18.41l-18.1-32.38ZM514.32,58.74c0,6.54-5.3,11.85-11.85,11.85h-17.01v-27.19h17.01c6.55,0,11.85,5.3,11.85,11.85v3.48Z" fill="url(#et_r)" />
+      <path d="M596.02,27.25h-20.21l-32.07,87.61c0-.21,17.86,0,17.86,0l5.72-17.82h36.66l5.86,17.82h18.13l-31.94-87.62ZM572.09,82.55l13.75-35.98,13.58,35.98h-27.33Z" fill="url(#et_a)" />
     </svg>
   );
 }

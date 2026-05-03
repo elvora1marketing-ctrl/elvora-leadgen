@@ -1,19 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 141 141">
   <defs>
-    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#7C3AED" />
-      <stop offset="100%" stop-color="#A855F7" />
+    <linearGradient id="g1" x1="48.7" y1="8.08" x2="85.52" y2="73.15" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5c67db"/>
+      <stop offset="1" stop-color="#7944d0"/>
     </linearGradient>
-    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#EC4899" />
-      <stop offset="100%" stop-color="#F472B6" />
+    <linearGradient id="g2" x1="91.59" y1="36.08" x2="86.01" y2="128.67" gradientUnits="userSpaceOnUse">
+      <stop offset=".31" stop-color="#be34ad"/>
+      <stop offset="1" stop-color="#e42b79"/>
     </linearGradient>
-    <clipPath id="leaf">
-      <path d="M38 4 C60 4 96 20 96 50 C96 78 75 96 50 96 C22 96 4 78 4 50 C4 30 18 12 38 4 Z" />
-    </clipPath>
   </defs>
-  <g clip-path="url(#leaf)">
-    <rect x="-20" y="-15" width="50" height="150" transform="rotate(-45 50 50)" fill="url(#grad1)" />
-    <rect x="30" y="-15" width="50" height="150" transform="rotate(-45 50 50)" fill="url(#grad2)" />
-  </g>
+  <path d="M138.4,0L18.24,117.31C6.91,104.86,0,88.3,0,70.14,0,31.4,31.4,0,70.13,0h68.27Z" fill="url(#g1)"/>
+  <path d="M140.26,26.17v43.97c-1.52,40.91-32.33,71.45-70.14,70.13-12.74-.44-24.7-3.41-35.01-9.36L140.26,26.17Z" fill="url(#g2)"/>
 </svg>
