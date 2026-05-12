@@ -46,24 +46,49 @@ export default function AuditPage({ params }: PageProps) {
     notFound();
   }
 
-  // Increment view count
   db.prepare('UPDATE audit_pages SET views = views + 1 WHERE id = ?').run(audit.id);
 
-  // Parse JSON fields
   let problems: { id: string; label: string; severity: string }[] = [];
   let seoIssues: { id: string; label: string; impact: string }[] = [];
 
-  try {
-    problems = JSON.parse(audit.problems || '[]');
-  } catch {
-    problems = [];
-  }
+  try { problems = JSON.parse(audit.problems || '[]'); } catch { problems = []; }
+  try { seoIssues = JSON.parse(audit.seo_issues || '[]'); } catch { seoIssues = []; }
 
+  // Load competitor data for this lead
+  let competitors: { name: string; score: number; hasSSL: boolean }[] = [];
   try {
-    seoIssues = JSON.parse(audit.seo_issues || '[]');
-  } catch {
-    seoIssues = [];
-  }
+    // First try: competitor_analyses table (manually triggered)
+    const analyzed = db.prepare(`
+      SELECT competitor_name, competitor_score, competitor_has_ssl
+      FROM competitor_analyses
+      WHERE lead_id = ?
+      ORDER BY competitor_score DESC
+      LIMIT 5
+    `).all(audit.lead_id) as { competitor_name: string; competitor_score: number; competitor_has_ssl: number }[];
+
+    if (analyzed.length > 0) {
+      competitors = analyzed.map(c => ({
+        name: c.competitor_name,
+        score: c.competitor_score ?? 0,
+        hasSSL: c.competitor_has_ssl === 1,
+      }));
+    } else {
+      // Fallback: other leads in the same city with scores as natural competitors
+      const peers = db.prepare(`
+        SELECT name, score
+        FROM leads
+        WHERE city = ? AND id != ? AND score > 0 AND website_original IS NOT NULL
+        ORDER BY score DESC
+        LIMIT 5
+      `).all(audit.city, audit.lead_id) as { name: string; score: number }[];
+
+      competitors = peers.map(p => ({
+        name: p.name,
+        score: p.score,
+        hasSSL: true,
+      }));
+    }
+  } catch { /* silent */ }
 
   return (
     <AuditPageClient
@@ -75,6 +100,7 @@ export default function AuditPage({ params }: PageProps) {
       seoIssues={seoIssues}
       calendlyUrl={audit.calendly_url}
       createdAt={audit.created_at}
+      competitors={competitors}
     />
   );
 }

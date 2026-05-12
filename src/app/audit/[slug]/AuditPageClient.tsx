@@ -14,6 +14,12 @@ interface SeoIssue {
   impact: string;
 }
 
+interface Competitor {
+  name: string;
+  score: number;
+  hasSSL: boolean;
+}
+
 interface AuditPageClientProps {
   businessName: string;
   city: string;
@@ -23,6 +29,7 @@ interface AuditPageClientProps {
   seoIssues: SeoIssue[];
   calendlyUrl: string | null;
   createdAt: string;
+  competitors?: Competitor[];
 }
 
 function getScoreLabel(score: number): string {
@@ -74,6 +81,21 @@ function getSeverityBadgeClass(severity: string): string {
   }
 }
 
+function anonymizeName(name: string): string {
+  const words = name.split(/\s+/);
+  if (words.length >= 2) {
+    return words[0] + ' ' + words.slice(1).map(w => w[0] + '.').join(' ');
+  }
+  return name.length > 6 ? name.slice(0, 6) + '...' : name;
+}
+
+function getBarColor(score: number): string {
+  if (score >= 70) return 'bg-green-500';
+  if (score >= 50) return 'bg-yellow-500';
+  if (score >= 30) return 'bg-orange-500';
+  return 'bg-red-500';
+}
+
 export default function AuditPageClient({
   businessName,
   city,
@@ -83,6 +105,7 @@ export default function AuditPageClient({
   seoIssues,
   calendlyUrl,
   createdAt,
+  competitors = [],
 }: AuditPageClientProps) {
   const [ctaClicked, setCtaClicked] = useState(false);
   const [showCalendly, setShowCalendly] = useState(false);
@@ -92,9 +115,11 @@ export default function AuditPageClient({
   const circumference = 2 * Math.PI * 54;
   const strokeDashoffset = circumference - (scorePercent / 100) * circumference;
 
+  const betterCompetitors = competitors.filter(c => c.score > score);
+  const showCompetitors = competitors.length >= 2;
+
   const handleCtaClick = () => {
     setCtaClicked(true);
-    // Track CTA click
     fetch(`/api/audit/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -114,16 +139,19 @@ export default function AuditPageClient({
       <header className="border-b border-white/5">
         <div className="max-w-3xl mx-auto px-4 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <svg width="32" height="32" viewBox="0 0 100 100">
+            <svg width="32" height="32" viewBox="0 0 141 141" fill="none">
               <defs>
-                <linearGradient id="audit-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#8B5CF6" />
-                  <stop offset="50%" stopColor="#EC4899" />
-                  <stop offset="100%" stopColor="#F97316" />
+                <linearGradient id="ai-g1" x1="48.7" y1="8.08" x2="85.52" y2="73.15" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stopColor="#5c67db" />
+                  <stop offset="1" stopColor="#7944d0" />
+                </linearGradient>
+                <linearGradient id="ai-g2" x1="91.59" y1="36.08" x2="86.01" y2="128.67" gradientUnits="userSpaceOnUse">
+                  <stop offset=".31" stopColor="#be34ad" />
+                  <stop offset="1" stopColor="#e42b79" />
                 </linearGradient>
               </defs>
-              <circle cx="50" cy="50" r="48" fill="url(#audit-grad)" />
-              <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fill="white" fontSize="42" fontWeight="700" fontFamily="Inter, sans-serif">E</text>
+              <path d="M138.4,0L18.24,117.31C6.91,104.86,0,88.3,0,70.14,0,31.4,31.4,0,70.13,0h68.27Z" fill="url(#ai-g1)" />
+              <path d="M140.26,26.17v43.97c-1.52,40.91-32.33,71.45-70.14,70.13-12.74-.44-24.7-3.41-35.01-9.36L140.26,26.17Z" fill="url(#ai-g2)" />
             </svg>
             <span className="text-sm font-bold gradient-text tracking-tight">ELVORA</span>
           </div>
@@ -149,23 +177,13 @@ export default function AuditPageClient({
         {/* Score Circle */}
         <div className="glass-strong rounded-2xl p-8">
           <div className="flex flex-col sm:flex-row items-center gap-8">
-            {/* SVG Circle */}
             <div className="relative w-36 h-36 flex-shrink-0">
               <svg className="w-36 h-36 transform -rotate-90" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
                 <circle
-                  cx="60" cy="60" r="54"
-                  fill="none"
-                  stroke="rgba(255,255,255,0.05)"
-                  strokeWidth="8"
-                />
-                <circle
-                  cx="60" cy="60" r="54"
-                  fill="none"
-                  stroke="url(#score-gradient)"
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={strokeDashoffset}
+                  cx="60" cy="60" r="54" fill="none"
+                  stroke="url(#score-gradient)" strokeWidth="8" strokeLinecap="round"
+                  strokeDasharray={circumference} strokeDashoffset={strokeDashoffset}
                   className="transition-all duration-1000 ease-out"
                 />
                 <defs>
@@ -181,7 +199,6 @@ export default function AuditPageClient({
               </div>
             </div>
 
-            {/* Score Summary */}
             <div className="flex-1 text-center sm:text-left">
               <div className={`inline-block px-3 py-1 rounded-full text-sm font-semibold bg-gradient-to-r ${getScoreGradient(score)} text-white mb-3`}>
                 {getScoreLabel(score)}
@@ -271,6 +288,70 @@ export default function AuditPageClient({
           </div>
         )}
 
+        {/* Competitor Comparison */}
+        {showCompetitors && (
+          <div className="glass-strong rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/5">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <svg className="w-5 h-5 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                So steht Ihre Konkurrenz da
+              </h2>
+              {betterCompetitors.length > 0 && (
+                <p className="text-xs text-elvora-text-dim mt-1">
+                  {betterCompetitors.length} {betterCompetitors.length === 1 ? 'Mitbewerber' : 'Mitbewerber'} in {city} {betterCompetitors.length === 1 ? 'hat eine' : 'haben'} bessere Website{betterCompetitors.length === 1 ? '' : 's'} als Sie
+                </p>
+              )}
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {/* Your score */}
+              <div className="flex items-center gap-3">
+                <div className="w-[120px] sm:w-[160px] text-right flex-shrink-0">
+                  <span className="text-sm font-semibold text-white">Sie</span>
+                </div>
+                <div className="flex-1 h-7 bg-white/[0.03] rounded-md overflow-hidden relative">
+                  <div
+                    className={`h-full ${getBarColor(score)} rounded-md flex items-center px-3`}
+                    style={{ width: `${Math.max(8, score)}%` }}
+                  >
+                    <span className="text-xs font-bold text-white">{score}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Competitor scores */}
+              {competitors.slice(0, 4).map((comp, i) => {
+                const isBetter = comp.score > score;
+                return (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="w-[120px] sm:w-[160px] text-right flex-shrink-0">
+                      <span className="text-sm text-elvora-text-muted truncate block">{anonymizeName(comp.name)}</span>
+                    </div>
+                    <div className="flex-1 h-7 bg-white/[0.03] rounded-md overflow-hidden relative">
+                      <div
+                        className={`h-full ${isBetter ? 'bg-green-500/70' : 'bg-white/10'} rounded-md flex items-center px-3`}
+                        style={{ width: `${Math.max(8, comp.score)}%` }}
+                      >
+                        <span className="text-xs font-semibold text-white">{comp.score}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {betterCompetitors.length > 0 && (
+              <div className="px-5 py-4 border-t border-white/5 bg-red-500/[0.03]">
+                <p className="text-sm text-elvora-text-muted">
+                  <strong className="text-white">Ihre Konkurrenz ist online besser aufgestellt.</strong>{' '}
+                  Kunden, die nach Ihren Leistungen in {city} suchen, finden zuerst die Websites Ihrer Mitbewerber — und kontaktieren diese statt Sie.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* CTA Section */}
         <div className="glass-strong rounded-2xl p-8 text-center border border-elvora-primary/20">
           <div className="w-14 h-14 rounded-full bg-elvora-gradient mx-auto mb-4 flex items-center justify-center">
@@ -279,11 +360,14 @@ export default function AuditPageClient({
             </svg>
           </div>
           <h2 className="text-xl font-bold text-white mb-2">
-            Lassen Sie uns das gemeinsam lösen
+            {betterCompetitors.length > 0
+              ? 'Holen Sie den Vorsprung Ihrer Konkurrenz auf'
+              : 'Lassen Sie uns das gemeinsam lösen'}
           </h2>
           <p className="text-sm text-elvora-text-muted mb-6 max-w-md mx-auto">
-            In einem kostenlosen 15-Minuten-Gespräch zeige ich Ihnen, wie wir diese Probleme beheben
-            und Ihre Website in eine Kundenmaschine verwandeln.
+            {betterCompetitors.length > 0
+              ? `In einem kostenlosen 15-Minuten-Gespräch zeige ich Ihnen, wie ${businessName} online wieder konkurrenzfähig wird — und Kunden gewinnt statt verliert.`
+              : 'In einem kostenlosen 15-Minuten-Gespräch zeige ich Ihnen, wie wir diese Probleme beheben und Ihre Website in eine Kundenmaschine verwandeln.'}
           </p>
 
           {calendlyUrl ? (

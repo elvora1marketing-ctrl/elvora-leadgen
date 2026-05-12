@@ -60,6 +60,32 @@ export async function POST(request: NextRequest) {
       ...highImpactSeo.map(s => `SEO: ${s.label}`),
     ].slice(0, 5).join('\n');
 
+    // Load competitor data if lead_id is available
+    let competitorContext = '';
+    if (body.lead_id) {
+      try {
+        const db = getDb();
+        const competitors = db.prepare(`
+          SELECT competitor_name, competitor_score, competitor_has_ssl
+          FROM competitor_analyses
+          WHERE lead_id = ?
+          ORDER BY competitor_score DESC
+          LIMIT 3
+        `).all(body.lead_id) as { competitor_name: string; competitor_score: number; competitor_has_ssl: number }[];
+
+        if (competitors.length > 0) {
+          const betterCompetitors = competitors.filter(c => (c.competitor_score ?? 0) > body.score);
+          if (betterCompetitors.length > 0) {
+            competitorContext = '\nKONKURRENZ-VERGLEICH:\n' +
+              betterCompetitors.map(c =>
+                `- ${c.competitor_name}: Score ${c.competitor_score}/100${c.competitor_has_ssl ? ', hat SSL' : ', KEIN SSL'}`
+              ).join('\n') +
+              `\n→ Der Lead (${body.score}/100) liegt HINTER diesen Konkurrenten. Nutze das subtil als Argument.`;
+          }
+        }
+      } catch { /* competitor data is optional */ }
+    }
+
     const systemPrompt = `Du bist ein erfahrener Sales-Texter für eine Webdesign-Agentur namens "Elvora".
 Du schreibst personalisierte Kaltakquise-Emails an lokale Unternehmen (Handwerker, Dienstleister, etc.).
 
@@ -72,6 +98,7 @@ REGELN:
 - KEIN Emoji, KEINE übertriebenen Versprechen
 - Der Absender heißt "${senderName}" und arbeitet bei Elvora
 - Maximal 2-3 Sätze pro Abschnitt
+- Wenn Konkurrenz-Daten vorhanden: erwähne SUBTIL, dass Mitbewerber online besser aufgestellt sind (z.B. "Während Mitbewerber in ${body.city} bereits moderne Websites nutzen..."). Nenne KEINE Konkurrenten-Namen direkt.
 
 Du gibst IMMER ein JSON-Objekt zurück mit genau diesen 3 Feldern:
 {
@@ -90,6 +117,7 @@ ANSPRECHPARTNER: ${body.ansprechpartner || 'Geschäftsführer/in'}
 
 GEFUNDENE PROBLEME:
 ${problemSummary || 'Allgemein verbesserungswürdige Website'}
+${competitorContext}
 
 Generiere die personalisierten Texte als JSON.`;
 
