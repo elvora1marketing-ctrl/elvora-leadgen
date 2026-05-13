@@ -174,8 +174,7 @@ export default function Sidebar() {
           </svg>
         </button>
         <div className="flex items-center gap-2 ml-3">
-          <ElvoraIcon size={26} />
-          <ElvoraText className="h-[14px] w-auto" />
+          <img src="/elvora-logo.svg" alt="Elvora" className="h-7" />
         </div>
       </div>
 
@@ -188,8 +187,7 @@ export default function Sidebar() {
         <div className="px-5 h-16 flex items-center border-b border-elvora-border">
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-2.5">
-              <ElvoraIcon size={32} />
-              <ElvoraText className="h-[15px] w-auto" />
+              <img src="/elvora-logo.svg" alt="Elvora" className="h-8" />
             </div>
             <button onClick={() => setOpen(false)} className="lg:hidden w-7 h-7 flex items-center justify-center rounded-md hover:bg-elvora-card">
               <svg className="w-4 h-4 text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
