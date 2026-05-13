@@ -153,8 +153,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       <div className="min-h-screen bg-elvora-bg flex items-center justify-center p-4">
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
-            <img src="/elvora-icon.svg" alt="Elvora" width={56} height={56} className="mb-3" />
-            <h1 className="text-lg font-semibold text-elvora-text">Panel einrichten</h1>
+            <img src="/elvora-logo.svg" alt="Elvora" className="h-10 mb-3" />
             <p className="text-sm text-elvora-text-dim text-center mt-1">Lege dein Passwort fest, um dein Panel zu schützen.</p>
           </div>
 
@@ -210,8 +209,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-elvora-bg flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <img src="/elvora-icon.svg" alt="Elvora" width={56} height={56} className="mb-3" />
-          <h1 className="text-lg font-semibold text-elvora-text">Elvora Panel</h1>
+          <img src="/elvora-logo.svg" alt="Elvora" className="h-10 mb-3" />
           <p className="text-sm text-elvora-text-dim">Melde dich an, um fortzufahren.</p>
         </div>
 

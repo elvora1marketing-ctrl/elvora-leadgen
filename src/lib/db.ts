@@ -197,7 +197,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   calendly_url: 'https://calendly.com/elvora-meeting/30min',
   api_key: '',
   google_maps_api_key: 'AIzaSyBIz-9lWsmnh32gO_SMdRl9w1197g0t7Xk',
-  panel_password: '46e31e13945b0ec63966c7f36b05815418894a8cff915e3be9f76f8930522185:52dce6038bf34a3769de20b3fd7eae14aeb180a1d2cae84ba44bab3721bc74003a03526681626e50754aa90773c8e3b9a7d6423055fa1624654c6e7aeb1095dd',
+  panel_password: 'f6a39747405781ec8ad8996a921c53c5b52d8d28192b8326d8250e6c25ed6b4f:b48dec5b63e3ebd2945b773b5239152c118a778524af6beb2e6ff4ab726eb50f686edf1547cbeea62eb21e6e8581cb880d13b8c56d09dc724afb4978e3bb8dda',
   followup_enabled: 'true',
   followup_sequence: JSON.stringify([
     {
