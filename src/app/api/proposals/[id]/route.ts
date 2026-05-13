@@ -9,25 +9,28 @@ export async function PATCH(
     const { id } = await params;
     const pid = parseInt(id);
     if (isNaN(pid)) return NextResponse.json({ error: 'Ungültige ID' }, { status: 400 });
-    const body = await request.json() as {
-      title?: string; amount?: number; status?: string; notes?: string; file_url?: string;
-    };
+    const body = await request.json() as Record<string, unknown>;
 
     const updates: string[] = [];
     const values: (string | number | null)[] = [];
-    for (const k of ['title', 'notes', 'file_url'] as const) {
-      if (body[k] !== undefined) { updates.push(`${k} = ?`); values.push(body[k] || null); }
+    for (const k of ['title', 'notes', 'file_url', 'client_message'] as const) {
+      if (body[k] !== undefined) { updates.push(`${k} = ?`); values.push(body[k] as string || null); }
     }
-    if (body.amount !== undefined) { updates.push('amount = ?'); values.push(body.amount); }
+    if (body.amount !== undefined) { updates.push('amount = ?'); values.push(body.amount as number); }
+    if (body.services !== undefined) { updates.push('services = ?'); values.push(JSON.stringify(body.services)); }
+    if (body.valid_until !== undefined) { updates.push('valid_until = ?'); values.push(body.valid_until as string || null); }
+    if (body.lead_data !== undefined) { updates.push('lead_data = ?'); values.push(typeof body.lead_data === 'string' ? body.lead_data : JSON.stringify(body.lead_data)); }
     if (body.status !== undefined) {
       const valid = ['draft', 'sent', 'viewed', 'accepted', 'rejected'];
-      if (valid.includes(body.status)) {
+      if (valid.includes(body.status as string)) {
         updates.push('status = ?');
-        values.push(body.status);
+        values.push(body.status as string);
         if (body.status === 'sent') {
           updates.push('sent_at = ?');
           values.push(new Date().toISOString());
         }
+        if (body.status === 'accepted') { updates.push('accepted_at = ?'); values.push(new Date().toISOString()); }
+        if (body.status === 'rejected') { updates.push('rejected_at = ?'); values.push(new Date().toISOString()); }
       }
     }
     if (updates.length === 0) return NextResponse.json({ error: 'Keine Änderungen' }, { status: 400 });

@@ -161,6 +161,14 @@ export async function GET() {
       ? Math.round((emailStats.opened / emailStats.total_sent) * 100)
       : 0;
 
+    // MRR stats
+    const mrrStats = db.prepare(`
+      SELECT
+        COUNT(CASE WHEN status IN ('onboarding','active') THEN 1 END) as active_projects,
+        COALESCE(SUM(CASE WHEN status IN ('onboarding','active') THEN monthly_value ELSE 0 END), 0) as mrr
+      FROM clients
+    `).get() as { active_projects: number; mrr: number };
+
     return NextResponse.json({
       leads: {
         total: leadCounts.total || 0,
@@ -207,6 +215,11 @@ export async function GET() {
         next: nextFollowUps,
       },
       pendingFollowUps: followUpStats.due_now || 0,
+      mrr: {
+        activeProjects: mrrStats.active_projects || 0,
+        currentMrr: mrrStats.mrr || 0,
+        annualProjection: (mrrStats.mrr || 0) * 12,
+      },
       engagement: {
         distribution: {
           hot: engagementDist.hot || 0,

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import getDb from '@/lib/db';
 
 export async function PATCH(
@@ -94,6 +95,21 @@ export async function PATCH(
     // Cancel follow-ups if lead moved past email stage
     if (body.contact_status && ['meeting', 'proposal', 'won', 'lost'].includes(body.contact_status)) {
       db.prepare("UPDATE follow_ups SET status = 'cancelled' WHERE lead_id = ? AND status = 'pending'").run(leadId);
+    }
+
+    // Auto-create client when lead is won
+    if (body.contact_status === 'won') {
+      const existingClient = db.prepare('SELECT id FROM clients WHERE lead_id = ?').get(leadId) as { id: number } | undefined;
+      if (!existingClient) {
+        const token = crypto.randomUUID();
+        const leadData = db.prepare('SELECT name, email, city, deal_value FROM leads WHERE id = ?').get(leadId) as { name: string; email: string | null; city: string; deal_value: number | null } | undefined;
+        if (leadData) {
+          db.prepare(`
+            INSERT INTO clients (lead_id, token, company_name, contact_email, project_value)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(leadId, token, leadData.name, leadData.email, leadData.deal_value);
+        }
+      }
     }
 
     return NextResponse.json({ success: true, lead_id: leadId });

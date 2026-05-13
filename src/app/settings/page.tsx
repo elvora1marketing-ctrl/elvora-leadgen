@@ -60,6 +60,25 @@ export default function SettingsPage() {
   const [rapidapiKey, setRapidapiKey] = useState('');
   const [rapidapiLinkedinHost, setRapidapiLinkedinHost] = useState('fresh-linkedin-profile-data.p.rapidapi.com');
 
+  const [agencyName, setAgencyName] = useState('');
+  const [agencyAddress, setAgencyAddress] = useState('');
+  const [agencyPhone, setAgencyPhone] = useState('');
+  const [agencyEmail, setAgencyEmail] = useState('');
+  const [agencyTaxId, setAgencyTaxId] = useState('');
+  const [agencyBankIban, setAgencyBankIban] = useState('');
+  const [agencyBankBic, setAgencyBankBic] = useState('');
+  const [agencyBankName, setAgencyBankName] = useState('');
+
+  interface Template { id: number; name: string; price: number; price_type: string; description: string | null; services: string; is_default: number; }
+  const [propTemplates, setPropTemplates] = useState<Template[]>([]);
+  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
+  const [tplName, setTplName] = useState('');
+  const [tplPrice, setTplPrice] = useState('');
+  const [tplPriceType, setTplPriceType] = useState('once');
+  const [tplDescription, setTplDescription] = useState('');
+  const [tplServices, setTplServices] = useState('');
+  const [tplSaving, setTplSaving] = useState(false);
+
   const [tplSubject, setTplSubject] = useState('Website-Analyse für {firmenname} – {score}/100 Punkte');
   const [tplIntro, setTplIntro] = useState('mein Name ist {absender} von Elvora. Wir helfen Betrieben in der Region dabei, online sichtbar zu werden und automatisch Kundenanfragen zu generieren.');
   const [tplPitch, setTplPitch] = useState('Ich habe mir Ihre Website {website} angeschaut und dabei ein paar Punkte gefunden, die Sie vermutlich Kunden kosten:');
@@ -96,6 +115,14 @@ export default function SettingsPage() {
         if (data.ai_classify_enabled) setAiClassifyEnabled(data.ai_classify_enabled === 'true');
         if (data.openai_api_key) setOpenaiApiKey(data.openai_api_key);
         if (data.ai_model) setAiModel(data.ai_model);
+        if (data.agency_name) setAgencyName(data.agency_name);
+        if (data.agency_address) setAgencyAddress(data.agency_address);
+        if (data.agency_phone) setAgencyPhone(data.agency_phone);
+        if (data.agency_email) setAgencyEmail(data.agency_email);
+        if (data.agency_tax_id) setAgencyTaxId(data.agency_tax_id);
+        if (data.agency_bank_iban) setAgencyBankIban(data.agency_bank_iban);
+        if (data.agency_bank_bic) setAgencyBankBic(data.agency_bank_bic);
+        if (data.agency_bank_name) setAgencyBankName(data.agency_bank_name);
       })
       .catch(() => {});
 
@@ -105,7 +132,55 @@ export default function SettingsPage() {
         if (data.stats) setFollowUpStats({ pending: data.stats.pending, sent: data.stats.sent });
       })
       .catch(() => {});
+
+    loadTemplates();
   }, []);
+
+  function loadTemplates() {
+    fetch('/api/proposal-templates')
+      .then(res => res.json())
+      .then(data => setPropTemplates(data.templates || []))
+      .catch(() => {});
+  }
+
+  async function saveTemplate() {
+    if (!tplName.trim() || !tplPrice) return;
+    setTplSaving(true);
+    try {
+      const servicesArr = tplServices.split('\n').map(s => s.trim()).filter(Boolean);
+      if (editingTemplate) {
+        await fetch(`/api/proposal-templates/${editingTemplate.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: tplName, price: parseFloat(tplPrice), price_type: tplPriceType, description: tplDescription || null, services: servicesArr }),
+        });
+      } else {
+        await fetch('/api/proposal-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: tplName, price: parseFloat(tplPrice), price_type: tplPriceType, description: tplDescription || null, services: servicesArr }),
+        });
+      }
+      setTplName(''); setTplPrice(''); setTplPriceType('once'); setTplDescription(''); setTplServices(''); setEditingTemplate(null);
+      loadTemplates();
+    } catch { /* silent */ }
+    finally { setTplSaving(false); }
+  }
+
+  async function deleteTemplate(id: number) {
+    await fetch(`/api/proposal-templates/${id}`, { method: 'DELETE' });
+    loadTemplates();
+  }
+
+  function startEditTemplate(t: Template) {
+    setEditingTemplate(t);
+    setTplName(t.name);
+    setTplPrice(t.price.toString());
+    setTplPriceType(t.price_type);
+    setTplDescription(t.description || '');
+    const services: string[] = (() => { try { return JSON.parse(t.services || '[]'); } catch { return []; } })();
+    setTplServices(services.join('\n'));
+  }
 
   function addCity(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter' && cityInput.trim()) {
@@ -152,6 +227,14 @@ export default function SettingsPage() {
         ai_classify_enabled: aiClassifyEnabled ? 'true' : 'false',
         openai_api_key: openaiApiKey,
         ai_model: aiModel,
+        agency_name: agencyName,
+        agency_address: agencyAddress,
+        agency_phone: agencyPhone,
+        agency_email: agencyEmail,
+        agency_tax_id: agencyTaxId,
+        agency_bank_iban: agencyBankIban,
+        agency_bank_bic: agencyBankBic,
+        agency_bank_name: agencyBankName,
       }),
     });
     if (!res.ok) {
@@ -910,6 +993,110 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Agentur-Daten */}
+        <div className="card rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-5 h-5 text-elvora-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+            <span className="text-sm font-semibold text-elvora-text">Agentur-Daten</span>
+            <span className="text-[10px] text-elvora-text-dim">(für Angebote & Client-Portal)</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Firmenname</label>
+              <input type="text" value={agencyName} onChange={e => setAgencyName(e.target.value)} placeholder="Elvora GmbH" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">E-Mail</label>
+              <input type="email" value={agencyEmail} onChange={e => setAgencyEmail(e.target.value)} placeholder="info@elvora.de" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Telefon</label>
+              <input type="text" value={agencyPhone} onChange={e => setAgencyPhone(e.target.value)} placeholder="+49 201 12345678" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">USt-IdNr.</label>
+              <input type="text" value={agencyTaxId} onChange={e => setAgencyTaxId(e.target.value)} placeholder="DE123456789" className={inputClass} />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs text-elvora-text-dim mb-1">Adresse</label>
+              <input type="text" value={agencyAddress} onChange={e => setAgencyAddress(e.target.value)} placeholder="Musterstr. 1, 45127 Essen" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Bank (Name)</label>
+              <input type="text" value={agencyBankName} onChange={e => setAgencyBankName(e.target.value)} placeholder="Sparkasse Essen" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">IBAN</label>
+              <input type="text" value={agencyBankIban} onChange={e => setAgencyBankIban(e.target.value)} placeholder="DE89 3704 0044 0532 0130 00" className={inputMonoClass} />
+            </div>
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">BIC</label>
+              <input type="text" value={agencyBankBic} onChange={e => setAgencyBankBic(e.target.value)} placeholder="COBADEFFXXX" className={inputMonoClass} />
+            </div>
+          </div>
+        </div>
+
+        {/* Angebots-Vorlagen */}
+        <div className="card rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-5 h-5 text-elvora-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span className="text-sm font-semibold text-elvora-text">Angebots-Vorlagen</span>
+          </div>
+
+          {propTemplates.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {propTemplates.map(t => {
+                const services: string[] = (() => { try { return JSON.parse(t.services || '[]'); } catch { return []; } })();
+                return (
+                  <div key={t.id} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border group">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-elvora-text font-medium">{t.name}</div>
+                      <div className="text-xs text-elvora-text-dim">{t.price.toLocaleString('de-DE')} € {t.price_type === 'monthly' ? '/ Monat' : 'einmalig'} · {services.length} Leistungen</div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => startEditTemplate(t)} className="px-2 py-1 rounded text-xs text-elvora-text-dim hover:text-elvora-text hover:bg-white/5 transition-colors">Bearbeiten</button>
+                      <button onClick={() => deleteTemplate(t.id)} className="opacity-0 group-hover:opacity-100 px-2 py-1 rounded text-xs text-red-400 hover:bg-red-500/10 transition-all">Löschen</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="space-y-2 p-3 rounded-lg bg-elvora-bg-alt border border-elvora-border">
+            <div className="text-xs text-elvora-text-dim font-medium">{editingTemplate ? 'Vorlage bearbeiten' : 'Neue Vorlage'}</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <input type="text" value={tplName} onChange={e => setTplName(e.target.value)} placeholder="Name (z.B. Website Relaunch)" className={`md:col-span-2 ${inputClass}`} />
+              <div className="flex gap-2">
+                <input type="number" value={tplPrice} onChange={e => setTplPrice(e.target.value)} placeholder="Preis" className={`flex-1 ${inputClass}`} />
+                <select value={tplPriceType} onChange={e => setTplPriceType(e.target.value)} className={inputClass} style={{width: 'auto'}}>
+                  <option value="once">Einmalig</option>
+                  <option value="monthly">Monatlich</option>
+                </select>
+              </div>
+            </div>
+            <input type="text" value={tplDescription} onChange={e => setTplDescription(e.target.value)} placeholder="Kurzbeschreibung (optional)" className={inputClass} />
+            <div>
+              <label className="block text-[10px] text-elvora-text-dim mb-1">Leistungen (eine pro Zeile)</label>
+              <textarea value={tplServices} onChange={e => setTplServices(e.target.value)} rows={4} placeholder={"Responsives Webdesign\nSEO-Optimierung\nSSL & Hosting"} className={`${inputClass} resize-none`} />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={saveTemplate} disabled={tplSaving || !tplName.trim() || !tplPrice} className="px-4 py-2 rounded-lg bg-elvora-purple text-white text-xs font-medium hover:bg-elvora-purple/80 transition-colors disabled:opacity-50">
+                {tplSaving ? 'Speichert...' : editingTemplate ? 'Aktualisieren' : 'Vorlage erstellen'}
+              </button>
+              {editingTemplate && (
+                <button onClick={() => { setEditingTemplate(null); setTplName(''); setTplPrice(''); setTplPriceType('once'); setTplDescription(''); setTplServices(''); }} className="px-4 py-2 rounded-lg bg-white/5 text-elvora-text-dim text-xs hover:text-elvora-text transition-colors">
+                  Abbrechen
+                </button>
+              )}
             </div>
           </div>
         </div>

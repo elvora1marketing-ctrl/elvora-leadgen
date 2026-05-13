@@ -233,6 +233,14 @@ const DEFAULT_SETTINGS: Record<string, string> = {
     has_email: 5,
     multiple_found: 5,
   }),
+  agency_name: '',
+  agency_address: '',
+  agency_phone: '',
+  agency_email: '',
+  agency_tax_id: '',
+  agency_bank_iban: '',
+  agency_bank_bic: '',
+  agency_bank_name: '',
 };
 
 export function getDb(): Database.Database {
@@ -568,6 +576,113 @@ export function getDb(): Database.Database {
       }
     } catch (e) {
       console.error('[DB] Smart timing/predict migration error:', e);
+    }
+
+    // Migration: Proposal templates table + seed data
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS proposal_templates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          price REAL NOT NULL,
+          price_type TEXT DEFAULT 'once' CHECK(price_type IN ('once','monthly')),
+          description TEXT,
+          services TEXT DEFAULT '[]',
+          is_default INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+      const tplCount = instance.prepare('SELECT COUNT(*) as c FROM proposal_templates').get() as { c: number };
+      if (tplCount.c === 0) {
+        const ins = instance.prepare('INSERT INTO proposal_templates (name, price, price_type, description, services, is_default) VALUES (?, ?, ?, ?, ?, ?)');
+        ins.run('Website Relaunch', 2500, 'once', 'Moderner, mobiloptimierter Webauftritt der Kunden überzeugt', JSON.stringify(['Responsive Design', 'SEO-Grundoptimierung', 'Kontaktformular', 'Google Maps Integration', 'SSL-Zertifikat', 'Cookie-Banner (DSGVO)', '3 Unterseiten', 'CMS-Einweisung']), 1);
+        ins.run('SEO Paket', 500, 'monthly', 'Monatliche Suchmaschinenoptimierung für mehr Sichtbarkeit', JSON.stringify(['Keyword-Recherche', 'OnPage-Optimierung', 'Google Business Profil', 'Monatliches Reporting', 'Lokale SEO', 'Content-Empfehlungen']), 0);
+        ins.run('Komplett-Paket', 3500, 'once', 'Website Relaunch + 6 Monate SEO zum Vorteilspreis', JSON.stringify(['Alles aus Website Relaunch', 'Alles aus SEO Paket (6 Monate)', 'Premium-Design', 'Bis zu 8 Unterseiten', 'Blog-Setup', 'Social Media Verlinkung', 'Priority Support']), 0);
+        console.log('[DB] Migration: seeded 3 default proposal templates');
+      }
+    } catch (e) {
+      console.error('[DB] Proposal templates migration error:', e);
+    }
+
+    // Migration: Extended proposals columns
+    try {
+      const cols = instance.prepare("PRAGMA table_info(proposals)").all() as { name: string }[];
+      const colNames = cols.map(c => c.name);
+      if (!colNames.includes('token')) {
+        instance.exec("ALTER TABLE proposals ADD COLUMN token TEXT UNIQUE");
+        instance.exec("ALTER TABLE proposals ADD COLUMN template_id INTEGER");
+        instance.exec("ALTER TABLE proposals ADD COLUMN services TEXT DEFAULT '[]'");
+        instance.exec("ALTER TABLE proposals ADD COLUMN valid_until TEXT");
+        instance.exec("ALTER TABLE proposals ADD COLUMN viewed_at TEXT");
+        instance.exec("ALTER TABLE proposals ADD COLUMN accepted_at TEXT");
+        instance.exec("ALTER TABLE proposals ADD COLUMN rejected_at TEXT");
+        instance.exec("ALTER TABLE proposals ADD COLUMN client_message TEXT");
+        instance.exec("ALTER TABLE proposals ADD COLUMN lead_data TEXT");
+        instance.exec("ALTER TABLE proposals ADD COLUMN views INTEGER DEFAULT 0");
+        instance.exec("CREATE INDEX IF NOT EXISTS idx_proposals_token ON proposals(token)");
+        console.log('[DB] Migration: added extended proposal columns');
+      }
+    } catch (e) {
+      console.error('[DB] Proposals columns migration error:', e);
+    }
+
+    // Migration: Clients + Client Messages + Client Files + MRR Snapshots
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS clients (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lead_id INTEGER NOT NULL,
+          token TEXT UNIQUE NOT NULL,
+          company_name TEXT NOT NULL,
+          contact_name TEXT,
+          contact_email TEXT,
+          project_type TEXT,
+          project_value REAL,
+          monthly_value REAL DEFAULT 0,
+          status TEXT DEFAULT 'onboarding' CHECK(status IN ('onboarding','active','paused','completed','churned')),
+          progress_phase TEXT DEFAULT 'kickoff' CHECK(progress_phase IN ('kickoff','design','development','review','launch','done')),
+          questionnaire_data TEXT,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          started_at TEXT,
+          completed_at TEXT,
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_clients_lead ON clients(lead_id);
+        CREATE INDEX IF NOT EXISTS idx_clients_token ON clients(token);
+
+        CREATE TABLE IF NOT EXISTS client_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          client_id INTEGER NOT NULL,
+          sender TEXT DEFAULT 'agency' CHECK(sender IN ('agency','client')),
+          content TEXT NOT NULL,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_client_messages_client ON client_messages(client_id);
+
+        CREATE TABLE IF NOT EXISTS client_files (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          client_id INTEGER NOT NULL,
+          filename TEXT NOT NULL,
+          filepath TEXT NOT NULL,
+          uploaded_by TEXT DEFAULT 'agency' CHECK(uploaded_by IN ('agency','client')),
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_client_files_client ON client_files(client_id);
+
+        CREATE TABLE IF NOT EXISTS mrr_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          month TEXT NOT NULL UNIQUE,
+          mrr REAL DEFAULT 0,
+          active_clients INTEGER DEFAULT 0,
+          churned_clients INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+    } catch (e) {
+      console.error('[DB] Clients/MRR tables migration error:', e);
     }
 
     // Migration: Update panel password to new value

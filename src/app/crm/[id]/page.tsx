@@ -90,7 +90,24 @@ interface Proposal {
   amount: number | null;
   status: string;
   sent_at: string | null;
+  token: string | null;
+  services: string | null;
+  valid_until: string | null;
+  views: number;
+  accepted_at: string | null;
+  rejected_at: string | null;
+  client_message: string | null;
   created_at: string;
+}
+
+interface ProposalTemplate {
+  id: number;
+  name: string;
+  price: number;
+  price_type: string;
+  description: string | null;
+  services: string;
+  is_default: number;
 }
 
 interface ReviewSnapshot {
@@ -176,6 +193,16 @@ export default function CrmDetailPage() {
   const [propTitle, setPropTitle] = useState('');
   const [propAmount, setPropAmount] = useState('');
   const [propStatus, setPropStatus] = useState('draft');
+  const [templates, setTemplates] = useState<ProposalTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<ProposalTemplate | null>(null);
+  const [generatingProposal, setGeneratingProposal] = useState(false);
+  const [copiedLink, setCopiedLink] = useState<number | null>(null);
+  const [clientData, setClientData] = useState<{ id: number; token: string; status: string; progress_phase: string; monthly_value: number; questionnaire_data: string | null } | null>(null);
+  const [copiedClientLink, setCopiedClientLink] = useState(false);
+  const [clientPhase, setClientPhase] = useState('');
+  const [clientMrr, setClientMrr] = useState('');
+  const [clientMsg, setClientMsg] = useState('');
+  const [sendingClientMsg, setSendingClientMsg] = useState(false);
 
   // Decision Maker Finder
   const [findingDM, setFindingDM] = useState(false);
@@ -206,11 +233,12 @@ export default function CrmDetailPage() {
   const loadAll = useCallback(async () => {
     if (isNaN(leadId)) return;
     try {
-      const [leadRes, threadRes, actRes, tagsRes] = await Promise.all([
+      const [leadRes, threadRes, actRes, tagsRes, tmplRes] = await Promise.all([
         fetch(`/api/leads/${leadId}`),
         fetch(`/api/leads/${leadId}/thread`),
         fetch(`/api/leads/${leadId}/notes`),
         fetch('/api/tags'),
+        fetch('/api/proposal-templates'),
       ]);
 
       if (leadRes.ok) {
@@ -223,6 +251,11 @@ export default function CrmDetailPage() {
         setCompetitors(d.competitors || []);
         setProposals(d.proposals || []);
         setReviews(d.reviews || []);
+        if (d.client) {
+          setClientData(d.client);
+          setClientPhase(d.client.progress_phase || 'kickoff');
+          setClientMrr(d.client.monthly_value?.toString() || '0');
+        }
         if (d.lead?.predicted_close_probability !== null && d.lead?.predicted_close_probability !== undefined) {
           let reasons: string[] = [];
           try { reasons = JSON.parse(d.lead.predicted_reasons || '[]'); } catch { /* ignore */ }
@@ -246,6 +279,10 @@ export default function CrmDetailPage() {
       if (tagsRes.ok) {
         const d = await tagsRes.json();
         setAllTags(d.tags || []);
+      }
+      if (tmplRes.ok) {
+        const d = await tmplRes.json();
+        setTemplates(d.templates || []);
       }
     } catch { /* silent */ }
     finally { setLoading(false); }
@@ -468,6 +505,31 @@ export default function CrmDetailPage() {
     loadAll();
   };
 
+  const generateProposal = async () => {
+    if (!selectedTemplate && !propTitle.trim()) return;
+    setGeneratingProposal(true);
+    try {
+      const res = await fetch('/api/proposals/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead_id: leadId,
+          template_id: selectedTemplate?.id,
+          custom_title: propTitle.trim() || undefined,
+          custom_amount: propAmount ? parseFloat(propAmount) : undefined,
+          valid_days: 14,
+        }),
+      });
+      if (res.ok) {
+        setPropTitle(''); setPropAmount(''); setPropStatus('draft');
+        setSelectedTemplate(null);
+        setShowProposalForm(false);
+        loadAll();
+      }
+    } catch { /* silent */ }
+    finally { setGeneratingProposal(false); }
+  };
+
   const addProposal = async () => {
     if (!propTitle.trim()) return;
     await fetch(`/api/leads/${leadId}/proposals`, {
@@ -496,6 +558,56 @@ export default function CrmDetailPage() {
   const deleteProposal = async (id: number) => {
     await fetch(`/api/proposals/${id}`, { method: 'DELETE' });
     loadAll();
+  };
+
+  const copyProposalLink = (proposalId: number, token: string) => {
+    navigator.clipboard.writeText(`${window.location.origin}/proposal/${token}`);
+    setCopiedLink(proposalId);
+    setTimeout(() => setCopiedLink(null), 2000);
+  };
+
+  const markProposalSent = async (id: number) => {
+    await fetch(`/api/proposals/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'sent' }),
+    });
+    loadAll();
+  };
+
+  const updateClientPhase = async (phase: string) => {
+    if (!clientData) return;
+    setClientPhase(phase);
+    await fetch(`/api/clients/${clientData.id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ progress_phase: phase }),
+    });
+    loadAll();
+  };
+
+  const updateClientMrr = async () => {
+    if (!clientData) return;
+    await fetch(`/api/clients/${clientData.id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ monthly_value: parseFloat(clientMrr) || 0 }),
+    });
+    loadAll();
+  };
+
+  const sendClientMessage = async () => {
+    if (!clientData || !clientMsg.trim()) return;
+    setSendingClientMsg(true);
+    try {
+      await fetch(`/api/clients/${clientData.token}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: clientMsg.trim(), sender: 'agency' }),
+      });
+      setClientMsg('');
+    } catch { /* silent */ }
+    finally { setSendingClientMsg(false); }
   };
 
   const sendReply = async () => {
@@ -1360,28 +1472,97 @@ export default function CrmDetailPage() {
             )}
           </div>
 
+          {/* Client Portal */}
+          {clientData && (
+            <div className="glass rounded-2xl p-5 border border-elvora-success/20 bg-elvora-success/5">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] uppercase tracking-wider text-elvora-success font-semibold">Client Portal</span>
+                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/client/${clientData.token}`); setCopiedClientLink(true); setTimeout(() => setCopiedClientLink(false), 2000); }} className="text-xs text-elvora-purple-light hover:underline">
+                  {copiedClientLink ? '✓ Kopiert' : 'Link kopieren'}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <div>
+                  <label className="block text-[10px] text-elvora-text-dim mb-1">Phase</label>
+                  <select value={clientPhase} onChange={e => updateClientPhase(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white">
+                    <option value="kickoff">Kickoff</option>
+                    <option value="design">Design</option>
+                    <option value="development">Entwicklung</option>
+                    <option value="review">Review</option>
+                    <option value="launch">Launch</option>
+                    <option value="done">Fertig</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-elvora-text-dim mb-1">MRR (€/Monat)</label>
+                  <div className="flex gap-1">
+                    <input type="number" value={clientMrr} onChange={e => setClientMrr(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white min-w-0" />
+                    <button onClick={updateClientMrr} className="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-elvora-text-dim hover:text-white transition-colors">OK</button>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <input type="text" value={clientMsg} onChange={e => setClientMsg(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') sendClientMessage(); }} placeholder="Nachricht an Kunden..." className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white placeholder-elvora-text-dim min-w-0" />
+                <button onClick={sendClientMessage} disabled={sendingClientMsg || !clientMsg.trim()} className="px-3 py-1.5 rounded-lg bg-elvora-purple text-white text-[10px] disabled:opacity-50">Senden</button>
+              </div>
+              <div className="flex items-center gap-2 mt-2 text-[10px] text-elvora-text-dim">
+                <span>Fragebogen: {clientData.questionnaire_data ? '✓ Ausgefüllt' : '○ Offen'}</span>
+                <span>·</span>
+                <span>Status: {clientData.status}</span>
+              </div>
+            </div>
+          )}
+
           {/* Angebote */}
           <div className="glass rounded-2xl p-5 border border-white/5">
             <div className="flex items-center justify-between mb-3">
               <span className="text-[10px] uppercase tracking-wider text-elvora-text-dim font-semibold">Angebote ({proposals.length})</span>
-              <button onClick={() => setShowProposalForm(!showProposalForm)} className="text-xs text-elvora-purple-light hover:underline">
-                {showProposalForm ? 'Abbrechen' : '+ Angebot'}
+              <button onClick={() => { setShowProposalForm(!showProposalForm); setSelectedTemplate(null); }} className="text-xs text-elvora-purple-light hover:underline">
+                {showProposalForm ? 'Abbrechen' : '+ Angebot erstellen'}
               </button>
             </div>
+
             {showProposalForm && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-                <input type="text" value={propTitle} onChange={e => setPropTitle(e.target.value)} placeholder="Titel" className="md:col-span-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
-                <input type="number" value={propAmount} onChange={e => setPropAmount(e.target.value)} placeholder="Betrag (EUR)" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
-                <select value={propStatus} onChange={e => setPropStatus(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white">
-                  <option value="draft">Entwurf</option>
-                  <option value="sent">Gesendet</option>
-                  <option value="viewed">Angesehen</option>
-                  <option value="accepted">Angenommen</option>
-                  <option value="rejected">Abgelehnt</option>
-                </select>
-                <button onClick={addProposal} className="md:col-span-2 px-3 py-1.5 rounded-lg bg-elvora-purple text-white text-sm">Hinzufügen</button>
+              <div className="mb-4 space-y-3">
+                {templates.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {templates.map(t => {
+                      const services: string[] = (() => { try { return JSON.parse(t.services || '[]'); } catch { return []; } })();
+                      const isSelected = selectedTemplate?.id === t.id;
+                      return (
+                        <button key={t.id} onClick={() => { setSelectedTemplate(isSelected ? null : t); setPropTitle(isSelected ? '' : t.name); setPropAmount(isSelected ? '' : t.price.toString()); }} className={`text-left p-3 rounded-lg border transition-all ${isSelected ? 'border-elvora-purple bg-elvora-purple/10' : 'border-white/10 bg-white/[0.03] hover:border-white/20'}`}>
+                          <div className="text-sm text-white font-medium">{t.name}</div>
+                          <div className="text-xs text-elvora-purple-light font-bold mt-0.5">{t.price.toLocaleString('de-DE')} € {t.price_type === 'monthly' ? '/ Monat' : ''}</div>
+                          {services.length > 0 && (
+                            <div className="mt-1.5 space-y-0.5">
+                              {services.slice(0, 3).map((s, i) => (
+                                <div key={i} className="text-[10px] text-elvora-text-dim flex items-center gap-1">
+                                  <span className="text-elvora-purple">✓</span> {s}
+                                </div>
+                              ))}
+                              {services.length > 3 && <div className="text-[10px] text-elvora-text-dim">+{services.length - 3} weitere</div>}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <input type="text" value={propTitle} onChange={e => setPropTitle(e.target.value)} placeholder="Titel (oder Vorlage wählen)" className="md:col-span-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+                  <input type="number" value={propAmount} onChange={e => setPropAmount(e.target.value)} placeholder="Betrag (EUR)" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={generateProposal} disabled={generatingProposal || (!propTitle.trim() && !selectedTemplate)} className="flex-1 px-3 py-1.5 rounded-lg bg-elvora-purple text-white text-sm font-medium disabled:opacity-50 transition-colors hover:bg-elvora-purple/80">
+                    {generatingProposal ? 'Generiert...' : 'Angebot generieren'}
+                  </button>
+                  <button onClick={addProposal} disabled={!propTitle.trim()} className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-elvora-text-dim text-sm hover:text-white transition-colors disabled:opacity-50">
+                    Nur speichern
+                  </button>
+                </div>
               </div>
             )}
+
             {proposals.length === 0 ? (
               <div className="text-xs text-elvora-text-dim">Keine Angebote</div>
             ) : (
@@ -1394,21 +1575,44 @@ export default function CrmDetailPage() {
                     accepted: 'bg-elvora-success/15 text-elvora-success',
                     rejected: 'bg-red-500/15 text-red-400',
                   };
+                  const statusLabels: Record<string, string> = {
+                    draft: 'Entwurf', sent: 'Gesendet', viewed: 'Angesehen', accepted: 'Angenommen', rejected: 'Abgelehnt',
+                  };
                   return (
-                    <div key={p.id} className="rounded-lg bg-white/5 px-3 py-2 group">
+                    <div key={p.id} className="rounded-lg bg-white/5 px-3 py-2.5 group">
                       <div className="flex items-center justify-between">
-                        <div>
+                        <div className="min-w-0 flex-1">
                           <div className="text-sm text-white font-medium">{p.title}</div>
-                          <div className="text-xs text-elvora-text-dim">{p.amount ? `${p.amount.toLocaleString('de-DE')} EUR` : 'Kein Betrag'} · {new Date(p.created_at + 'Z').toLocaleDateString('de-DE')}</div>
+                          <div className="text-xs text-elvora-text-dim flex items-center gap-2 flex-wrap">
+                            <span>{p.amount ? `${p.amount.toLocaleString('de-DE')} €` : 'Kein Betrag'}</span>
+                            <span>·</span>
+                            <span>{new Date(p.created_at + 'Z').toLocaleDateString('de-DE')}</span>
+                            {p.views > 0 && <><span>·</span><span>{p.views}× angesehen</span></>}
+                          </div>
+                          {p.client_message && (
+                            <div className="text-xs text-elvora-text-dim mt-1 italic">&quot;{p.client_message}&quot;</div>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <select value={p.status} onChange={e => updateProposalStatus(p.id, e.target.value)} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${statusColors[p.status]} border-0 focus:outline-none`}>
-                            <option value="draft">Entwurf</option>
-                            <option value="sent">Gesendet</option>
-                            <option value="viewed">Angesehen</option>
-                            <option value="accepted">Angenommen</option>
-                            <option value="rejected">Abgelehnt</option>
-                          </select>
+                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                          <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${statusColors[p.status] || statusColors.draft}`}>
+                            {statusLabels[p.status] || p.status}
+                          </span>
+                          {p.token && (
+                            <>
+                              <button onClick={() => copyProposalLink(p.id, p.token!)} title="Link kopieren" className="p-1 rounded hover:bg-white/10 text-elvora-text-dim hover:text-white transition-colors">
+                                {copiedLink === p.id ? (
+                                  <svg className="w-4 h-4 text-elvora-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                ) : (
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                )}
+                              </button>
+                              {p.status === 'draft' && (
+                                <button onClick={() => markProposalSent(p.id)} title="Als gesendet markieren" className="p-1 rounded hover:bg-white/10 text-elvora-text-dim hover:text-elvora-purple-light transition-colors">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                                </button>
+                              )}
+                            </>
+                          )}
                           <button onClick={() => deleteProposal(p.id)} className="opacity-0 group-hover:opacity-100 text-elvora-text-dim hover:text-red-400 transition-all p-1">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>

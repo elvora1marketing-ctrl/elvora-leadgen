@@ -36,6 +36,7 @@ interface Stats {
     }>;
   };
   pendingFollowUps: number;
+  mrr: { activeProjects: number; currentMrr: number; annualProjection: number };
   engagement: {
     distribution: { hot: number; warm: number; cool: number; cold: number };
     topLeads: Array<{
@@ -256,6 +257,33 @@ export default function DashboardPage() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* MRR Card */}
+          {stats?.mrr && stats.mrr.currentMrr > 0 && (
+            <div className="card rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-elvora-text">Recurring Revenue</h2>
+                  <p className="text-[11px] text-elvora-text-dim mt-0.5">{stats.mrr.activeProjects} aktive Kunden</p>
+                </div>
+                <Link href="/clients" className="text-[11px] text-elvora-purple-light hover:text-elvora-purple transition-colors">Alle Kunden →</Link>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider">MRR</div>
+                  <div className="text-xl font-bold text-elvora-success mt-0.5">{stats.mrr.currentMrr.toLocaleString('de-DE')} €</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider">ARR</div>
+                  <div className="text-xl font-bold text-white mt-0.5">{stats.mrr.annualProjection.toLocaleString('de-DE')} €</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider">Kunden</div>
+                  <div className="text-xl font-bold text-white mt-0.5">{stats.mrr.activeProjects}</div>
+                </div>
               </div>
             </div>
           )}

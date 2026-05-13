@@ -67,7 +67,9 @@ export async function GET(
       SELECT * FROM review_snapshots WHERE lead_id = ? ORDER BY checked_at DESC LIMIT 10
     `).all(leadId);
 
-    return NextResponse.json({ lead, tags, tasks, audit, contacts, competitors, proposals, reviews });
+    const client = db.prepare('SELECT * FROM clients WHERE lead_id = ?').get(leadId) || null;
+
+    return NextResponse.json({ lead, tags, tasks, audit, contacts, competitors, proposals, reviews, client });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unbekannter Fehler';
     return NextResponse.json({ error: message }, { status: 500 });
