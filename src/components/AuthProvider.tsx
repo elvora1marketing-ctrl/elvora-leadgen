@@ -20,7 +20,8 @@ export const useAuth = () => useContext(AuthContext);
 const PUBLIC_PATHS = ['/audit', '/proposal', '/client'];
 
 function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  // Match exact path or path followed by '/' — so '/client' does NOT match '/clients'.
+  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
 export default function AuthProvider({ children }: { children: ReactNode }) {

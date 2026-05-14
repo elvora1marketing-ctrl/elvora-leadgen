@@ -3,6 +3,13 @@ import crypto from 'crypto';
 import getDb from '@/lib/db';
 import { hashPassword } from '@/lib/utils';
 
+function isHttps(request: NextRequest): boolean {
+  if (request.url.startsWith('https://')) return true;
+  const proto = request.headers.get('x-forwarded-proto');
+  if (proto && proto.split(',')[0].trim() === 'https') return true;
+  return false;
+}
+
 // POST /api/auth/password – Change password (requires valid session)
 export async function POST(request: NextRequest) {
   try {
@@ -36,7 +43,7 @@ export async function POST(request: NextRequest) {
     const res = NextResponse.json({ ok: true });
     res.cookies.set('elvora_session', newToken, {
       httpOnly: true,
-      secure: true,
+      secure: isHttps(request),
       sameSite: 'lax',
       path: '/',
       maxAge: 60 * 60 * 24 * 30,
