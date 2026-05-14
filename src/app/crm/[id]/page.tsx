@@ -568,13 +568,23 @@ export default function CrmDetailPage() {
     setTimeout(() => setCopiedLink(null), 2000);
   };
 
-  const markProposalSent = async (id: number) => {
-    await fetch(`/api/proposals/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'sent' }),
-    });
-    loadAll();
+  const [sendingProposalEmail, setSendingProposalEmail] = useState<number | null>(null);
+  const [proposalEmailResult, setProposalEmailResult] = useState<{ id: number; ok: boolean; msg: string } | null>(null);
+
+  const sendProposalEmail = async (id: number) => {
+    setSendingProposalEmail(id);
+    setProposalEmailResult(null);
+    try {
+      const res = await fetch(`/api/proposals/${id}/send`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setProposalEmailResult({ id, ok: true, msg: `Gesendet an ${data.sent_to}` });
+        loadAll();
+      } else {
+        setProposalEmailResult({ id, ok: false, msg: data.error || 'Fehler' });
+      }
+    } catch { setProposalEmailResult({ id, ok: false, msg: 'Netzwerkfehler' }); }
+    finally { setSendingProposalEmail(null); setTimeout(() => setProposalEmailResult(null), 4000); }
   };
 
   const updateClientPhase = async (phase: string) => {
@@ -1654,9 +1664,18 @@ export default function CrmDetailPage() {
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                                 )}
                               </button>
-                              {p.status === 'draft' && (
-                                <button onClick={() => markProposalSent(p.id)} title="Als gesendet markieren" className="p-1 rounded hover:bg-white/10 text-elvora-text-dim hover:text-elvora-purple-light transition-colors">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                              {p.status === 'draft' && lead.email && (
+                                <button
+                                  onClick={() => sendProposalEmail(p.id)}
+                                  disabled={sendingProposalEmail === p.id}
+                                  title="Per E-Mail senden"
+                                  className="p-1 rounded hover:bg-white/10 text-elvora-text-dim hover:text-elvora-purple-light transition-colors disabled:opacity-50"
+                                >
+                                  {sendingProposalEmail === p.id ? (
+                                    <span className="w-4 h-4 border-2 border-elvora-purple border-t-transparent rounded-full animate-spin inline-block" />
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                                  )}
                                 </button>
                               )}
                             </>
@@ -1669,6 +1688,11 @@ export default function CrmDetailPage() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {proposalEmailResult && (
+              <div className={`mt-2 px-3 py-2 rounded-lg text-xs font-medium ${proposalEmailResult.ok ? 'bg-elvora-success/10 text-elvora-success border border-elvora-success/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                {proposalEmailResult.msg}
               </div>
             )}
           </div>

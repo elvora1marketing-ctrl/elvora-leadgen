@@ -13,6 +13,16 @@ interface AnalyticsData {
   monthly: Array<{ month: string; new_leads: number; wins: number; revenue: number }>;
 }
 
+interface MrrData {
+  current_mrr: number;
+  active_clients: number;
+  churn_rate: number;
+  annual_projection: number;
+  won_value: number;
+  trends: Array<{ month: string; mrr: number; active_clients: number }>;
+  goal: { progress: number; on_track: boolean; won_value: number; projected_total: number; months_left: number };
+}
+
 const stageOrder = ['not_contacted', 'email_sent', 'called', 'meeting', 'proposal', 'won'];
 const stageLabels: Record<string, string> = {
   not_contacted: 'Nicht kontakt.',
@@ -26,13 +36,17 @@ const stageLabels: Record<string, string> = {
 
 export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [mrr, setMrr] = useState<MrrData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/analytics')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
+    Promise.all([
+      fetch('/api/analytics').then(r => r.json()),
+      fetch('/api/mrr').then(r => r.json()),
+    ]).then(([analyticsData, mrrData]) => {
+      setData(analyticsData);
+      setMrr(mrrData);
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="p-8 text-center text-elvora-text-dim">Laden...</div>;
@@ -194,6 +208,85 @@ export default function AnalyticsPage() {
           {data.monthly.length === 0 && <div className="text-sm text-elvora-text-dim text-center py-4">Noch keine Daten</div>}
         </div>
       </div>
+
+      {/* Recurring Revenue */}
+      {mrr && (
+        <div className="glass rounded-2xl p-6 border border-white/5">
+          <h2 className="text-sm font-semibold text-white mb-4">Recurring Revenue</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div>
+              <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider">MRR</div>
+              <div className="text-xl font-bold text-elvora-success mt-0.5">{mrr.current_mrr.toLocaleString('de-DE')} €</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider">ARR</div>
+              <div className="text-xl font-bold text-white mt-0.5">{mrr.annual_projection.toLocaleString('de-DE')} €</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider">Aktive Kunden</div>
+              <div className="text-xl font-bold text-white mt-0.5">{mrr.active_clients}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider">Churn-Rate</div>
+              <div className={`text-xl font-bold mt-0.5 ${mrr.churn_rate > 10 ? 'text-red-400' : 'text-elvora-success'}`}>{mrr.churn_rate}%</div>
+            </div>
+          </div>
+
+          {mrr.trends.length > 1 && (
+            <div>
+              <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider mb-2">MRR-Trend</div>
+              <div className="flex items-end gap-2 h-24">
+                {mrr.trends.map(t => {
+                  const maxMrr = Math.max(...mrr.trends.map(x => x.mrr), 1);
+                  const h = (t.mrr / maxMrr) * 100;
+                  return (
+                    <div key={t.month} className="flex-1 flex flex-col items-center gap-1">
+                      <div className="text-[9px] text-elvora-success font-bold">{t.mrr > 0 ? `${t.mrr}€` : ''}</div>
+                      <div className="w-full rounded-t bg-elvora-success/30 transition-all" style={{ height: `${Math.max(4, h)}%` }} />
+                      <div className="text-[8px] text-elvora-text-dim">{t.month.slice(5)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {mrr.goal && (
+            <div className="mt-4 pt-4 border-t border-white/5">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] text-elvora-text-dim">50k-Ziel bis Mai 2027</span>
+                <span className={`text-[10px] font-bold ${mrr.goal.on_track ? 'text-elvora-success' : 'text-elvora-warning'}`}>{mrr.goal.progress}%</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                <div className="h-full rounded-full bg-gradient-to-r from-elvora-purple to-elvora-success" style={{ width: `${Math.min(100, mrr.goal.progress)}%` }} />
+              </div>
+              <div className="flex justify-between mt-1 text-[9px] text-elvora-text-dim">
+                <span>Won: {mrr.goal.won_value.toLocaleString('de-DE')}€ + MRR×{mrr.goal.months_left}Mo</span>
+                <span>Projektion: {Math.round(mrr.goal.projected_total).toLocaleString('de-DE')}€</span>
+              </div>
+            </div>
+          )}
+
+          {/* Revenue Mix */}
+          {(won.total > 0 || mrr.current_mrr > 0) && (
+            <div className="mt-4 pt-4 border-t border-white/5">
+              <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider mb-2">Revenue-Mix</div>
+              <div className="flex gap-2 h-6 rounded-lg overflow-hidden">
+                {won.total > 0 && (
+                  <div className="bg-elvora-purple/40 rounded" style={{ flex: won.total }} title={`Einmal-Projekte: ${won.total.toLocaleString('de-DE')}€`} />
+                )}
+                {mrr.annual_projection > 0 && (
+                  <div className="bg-elvora-success/40 rounded" style={{ flex: mrr.annual_projection }} title={`MRR (annualisiert): ${mrr.annual_projection.toLocaleString('de-DE')}€`} />
+                )}
+              </div>
+              <div className="flex justify-between mt-1 text-[9px] text-elvora-text-dim">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-elvora-purple/40" /> Einmal: {won.total.toLocaleString('de-DE')}€</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-elvora-success/40" /> MRR: {mrr.annual_projection.toLocaleString('de-DE')}€/Jahr</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
