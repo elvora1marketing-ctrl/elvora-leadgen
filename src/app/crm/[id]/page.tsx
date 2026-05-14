@@ -203,6 +203,8 @@ export default function CrmDetailPage() {
   const [clientMrr, setClientMrr] = useState('');
   const [clientMsg, setClientMsg] = useState('');
   const [sendingClientMsg, setSendingClientMsg] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+  const [enrichResult, setEnrichResult] = useState<{ emails: string[]; phones: string[]; decision_maker: string | null } | null>(null);
 
   // Decision Maker Finder
   const [findingDM, setFindingDM] = useState(false);
@@ -610,6 +612,24 @@ export default function CrmDetailPage() {
     finally { setSendingClientMsg(false); }
   };
 
+  const enrichLead = async () => {
+    setEnriching(true);
+    setEnrichResult(null);
+    try {
+      const res = await fetch('/api/scraper/enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: leadId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEnrichResult({ emails: data.emails_found || [], phones: data.phones_found || [], decision_maker: data.decision_maker });
+        if (data.updated) loadAll();
+      }
+    } catch { /* silent */ }
+    finally { setEnriching(false); }
+  };
+
   const sendReply = async () => {
     if (!replyBody.trim() || !replySubject.trim()) return;
     setSending(true);
@@ -773,7 +793,35 @@ export default function CrmDetailPage() {
             <div className="text-sm text-white truncate">Profil</div>
           </a>
         )}
+        {(!lead.email || !lead.phone) && lead.website_original && (
+          <button onClick={enrichLead} disabled={enriching} className="glass rounded-xl p-3 border border-elvora-purple/20 hover:border-elvora-purple/40 transition-all text-left disabled:opacity-50">
+            <div className="text-[9px] uppercase tracking-wider text-elvora-purple-light mb-1">
+              {enriching ? 'Suche...' : 'Email finden'}
+            </div>
+            <div className="text-sm text-elvora-text-dim">
+              {enriching ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 border-2 border-elvora-purple border-t-transparent rounded-full animate-spin" />
+                  Crawle Website...
+                </span>
+              ) : 'Website scannen'}
+            </div>
+          </button>
+        )}
       </div>
+      {enrichResult && enrichResult.emails.length > 0 && (
+        <div className="mb-4 px-3 py-2.5 rounded-xl bg-elvora-success/10 border border-elvora-success/20">
+          <div className="text-[10px] uppercase tracking-wider text-elvora-success font-semibold mb-1">
+            {enrichResult.emails.length} E-Mail{enrichResult.emails.length > 1 ? 's' : ''} gefunden
+            {enrichResult.decision_maker && ` · Entscheider: ${enrichResult.decision_maker}`}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {enrichResult.emails.map(e => (
+              <button key={e} onClick={() => { navigator.clipboard.writeText(e); }} className="text-xs font-mono text-white bg-white/10 hover:bg-white/20 px-2 py-1 rounded transition-colors">{e}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Status Stepper */}
       <div className="glass rounded-2xl p-4 mb-4 border border-white/5">
