@@ -357,75 +357,122 @@ export async function scrapeGelbeSeiten(
 
 /**
  * Parse 11880.com HTML for business listings.
+ * Primary: extract from JSON-LD structured data (SearchResultsPage → itemListElement).
+ * Fallback: parse <li class="result-list-entry"> HTML blocks.
  */
 function parse11880Html(html: string, city: string): ScrapedBusiness[] {
   const businesses: ScrapedBusiness[] = [];
 
-  const articleRegex = /<article\b[^>]*>([\s\S]*?)<\/article>/gi;
-  let blockMatch: RegExpExecArray | null;
-  const blocks: string[] = [];
+  // --- Primary: JSON-LD structured data ---
+  const jsonLdRegex = /<script\s+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let jsonLdMatch: RegExpExecArray | null;
 
-  while ((blockMatch = articleRegex.exec(html)) !== null) {
-    blocks.push(blockMatch[0]);
+  while ((jsonLdMatch = jsonLdRegex.exec(html)) !== null) {
+    try {
+      const data = JSON.parse(jsonLdMatch[1]);
+      if (data['@type'] !== 'SearchResultsPage' || !Array.isArray(data.mainEntity?.itemListElement)) continue;
+
+      for (const item of data.mainEntity.itemListElement) {
+        const biz = item.item;
+        if (!biz || !biz.name) continue;
+
+        const addr = biz.address || {};
+        const street = addr.streetAddress || '';
+        const postal = addr.postalCode || '';
+        const locality = addr.addressLocality || '';
+        const address = [street, [postal, locality].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+
+        let phone: string | null = null;
+        if (biz.telephone) phone = normalizePhone(biz.telephone);
+
+        let website: string | null = null;
+        if (biz.url) {
+          try {
+            const host = new URL(biz.url).hostname.toLowerCase();
+            if (!host.includes('11880.com')) website = biz.url;
+          } catch { /* skip */ }
+        }
+
+        let rating: number | null = null;
+        let reviews: number | null = null;
+        if (biz.aggregateRating) {
+          const rv = parseFloat(biz.aggregateRating.ratingValue);
+          if (!isNaN(rv) && rv > 0 && rv <= 5) rating = rv;
+          const rc = parseInt(biz.aggregateRating.reviewCount || biz.aggregateRating.ratingCount);
+          if (!isNaN(rc)) reviews = rc;
+        }
+
+        businesses.push({
+          name: biz.name,
+          address,
+          city: locality || city,
+          phone,
+          website: website ? normalizeWebsite(website) : null,
+          email: biz.email || null,
+          rating,
+          reviews,
+          category: null,
+          placeId: null,
+        });
+      }
+    } catch { /* invalid JSON, skip */ }
   }
 
-  if (blocks.length === 0) {
-    const divRegex = /<div\b[^>]*class="[^"]*(?:result[-_]?item|result[-_]?entry|treffer)[^"]*"[^>]*>([\s\S]*?)(?=<div\b[^>]*class="[^"]*(?:result[-_]?item|result[-_]?entry|treffer)|<\/main|<footer|$)/gi;
-    let divMatch: RegExpExecArray | null;
-    while ((divMatch = divRegex.exec(html)) !== null) {
-      blocks.push(divMatch[0]);
+  if (businesses.length > 0) {
+    // Enrich with category from HTML (JSON-LD doesn't include it)
+    const catByName = new Map<string, string>();
+    const liRegex = /<li\b[^>]*class="[^"]*result-list-entry[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
+    let liMatch: RegExpExecArray | null;
+    while ((liMatch = liRegex.exec(html)) !== null) {
+      const block = liMatch[0];
+      const nameMatch = block.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+      const catMatch = block.match(/<span[^>]*class="[^"]*trades-list[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+      if (nameMatch && catMatch) {
+        catByName.set(stripHtml(nameMatch[1]), stripHtml(catMatch[1]));
+      }
     }
+    for (const biz of businesses) {
+      const cat = catByName.get(biz.name);
+      if (cat) biz.category = cat;
+    }
+    return businesses;
+  }
+
+  // --- Fallback: parse HTML <li> blocks ---
+  const liRegex = /<li\b[^>]*class="[^"]*result-list-entry[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
+  let liMatch: RegExpExecArray | null;
+  const blocks: string[] = [];
+  while ((liMatch = liRegex.exec(html)) !== null) {
+    blocks.push(liMatch[0]);
   }
 
   for (const block of blocks) {
-    // --- Name ---
     let name = '';
-    const h2Match = block.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+    const h2Match = block.match(/<h2[^>]*result-list-entry-title__headline[^>]*>([\s\S]*?)<\/h2>/i);
     if (h2Match) name = stripHtml(h2Match[1]);
     if (!name) {
-      const nameMatch = block.match(/<[^>]*class="[^"]*(?:company[-_]?name|entry[-_]?name|name)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|h\d|a|p)>/i);
-      if (nameMatch) name = stripHtml(nameMatch[1]);
-    }
-    if (!name) {
-      const h3Match = block.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i);
-      if (h3Match) name = stripHtml(h3Match[1]);
+      const h2Generic = block.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+      if (h2Generic) name = stripHtml(h2Generic[1]);
     }
     if (!name) continue;
 
-    // --- Address ---
     let address = '';
-    const addrMatch = block.match(/<[^>]*class="[^"]*(?:address|addr|anschrift)[^"]*"[^>]*>([\s\S]*?)<\/(?:p|div|span|address)>/i);
-    if (addrMatch) {
-      address = stripHtml(addrMatch[1]);
-    }
-    if (!address) {
-      const addrTag = block.match(/<address[^>]*>([\s\S]*?)<\/address>/i);
-      if (addrTag) address = stripHtml(addrTag[1]);
-    }
-    if (!address) {
-      const streetMatch = block.match(/<[^>]*class="[^"]*(?:street|strasse)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
-      const plzMatch = block.match(/<[^>]*class="[^"]*(?:city|ort|zip|plz)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
-      if (streetMatch || plzMatch) {
-        address = [streetMatch ? stripHtml(streetMatch[1]) : '', plzMatch ? stripHtml(plzMatch[1]) : '']
-          .filter(Boolean)
-          .join(', ');
-      }
-    }
+    const streetMatch = block.match(/<span[^>]*class="[^"]*d-block[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+    const postalMatch = block.match(/<span[^>]*class="[^"]*js-postal-code[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+    const localityMatch = block.match(/<span[^>]*class="[^"]*js-address-locality[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+    const street = streetMatch ? stripHtml(streetMatch[1]) : '';
+    const postal = postalMatch ? stripHtml(postalMatch[1]) : '';
+    const locality = localityMatch ? stripHtml(localityMatch[1]) : '';
+    address = [street, [postal, locality].filter(Boolean).join(' ')].filter(Boolean).join(', ');
 
-    // --- Phone ---
     let phone: string | null = null;
     const telMatch = block.match(/href=["']tel:([^"']+)["']/i);
-    if (telMatch) {
-      phone = normalizePhone(decodeURIComponent(telMatch[1]));
-    }
+    if (telMatch) phone = normalizePhone(decodeURIComponent(telMatch[1]));
     if (!phone) {
-      const phoneEl = block.match(/<[^>]*class="[^"]*(?:phone|tel|telefon)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p|a)>/i);
-      if (phoneEl) {
-        phone = normalizePhone(stripHtml(phoneEl[1]));
-      }
+      const phoneLabel = block.match(/<span[^>]*class="[^"]*result-list-entry-phone-number__label[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+      if (phoneLabel) phone = normalizePhone(stripHtml(phoneLabel[1]));
     }
 
-    // --- Website ---
     let website: string | null = null;
     const linkRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi;
     let linkMatch: RegExpExecArray | null;
@@ -438,33 +485,32 @@ function parse11880Html(html: string, city: string): ScrapedBusiness[] {
         if (host.includes('11880.com') || host.includes('google.') || host.includes('facebook.') || host.includes('instagram.')) continue;
         website = href;
         break;
-      } catch { /* skip invalid URLs */ }
+      } catch { /* skip */ }
     }
 
-    // --- Category ---
     let category: string | null = null;
-    const catMatch = block.match(/<[^>]*class="[^"]*(?:branch|kategorie|category|rubrik)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p|a)>/i);
-    if (catMatch) {
-      category = stripHtml(catMatch[1]) || null;
-    }
+    const catMatch = block.match(/<span[^>]*class="[^"]*trades-list[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+    if (catMatch) category = stripHtml(catMatch[1]) || null;
 
-    // --- Rating ---
     let rating: number | null = null;
-    const ratingMatch = block.match(/(?:data-rating|data-score)=["']([0-9.,]+)["']/i);
-    if (ratingMatch) {
-      const parsed = parseFloat(ratingMatch[1].replace(',', '.'));
+    let reviews: number | null = null;
+    const srOnly = block.match(/<span[^>]*class="[^"]*sr-only[^"]*"[^>]*>(\d+(?:[.,]\d+)?)\s*von\s*5/i);
+    if (srOnly) {
+      const parsed = parseFloat(srOnly[1].replace(',', '.'));
       if (!isNaN(parsed) && parsed > 0 && parsed <= 5) rating = parsed;
     }
+    const reviewMatch = block.match(/<span[^>]*class="[^"]*result-list-entry-stars__count[^"]*"[^>]*>\((\d+)/i);
+    if (reviewMatch) reviews = parseInt(reviewMatch[1]);
 
     businesses.push({
       name,
       address,
-      city,
+      city: locality || city,
       phone,
       website: website ? normalizeWebsite(website) : null,
       email: null,
       rating,
-      reviews: null,
+      reviews,
       category,
       placeId: null,
     });
