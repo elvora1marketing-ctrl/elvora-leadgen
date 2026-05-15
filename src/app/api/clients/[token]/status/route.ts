@@ -3,11 +3,11 @@ import getDb from '@/lib/db';
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ token: string }> }
 ) {
   try {
-    const { id } = await params;
-    const clientId = parseInt(id);
+    const { token } = await params;
+    const clientId = parseInt(token);
     if (isNaN(clientId)) return NextResponse.json({ error: 'Ungültige ID' }, { status: 400 });
 
     const body = await request.json();

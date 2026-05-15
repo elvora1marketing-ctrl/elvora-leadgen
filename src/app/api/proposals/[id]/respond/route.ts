@@ -4,10 +4,10 @@ import getDb from '@/lib/db';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ token: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { token } = await params;
+    const { id: token } = await params;
     const body = await request.json();
     const { action, message } = body;
 
@@ -34,16 +34,13 @@ export async function POST(
         WHERE token = ?
       `).run(now, message || null, token);
 
-      // Auto-move lead to "won" and create client
       const leadId = proposal.lead_id as number;
       db.prepare("UPDATE leads SET contact_status = 'won', updated_at = datetime('now') WHERE id = ?").run(leadId);
 
-      // Set deal_value from proposal amount if not already set
       if (proposal.amount) {
         db.prepare("UPDATE leads SET deal_value = COALESCE(NULLIF(deal_value, 0), ?) WHERE id = ?").run(proposal.amount, leadId);
       }
 
-      // Auto-create client if not exists
       const existingClient = db.prepare('SELECT id FROM clients WHERE lead_id = ?').get(leadId) as { id: number } | undefined;
       if (!existingClient) {
         const clientToken = crypto.randomUUID();
