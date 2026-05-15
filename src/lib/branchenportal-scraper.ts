@@ -1,12 +1,5 @@
 /**
  * Branchenportal Scraper — Gelbe Seiten & 11880.com
- *
- * Scrapes German business directories by keyword + city.
- * Uses regex-based HTML parsing (no DOM) for server-side usage.
- * Returns results in the same ScrapedBusiness format as the Maps scraper.
- *
- * Both portals are scraped in parallel via scrapeBranchenportale().
- * Errors are caught gracefully — partial results are returned, never crashes.
  */
 
 import { type ScrapedBusiness } from './maps-scraper';
@@ -14,7 +7,7 @@ import { delay, normalizeWebsite } from './utils';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-const FETCH_TIMEOUT = 10000;
+const FETCH_TIMEOUT = 15000;
 
 export interface BranchenportalResult {
   source: 'gelbeseiten' | '11880';
@@ -28,9 +21,6 @@ export interface BranchenportalResult {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Decode common HTML entities back to plain text.
- */
 function decodeHtmlEntities(text: string): string {
   return text
     .replace(/&amp;/g, '&')
@@ -50,17 +40,18 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
-/**
- * Strip all HTML tags and collapse whitespace.
- */
 function stripHtml(html: string): string {
   return decodeHtmlEntities(html.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
-/**
- * Fetch a URL with timeout, user-agent, and basic error handling.
- * Returns the response body as text, or null on failure (with error pushed).
- */
+function decodeBase64(encoded: string): string {
+  try {
+    return Buffer.from(encoded, 'base64').toString('utf-8');
+  } catch {
+    return '';
+  }
+}
+
 async function fetchPage(url: string, errors: string[]): Promise<string | null> {
   try {
     const controller = new AbortController();
@@ -94,44 +85,49 @@ async function fetchPage(url: string, errors: string[]): Promise<string | null> 
   }
 }
 
-/**
- * Extract the first regex capture group match from HTML, or return fallback.
- */
-function extractFirst(html: string, regex: RegExp, fallback: string = ''): string {
-  const match = html.match(regex);
-  return match?.[1] ? stripHtml(match[1]).trim() : fallback;
-}
-
-/**
- * Normalise a phone number string: remove extra whitespace, keep digits/+/- etc.
- */
-function normalizePhone(raw: string): string | null {
-  const cleaned = raw.replace(/\s+/g, ' ').trim();
-  // Must contain at least 5 digits to be a valid phone number
-  if (cleaned.replace(/\D/g, '').length < 5) return null;
-  return cleaned;
-}
-
-/**
- * Extract an external website URL from an href, skipping internal portal links.
- */
-function extractWebsiteUrl(href: string, portalDomain: string): string | null {
-  if (!href) return null;
+async function fetchPost(url: string, formData: Record<string, string>, errors: string[]): Promise<string | null> {
   try {
-    // Handle relative URLs or anchors
-    if (href.startsWith('/') || href.startsWith('#') || href.startsWith('javascript:')) return null;
-    // Must be a full URL
-    if (!href.startsWith('http://') && !href.startsWith('https://')) return null;
-    const parsed = new URL(href);
-    const host = parsed.hostname.toLowerCase();
-    // Skip links that point back to the portal itself
-    if (host.includes(portalDomain)) return null;
-    // Skip common non-business domains
-    if (host.includes('google.') || host.includes('facebook.') || host.includes('instagram.')) return null;
-    return href;
-  } catch {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+    const body = new URLSearchParams(formData).toString();
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'de-DE,de;q=0.9,en;q=0.5',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body,
+      signal: controller.signal,
+      redirect: 'follow',
+    });
+
+    clearTimeout(timer);
+
+    if (!response.ok) {
+      errors.push(`HTTP ${response.status} für POST ${url}`);
+      return null;
+    }
+
+    return await response.text();
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      errors.push(`Timeout nach ${FETCH_TIMEOUT}ms für POST ${url}`);
+    } else {
+      errors.push(`Fehler bei POST ${url}: ${err instanceof Error ? err.message : 'Unbekannter Fehler'}`);
+    }
     return null;
   }
+}
+
+function normalizePhone(raw: string): string | null {
+  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  if (cleaned.replace(/\D/g, '').length < 5) return null;
+  return cleaned;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,18 +137,20 @@ function extractWebsiteUrl(href: string, portalDomain: string): string | null {
 /**
  * Parse Gelbe Seiten HTML for business listings.
  *
- * Known patterns in gelbeseiten.de HTML:
- *   - Listings wrapped in <article> or <div data-realid="...">
- *   - Company name inside <h2> tags (sometimes with nested <a>)
- *   - Address in elements with class containing "address" or "addr"
- *   - Phone in elements with class containing "phone" or "tel", or href="tel:..."
- *   - Website link as <a> with external href, sometimes in data-webseite or data-website
+ * Real HTML structure:
+ *   - Listings in <article> blocks with class "mod mod-Treffer"
+ *   - Name: <h2 class="mod-Treffer__name">
+ *   - Address: div with class "mod-AdresseKompakt__adress-text"
+ *   - Phone: Base64-encoded in data-prg="..." attribute
+ *   - Website: Base64-encoded in data-webseiteLink="..." attribute
+ *   - Rating: <span class="mod-BewertungKompakt__number ...">4,6</span>
+ *   - Reviews: <span class="mod-BewertungKompakt__text ...">57 Bewertungen</span>
+ *   - Email: sometimes in chat button JSON: "email":"info@example.de"
  */
 function parseGelbeSeitenHtml(html: string, city: string): ScrapedBusiness[] {
   const businesses: ScrapedBusiness[] = [];
 
-  // Split HTML into individual listing blocks.
-  // Gelbe Seiten uses <article ...> blocks or <div ... data-realid="..."> blocks.
+  // Split into article blocks (each listing is an <article>)
   const articleRegex = /<article\b[^>]*>([\s\S]*?)<\/article>/gi;
   let blockMatch: RegExpExecArray | null;
   const blocks: string[] = [];
@@ -161,9 +159,9 @@ function parseGelbeSeitenHtml(html: string, city: string): ScrapedBusiness[] {
     blocks.push(blockMatch[0]);
   }
 
-  // Fallback: try data-realid divs if no articles found
+  // Fallback: try mod-Treffer divs
   if (blocks.length === 0) {
-    const divRegex = /<div\b[^>]*data-realid[^>]*>([\s\S]*?)(?=<div\b[^>]*data-realid|<\/main|<footer|$)/gi;
+    const divRegex = /<div\b[^>]*class="[^"]*mod-Treffer[^"]*"[^>]*>([\s\S]*?)(?=<div\b[^>]*class="[^"]*mod-Treffer[^"]*"|<\/main|<footer|$)/gi;
     let divMatch: RegExpExecArray | null;
     while ((divMatch = divRegex.exec(html)) !== null) {
       blocks.push(divMatch[0]);
@@ -172,97 +170,86 @@ function parseGelbeSeitenHtml(html: string, city: string): ScrapedBusiness[] {
 
   for (const block of blocks) {
     // --- Name ---
-    // Try <h2> first (most common), then any heading
-    let name = extractFirst(block, /<h2[^>]*>([\s\S]*?)<\/h2>/i);
-    if (!name) {
-      name = extractFirst(block, /<h3[^>]*>([\s\S]*?)<\/h3>/i);
+    let name = '';
+    const nameMatch = block.match(/<h2[^>]*class="[^"]*mod-Treffer__name[^"]*"[^>]*>([\s\S]*?)<\/h2>/i);
+    if (nameMatch) {
+      name = stripHtml(nameMatch[1]);
     }
     if (!name) {
-      // Try data-name or title attributes
-      name = extractFirst(block, /data-(?:company)?name=["']([^"']+)["']/i);
+      const h2Match = block.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+      if (h2Match) name = stripHtml(h2Match[1]);
     }
-    if (!name) continue; // Skip blocks without a name
+    if (!name) continue;
 
     // --- Address ---
     let address = '';
-    // Try address-specific elements
-    const addrMatch = block.match(/<[^>]*class="[^"]*(?:address|addr|anschrift)[^"]*"[^>]*>([\s\S]*?)<\/(?:p|div|span|address)>/i);
+    const addrMatch = block.match(/<[^>]*class="[^"]*mod-AdresseKompakt__adress-text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
     if (addrMatch) {
       address = stripHtml(addrMatch[1]);
     }
     if (!address) {
-      // Look for <address> tag
-      address = extractFirst(block, /<address[^>]*>([\s\S]*?)<\/address>/i);
-    }
-    if (!address) {
-      // Look for data-address attribute
-      const dataAddr = block.match(/data-address=["']([^"']+)["']/i);
-      if (dataAddr) address = decodeHtmlEntities(dataAddr[1]);
-    }
-    if (!address) {
-      // Try street + postal code pattern
-      const streetMatch = block.match(/<[^>]*class="[^"]*(?:street|strasse|str)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
-      const plzMatch = block.match(/<[^>]*class="[^"]*(?:city|ort|plz|zip)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
-      if (streetMatch || plzMatch) {
-        address = [streetMatch ? stripHtml(streetMatch[1]) : '', plzMatch ? stripHtml(plzMatch[1]) : '']
-          .filter(Boolean)
-          .join(', ');
-      }
+      const addrGeneric = block.match(/<[^>]*class="[^"]*(?:address|addr|anschrift|adresse)[^"]*"[^>]*>([\s\S]*?)<\/(?:p|div|span|address)>/i);
+      if (addrGeneric) address = stripHtml(addrGeneric[1]);
     }
 
-    // --- Phone ---
+    // --- Phone (Base64 in data-prg attribute) ---
     let phone: string | null = null;
-    // Try tel: links
-    const telMatch = block.match(/href=["']tel:([^"']+)["']/i);
-    if (telMatch) {
-      phone = normalizePhone(decodeURIComponent(telMatch[1]));
+    const prgMatch = block.match(/data-prg=["']([A-Za-z0-9+/=]+)["']/);
+    if (prgMatch) {
+      const decoded = decodeBase64(prgMatch[1]);
+      if (decoded) phone = normalizePhone(decoded);
     }
     if (!phone) {
-      // Try phone-related class elements
-      const phoneEl = block.match(/<[^>]*class="[^"]*(?:phone|tel|telefon|rufnummer)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p|a)>/i);
-      if (phoneEl) {
-        phone = normalizePhone(stripHtml(phoneEl[1]));
-      }
-    }
-    if (!phone) {
-      // Try data-phone attribute
-      const dataPhone = block.match(/data-(?:phone|telefon)=["']([^"']+)["']/i);
-      if (dataPhone) phone = normalizePhone(dataPhone[1]);
+      const telMatch = block.match(/href=["']tel:([^"']+)["']/i);
+      if (telMatch) phone = normalizePhone(decodeURIComponent(telMatch[1]));
     }
 
-    // --- Website ---
+    // --- Website (Base64 in data-webseiteLink attribute) ---
     let website: string | null = null;
-    // Try data-webseite / data-website attribute
-    const dataWeb = block.match(/data-web(?:seite|site)=["']([^"']+)["']/i);
-    if (dataWeb) {
-      website = extractWebsiteUrl(dataWeb[1], 'gelbeseiten.de');
+    const webLinkMatch = block.match(/data-webseiteLink=["']([A-Za-z0-9+/=]+)["']/);
+    if (webLinkMatch) {
+      const decoded = decodeBase64(webLinkMatch[1]);
+      if (decoded && (decoded.startsWith('http://') || decoded.startsWith('https://'))) {
+        website = decoded;
+      }
     }
     if (!website) {
-      // Look for external links
-      const linkRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi;
-      let linkMatch: RegExpExecArray | null;
-      while ((linkMatch = linkRegex.exec(block)) !== null) {
-        const candidate = extractWebsiteUrl(linkMatch[1], 'gelbeseiten.de');
-        if (candidate) {
-          website = candidate;
-          break;
-        }
+      const dataWeb = block.match(/data-web(?:seite|site)=["']([^"']+)["']/i);
+      if (dataWeb && (dataWeb[1].startsWith('http://') || dataWeb[1].startsWith('https://'))) {
+        website = dataWeb[1];
       }
     }
 
-    // --- Category ---
-    let category: string | null = null;
-    const catMatch = block.match(/<[^>]*class="[^"]*(?:branch|kategorie|category|rubrik)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p|a)>/i);
-    if (catMatch) {
-      category = stripHtml(catMatch[1]) || null;
+    // --- Email (from chat button JSON) ---
+    let email: string | null = null;
+    const emailJsonMatch = block.match(/"email"\s*:\s*"([^"]+@[^"]+)"/);
+    if (emailJsonMatch) {
+      email = emailJsonMatch[1];
     }
 
     // --- Rating ---
     let rating: number | null = null;
-    const ratingMatch = block.match(/(?:data-rating|data-score)=["']([0-9.]+)["']/i);
+    const ratingMatch = block.match(/<span[^>]*class="[^"]*mod-BewertungKompakt__number[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
     if (ratingMatch) {
-      const parsed = parseFloat(ratingMatch[1]);
+      const ratingText = stripHtml(ratingMatch[1]).replace(',', '.');
+      const parsed = parseFloat(ratingText);
       if (!isNaN(parsed) && parsed > 0 && parsed <= 5) rating = parsed;
+    }
+
+    // --- Reviews ---
+    let reviews: number | null = null;
+    const reviewMatch = block.match(/<span[^>]*class="[^"]*mod-BewertungKompakt__text[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+    if (reviewMatch) {
+      const reviewText = stripHtml(reviewMatch[1]);
+      const numMatch = reviewText.match(/(\d+)/);
+      if (numMatch) reviews = parseInt(numMatch[1]);
+    }
+
+    // --- Category ---
+    let category: string | null = null;
+    const catMatch = block.match(/<[^>]*class="[^"]*(?:mod-Treffer__branche|branch|kategorie|category)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p|a)>/i);
+    if (catMatch) {
+      category = stripHtml(catMatch[1]) || null;
     }
 
     businesses.push({
@@ -271,9 +258,9 @@ function parseGelbeSeitenHtml(html: string, city: string): ScrapedBusiness[] {
       city,
       phone,
       website: website ? normalizeWebsite(website) : null,
-      email: null,
+      email,
       rating,
-      reviews: null,
+      reviews,
       category,
       placeId: null,
     });
@@ -283,49 +270,70 @@ function parseGelbeSeitenHtml(html: string, city: string): ScrapedBusiness[] {
 }
 
 /**
- * Scrape Gelbe Seiten by keyword + city, across multiple pages.
+ * Scrape Gelbe Seiten by keyword + city.
+ * Page 1: GET /branchen/{keyword}/{city}
+ * Page 2+: POST to /ajaxsuche (AJAX pagination, 10 results per batch)
  */
 export async function scrapeGelbeSeiten(
   keyword: string,
   city: string,
-  maxPages: number = 2,
+  maxPages: number = 3,
 ): Promise<BranchenportalResult> {
   const startTime = Date.now();
   const allBusinesses: ScrapedBusiness[] = [];
   const errors: string[] = [];
 
-  const encodedKeyword = encodeURIComponent(keyword);
-  const encodedCity = encodeURIComponent(city);
+  const kwLower = keyword.toLowerCase().replace(/\s+/g, '-');
+  const cityLower = city.toLowerCase().replace(/\s+/g, '-');
 
-  for (let page = 1; page <= maxPages; page++) {
-    const pageParam = page > 1 ? `/seite-${page}` : '';
-    const url = `https://www.gelbeseiten.de/suche/${encodedKeyword}/${encodedCity}${pageParam}`;
+  // Page 1: regular GET request
+  const url = `https://www.gelbeseiten.de/branchen/${encodeURIComponent(kwLower)}/${encodeURIComponent(cityLower)}`;
+  console.log(`[Branchenportal] Gelbe Seiten: "${keyword}" in "${city}" — Seite 1`);
 
-    console.log(`[Branchenportal] Gelbe Seiten: "${keyword}" in "${city}" — Seite ${page}/${maxPages}`);
-
-    const html = await fetchPage(url, errors);
-    if (!html) break;
-
+  const html = await fetchPage(url, errors);
+  if (html) {
     const parsed = parseGelbeSeitenHtml(html, city);
-    console.log(`[Branchenportal] Gelbe Seiten Seite ${page}: ${parsed.length} Ergebnisse`);
-
-    if (parsed.length === 0) {
-      // No results on this page — no point trying more pages
-      if (page === 1) {
-        console.log(`[Branchenportal] Gelbe Seiten: keine Ergebnisse für "${keyword}" in "${city}"`);
-      }
-      break;
-    }
-
+    console.log(`[Branchenportal] Gelbe Seiten Seite 1: ${parsed.length} Ergebnisse`);
     allBusinesses.push(...parsed);
 
-    // Polite delay between pages
-    if (page < maxPages) {
-      await delay(1500 + Math.random() * 1000);
+    // AJAX pagination for additional results (page 1 typically returns ~50)
+    if (parsed.length > 0 && maxPages > 1) {
+      const itemsOnPage1 = parsed.length;
+      const ajaxBatchSize = 10;
+
+      for (let batch = 1; batch < maxPages; batch++) {
+        const position = itemsOnPage1 + 1 + (batch - 1) * ajaxBatchSize;
+
+        await delay(1500 + Math.random() * 1000);
+
+        console.log(`[Branchenportal] Gelbe Seiten: AJAX Seite ${batch + 1} (Position ${position})`);
+
+        const ajaxHtml = await fetchPost(
+          'https://www.gelbeseiten.de/ajaxsuche',
+          {
+            WAS: keyword,
+            WO: city,
+            position: String(position),
+            anzahl: String(ajaxBatchSize),
+            umkreis: '50',
+          },
+          errors,
+        );
+
+        if (!ajaxHtml) break;
+
+        const ajaxParsed = parseGelbeSeitenHtml(ajaxHtml, city);
+        console.log(`[Branchenportal] Gelbe Seiten AJAX Batch ${batch + 1}: ${ajaxParsed.length} Ergebnisse`);
+
+        if (ajaxParsed.length === 0) break;
+        allBusinesses.push(...ajaxParsed);
+      }
     }
+  } else if (allBusinesses.length === 0) {
+    console.log(`[Branchenportal] Gelbe Seiten: keine Ergebnisse für "${keyword}" in "${city}"`);
   }
 
-  // Deduplicate by normalised website or name
+  // Deduplicate
   const seen = new Set<string>();
   const unique = allBusinesses.filter((biz) => {
     const key = biz.website ? biz.website : biz.name.toLowerCase().trim();
@@ -349,18 +357,10 @@ export async function scrapeGelbeSeiten(
 
 /**
  * Parse 11880.com HTML for business listings.
- *
- * Known patterns in 11880.com HTML:
- *   - Listings in <article> tags or result-item divs
- *   - Company name in <h2> or elements with class "name" / "title"
- *   - Address in elements with class containing "address"
- *   - Phone in tel: links or elements with class containing "phone"/"tel"
- *   - Website as external <a> link
  */
 function parse11880Html(html: string, city: string): ScrapedBusiness[] {
   const businesses: ScrapedBusiness[] = [];
 
-  // Split into listing blocks
   const articleRegex = /<article\b[^>]*>([\s\S]*?)<\/article>/gi;
   let blockMatch: RegExpExecArray | null;
   const blocks: string[] = [];
@@ -369,7 +369,6 @@ function parse11880Html(html: string, city: string): ScrapedBusiness[] {
     blocks.push(blockMatch[0]);
   }
 
-  // Fallback: look for result-item or result-entry divs
   if (blocks.length === 0) {
     const divRegex = /<div\b[^>]*class="[^"]*(?:result[-_]?item|result[-_]?entry|treffer)[^"]*"[^>]*>([\s\S]*?)(?=<div\b[^>]*class="[^"]*(?:result[-_]?item|result[-_]?entry|treffer)|<\/main|<footer|$)/gi;
     let divMatch: RegExpExecArray | null;
@@ -380,12 +379,16 @@ function parse11880Html(html: string, city: string): ScrapedBusiness[] {
 
   for (const block of blocks) {
     // --- Name ---
-    let name = extractFirst(block, /<h2[^>]*>([\s\S]*?)<\/h2>/i);
+    let name = '';
+    const h2Match = block.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+    if (h2Match) name = stripHtml(h2Match[1]);
     if (!name) {
-      name = extractFirst(block, /<[^>]*class="[^"]*(?:company[-_]?name|entry[-_]?name|name)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|h\d|a|p)>/i);
+      const nameMatch = block.match(/<[^>]*class="[^"]*(?:company[-_]?name|entry[-_]?name|name)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|h\d|a|p)>/i);
+      if (nameMatch) name = stripHtml(nameMatch[1]);
     }
     if (!name) {
-      name = extractFirst(block, /<h3[^>]*>([\s\S]*?)<\/h3>/i);
+      const h3Match = block.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i);
+      if (h3Match) name = stripHtml(h3Match[1]);
     }
     if (!name) continue;
 
@@ -396,10 +399,10 @@ function parse11880Html(html: string, city: string): ScrapedBusiness[] {
       address = stripHtml(addrMatch[1]);
     }
     if (!address) {
-      address = extractFirst(block, /<address[^>]*>([\s\S]*?)<\/address>/i);
+      const addrTag = block.match(/<address[^>]*>([\s\S]*?)<\/address>/i);
+      if (addrTag) address = stripHtml(addrTag[1]);
     }
     if (!address) {
-      // Try structured street + city
       const streetMatch = block.match(/<[^>]*class="[^"]*(?:street|strasse)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
       const plzMatch = block.match(/<[^>]*class="[^"]*(?:city|ort|zip|plz)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
       if (streetMatch || plzMatch) {
@@ -427,11 +430,15 @@ function parse11880Html(html: string, city: string): ScrapedBusiness[] {
     const linkRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi;
     let linkMatch: RegExpExecArray | null;
     while ((linkMatch = linkRegex.exec(block)) !== null) {
-      const candidate = extractWebsiteUrl(linkMatch[1], '11880.com');
-      if (candidate) {
-        website = candidate;
+      const href = linkMatch[1];
+      if (!href || href.startsWith('/') || href.startsWith('#') || href.startsWith('javascript:')) continue;
+      if (!href.startsWith('http://') && !href.startsWith('https://')) continue;
+      try {
+        const host = new URL(href).hostname.toLowerCase();
+        if (host.includes('11880.com') || host.includes('google.') || host.includes('facebook.') || host.includes('instagram.')) continue;
+        website = href;
         break;
-      }
+      } catch { /* skip invalid URLs */ }
     }
 
     // --- Category ---
@@ -443,9 +450,9 @@ function parse11880Html(html: string, city: string): ScrapedBusiness[] {
 
     // --- Rating ---
     let rating: number | null = null;
-    const ratingMatch = block.match(/(?:data-rating|data-score)=["']([0-9.]+)["']/i);
+    const ratingMatch = block.match(/(?:data-rating|data-score)=["']([0-9.,]+)["']/i);
     if (ratingMatch) {
-      const parsed = parseFloat(ratingMatch[1]);
+      const parsed = parseFloat(ratingMatch[1].replace(',', '.'));
       if (!isNaN(parsed) && parsed > 0 && parsed <= 5) rating = parsed;
     }
 
@@ -468,11 +475,12 @@ function parse11880Html(html: string, city: string): ScrapedBusiness[] {
 
 /**
  * Scrape 11880.com by keyword + city, across multiple pages.
+ * Pagination uses ?page=N query parameter.
  */
 export async function scrape11880(
   keyword: string,
   city: string,
-  maxPages: number = 2,
+  maxPages: number = 3,
 ): Promise<BranchenportalResult> {
   const startTime = Date.now();
   const allBusinesses: ScrapedBusiness[] = [];
@@ -482,7 +490,7 @@ export async function scrape11880(
   const encodedCity = encodeURIComponent(city);
 
   for (let page = 1; page <= maxPages; page++) {
-    const pageParam = page > 1 ? `/seite/${page}` : '';
+    const pageParam = page > 1 ? `?page=${page}` : '';
     const url = `https://www.11880.com/suche/${encodedKeyword}/${encodedCity}${pageParam}`;
 
     console.log(`[Branchenportal] 11880: "${keyword}" in "${city}" — Seite ${page}/${maxPages}`);
@@ -502,7 +510,6 @@ export async function scrape11880(
 
     allBusinesses.push(...parsed);
 
-    // Polite delay between pages
     if (page < maxPages) {
       await delay(1500 + Math.random() * 1000);
     }
@@ -530,11 +537,6 @@ export async function scrape11880(
 // Combined scraper
 // ---------------------------------------------------------------------------
 
-/**
- * Scrape both Gelbe Seiten and 11880.com in parallel.
- * Returns an array of results — one per portal.
- * Never throws; failed portals return empty results with error messages.
- */
 export async function scrapeBranchenportale(
   keyword: string,
   city: string,
