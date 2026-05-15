@@ -59,6 +59,7 @@ export default function SettingsPage() {
 
   const [rapidapiKey, setRapidapiKey] = useState('');
   const [rapidapiLinkedinHost, setRapidapiLinkedinHost] = useState('fresh-linkedin-profile-data.p.rapidapi.com');
+  const [braveSearchApiKey, setBraveSearchApiKey] = useState('');
 
   const [agencyName, setAgencyName] = useState('');
   const [agencyAddress, setAgencyAddress] = useState('');
@@ -111,6 +112,7 @@ export default function SettingsPage() {
         if (data.dataforseo_password) setDataforseoPassword(data.dataforseo_password);
         if (data.rapidapi_key) setRapidapiKey(data.rapidapi_key);
         if (data.rapidapi_linkedin_host) setRapidapiLinkedinHost(data.rapidapi_linkedin_host);
+        if (data.brave_search_api_key) setBraveSearchApiKey(data.brave_search_api_key);
         if (data.ai_personalization_enabled) setAiEnabled(data.ai_personalization_enabled === 'true');
         if (data.ai_classify_enabled) setAiClassifyEnabled(data.ai_classify_enabled === 'true');
         if (data.openai_api_key) setOpenaiApiKey(data.openai_api_key);
@@ -223,6 +225,7 @@ export default function SettingsPage() {
         dataforseo_password: dataforseoPassword,
         rapidapi_key: rapidapiKey,
         rapidapi_linkedin_host: rapidapiLinkedinHost,
+        brave_search_api_key: braveSearchApiKey,
         ai_personalization_enabled: aiEnabled ? 'true' : 'false',
         ai_classify_enabled: aiClassifyEnabled ? 'true' : 'false',
         openai_api_key: openaiApiKey,
@@ -473,6 +476,37 @@ export default function SettingsPage() {
             </div>
             <p className="text-[11px] text-elvora-text-dim">
               Registriere dich auf dataforseo.com &rarr; Dashboard &rarr; API Access
+            </p>
+          </div>
+        </div>
+
+        {/* Brave Search API */}
+        <div className="card rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <span className="text-sm font-semibold text-elvora-text">Web-Suche</span>
+            <span className="px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-400 text-[10px] font-semibold">BRAVE</span>
+          </div>
+          <p className="text-xs text-elvora-text-dim mb-4">
+            Die Web-Suche im Scraper Hub nutzt die Brave Search API, um Firmen-Websites zu finden. Kostenlos: 2.000 Suchanfragen/Monat, keine Kreditkarte nötig.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1">Brave Search API-Key</label>
+              <input
+                type="password"
+                value={braveSearchApiKey}
+                onChange={(e) => setBraveSearchApiKey(e.target.value)}
+                placeholder="BSA..."
+                className={inputMonoClass}
+              />
+            </div>
+            <p className="text-[11px] text-elvora-text-dim">
+              1. Gehe zu brave.com/search/api und erstelle ein Konto<br />
+              2. Wähle den &quot;Free&quot;-Plan (2.000 Queries/Monat)<br />
+              3. Erstelle einen API-Key und füge ihn hier ein
             </p>
           </div>
         </div>
