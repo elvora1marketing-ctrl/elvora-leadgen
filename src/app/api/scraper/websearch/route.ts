@@ -92,8 +92,9 @@ export async function POST(request: NextRequest) {
 
     let businesses = searchResult.businesses;
 
-    if (autoEnrich && searchResult.searchResults.length > 0 && businesses.length === 0) {
-      businesses = await enrichSearchResults(searchResult.searchResults, city, 3);
+    if (autoEnrich && searchResult.searchResults.length > 0) {
+      const enriched = await enrichSearchResults(searchResult.searchResults, city, 3);
+      if (enriched.length > 0) businesses = enriched;
     }
 
     const importResult = importBusinessesToLeads(db, businesses, jobLabel);

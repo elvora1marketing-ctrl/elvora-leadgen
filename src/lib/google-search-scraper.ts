@@ -1,14 +1,15 @@
 /**
- * Web Search Business Scraper (via DuckDuckGo HTML)
+ * Web Search Business Scraper (multi-engine: SearXNG → DuckDuckGo)
  *
- * Findet Firmen-Websites über DuckDuckGo-Suche und extrahiert Kontaktdaten.
- * KEIN API-Key nötig. Nutzt DuckDuckGo HTML (kein JS, kein CAPTCHA).
+ * Findet Firmen-Websites über Web-Suche und extrahiert Kontaktdaten.
+ * KEIN API-Key nötig.
  *
  * Pipeline:
- * 1. DuckDuckGo HTML Suche — findet Business-Websites zu Keyword + Stadt
- * 2. Filtert Aggregator-Seiten raus (Yelp, Gelbe Seiten etc.)
- * 3. Dedupliziert nach Domain
- * 4. (Optional) Enrichment: besucht jede Website, parst Impressum für Kontaktdaten
+ * 1. SearXNG JSON API (primär — funktioniert von Server-IPs, mehrere Instanzen als Fallback)
+ * 2. DuckDuckGo HTML Suche (Fallback)
+ * 3. Filtert Aggregator-Seiten raus (Yelp, Gelbe Seiten etc.)
+ * 4. Dedupliziert nach Domain
+ * 5. (Optional) Enrichment: besucht jede Website, parst Impressum für Kontaktdaten
  */
 
 import { type ScrapedBusiness } from './maps-scraper';
@@ -21,7 +22,20 @@ import { parseImpressum } from './impressum-parser';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-const FETCH_TIMEOUT = 10000;
+const FETCH_TIMEOUT = 12000;
+
+const SEARXNG_INSTANCES = [
+  'https://search.sapti.me',
+  'https://searx.tiekoetter.com',
+  'https://search.bus-hit.me',
+  'https://searx.be',
+  'https://search.mdosch.de',
+  'https://searx.fmac.xyz',
+  'https://paulgo.io',
+  'https://priv.au',
+  'https://search.ononoki.org',
+  'https://opnxng.com',
+];
 
 /** Domains to skip — aggregator / social / job sites, not direct business websites */
 const BLOCKED_DOMAINS = new Set([
@@ -86,9 +100,6 @@ export interface GoogleSearchResult {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Check whether a URL belongs to a blocked aggregator domain.
- */
 function isBlockedUrl(url: string): boolean {
   try {
     const hostname = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
@@ -99,21 +110,14 @@ function isBlockedUrl(url: string): boolean {
     }
     return false;
   } catch {
-    return true; // malformed URL → skip
+    return true;
   }
 }
 
-/**
- * Extract the registrable domain from a URL for deduplication.
- * e.g. "https://www.example.de/kontakt" → "example.de"
- */
 function extractDomain(url: string): string {
   return normalizeWebsite(url);
 }
 
-/**
- * Decode HTML entities commonly found in DuckDuckGo results.
- */
 function decodeHtmlEntities(text: string): string {
   return text
     .replace(/&amp;/g, '&')
@@ -132,23 +136,15 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&nbsp;/g, ' ');
 }
 
-/**
- * Strip all HTML tags from a string.
- */
 function stripHtmlTags(html: string): string {
   return html.replace(/<[^>]+>/g, '').trim();
 }
 
-/**
- * Resolve a DuckDuckGo redirect URL to the actual target URL.
- * DDG wraps links like: //duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.de&...
- */
 function resolveDdgUrl(rawUrl: string): string {
   const uddgMatch = rawUrl.match(/uddg=([^&]+)/);
   if (uddgMatch) {
     return decodeURIComponent(uddgMatch[1]);
   }
-  // Sometimes DDG uses a plain href
   if (rawUrl.startsWith('http')) {
     return rawUrl;
   }
@@ -156,16 +152,133 @@ function resolveDdgUrl(rawUrl: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Core: DuckDuckGo HTML Search
+// SearXNG JSON API (Primary)
 // ---------------------------------------------------------------------------
 
-/**
- * Search DuckDuckGo HTML for business websites.
- *
- * Fetches the HTML version of DuckDuckGo (no JS needed) and parses result
- * links, titles and snippets. Filters out aggregator sites and deduplicates
- * by domain.
- */
+async function fetchSearxngResults(
+  query: string,
+  maxResults: number,
+): Promise<{ results: SearchResult[]; error: string | null; instanceUsed: string | null }> {
+  const results: SearchResult[] = [];
+  const seenDomains = new Set<string>();
+
+  for (const instance of SEARXNG_INSTANCES) {
+    try {
+      const searchUrl = `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=de&pageno=1`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+      const res = await fetch(searchUrl, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          Accept: 'application/json',
+          'Accept-Language': 'de-DE,de;q=0.9',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        console.log(`[WebSearch] SearXNG ${instance}: HTTP ${res.status}`);
+        continue;
+      }
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('json')) {
+        console.log(`[WebSearch] SearXNG ${instance}: kein JSON (${contentType})`);
+        continue;
+      }
+
+      const data = await res.json() as { results?: Array<{ url?: string; title?: string; content?: string }> };
+
+      if (!data.results || !Array.isArray(data.results) || data.results.length === 0) {
+        console.log(`[WebSearch] SearXNG ${instance}: keine Ergebnisse`);
+        continue;
+      }
+
+      console.log(`[WebSearch] SearXNG ${instance}: ${data.results.length} Rohergebnisse`);
+
+      for (const item of data.results) {
+        if (!item.url) continue;
+        if (isBlockedUrl(item.url)) continue;
+
+        const domain = extractDomain(item.url);
+        if (!domain || seenDomains.has(domain)) continue;
+        seenDomains.add(domain);
+
+        results.push({
+          title: item.title || domain,
+          url: item.url,
+          snippet: item.content || '',
+        });
+
+        if (results.length >= maxResults) break;
+      }
+
+      // If we need more results, fetch page 2
+      if (results.length < maxResults && data.results.length >= 10) {
+        await delay(800 + Math.random() * 500);
+
+        try {
+          const page2Url = `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=de&pageno=2`;
+
+          const controller2 = new AbortController();
+          const timeout2 = setTimeout(() => controller2.abort(), FETCH_TIMEOUT);
+
+          const res2 = await fetch(page2Url, {
+            headers: {
+              'User-Agent': USER_AGENT,
+              Accept: 'application/json',
+              'Accept-Language': 'de-DE,de;q=0.9',
+            },
+            signal: controller2.signal,
+          });
+
+          clearTimeout(timeout2);
+
+          if (res2.ok) {
+            const data2 = await res2.json() as { results?: Array<{ url?: string; title?: string; content?: string }> };
+            if (data2.results && Array.isArray(data2.results)) {
+              for (const item of data2.results) {
+                if (!item.url || isBlockedUrl(item.url)) continue;
+                const domain = extractDomain(item.url);
+                if (!domain || seenDomains.has(domain)) continue;
+                seenDomains.add(domain);
+                results.push({
+                  title: item.title || domain,
+                  url: item.url,
+                  snippet: item.content || '',
+                });
+                if (results.length >= maxResults) break;
+              }
+            }
+          }
+        } catch {
+          // Page 2 failed — that's fine, use what we have
+        }
+      }
+
+      return { results, error: null, instanceUsed: instance };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unbekannt';
+      console.log(`[WebSearch] SearXNG ${instance}: Fehler — ${msg}`);
+      continue;
+    }
+  }
+
+  return {
+    results: [],
+    error: `Alle ${SEARXNG_INSTANCES.length} SearXNG-Instanzen nicht erreichbar`,
+    instanceUsed: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// DuckDuckGo HTML Search (Fallback)
+// ---------------------------------------------------------------------------
+
 async function fetchDuckDuckGoResults(
   query: string,
   maxResults: number,
@@ -184,7 +297,6 @@ async function fetchDuckDuckGoResults(
       let html: string;
 
       if (pageNum === 1) {
-        // First page: GET request
         const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
@@ -207,7 +319,6 @@ async function fetchDuckDuckGoResults(
 
         html = await res.text();
       } else {
-        // Subsequent pages: POST with pagination params
         const formData = new URLSearchParams();
         formData.append('q', query);
         formData.append('s', String((pageNum - 1) * 30));
@@ -240,7 +351,6 @@ async function fetchDuckDuckGoResults(
         html = await res.text();
       }
 
-      // Detect blocking / CAPTCHA
       if (
         html.includes('detected unusual traffic') ||
         html.includes('Please try again') ||
@@ -250,17 +360,12 @@ async function fetchDuckDuckGoResults(
         break;
       }
 
-      // ---- Parse result links ----
-      // DuckDuckGo HTML results: <a class="result__a" href="...">Title</a>
       const linkRegex =
         /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
 
-      // Snippets live in: <a class="result__snippet" ...>Snippet text</a>
-      // or <td class="result__snippet">...</td>
       const snippetRegex =
         /<(?:a|td)[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|td)>/gi;
 
-      // Collect all snippets in order
       const snippets: string[] = [];
       let snippetMatch: RegExpExecArray | null;
       while ((snippetMatch = snippetRegex.exec(html)) !== null) {
@@ -281,13 +386,11 @@ async function fetchDuckDuckGoResults(
           continue;
         }
 
-        // Filter out blocked domains
         if (isBlockedUrl(actualUrl)) {
           resultIndex++;
           continue;
         }
 
-        // Deduplicate by domain
         const domain = extractDomain(actualUrl);
         if (!domain || seenDomains.has(domain)) {
           resultIndex++;
@@ -306,7 +409,6 @@ async function fetchDuckDuckGoResults(
         if (results.length >= maxResults) break;
       }
 
-      // If the primary regex found nothing, try a broader fallback
       if (foundOnPage === 0) {
         const altRegex =
           /<a[^>]+href="(https?:\/\/[^"]+)"[^>]*class="result__a"[^>]*>([\s\S]*?)<\/a>/gi;
@@ -330,13 +432,11 @@ async function fetchDuckDuckGoResults(
         }
       }
 
-      // Stop conditions
       if (foundOnPage === 0) {
         hasMore = false;
       } else if (results.length >= maxResults) {
         hasMore = false;
       } else {
-        // Check if DDG has a "next" page
         const hasNext =
           html.includes('name="s"') ||
           html.includes('next') ||
@@ -346,12 +446,10 @@ async function fetchDuckDuckGoResults(
         }
       }
 
-      // Rate-limit between pages
       if (hasMore) {
-        await delay(1200 + Math.random() * 1300); // 1.2–2.5s
+        await delay(1200 + Math.random() * 1300);
       }
 
-      // Safety: cap at 10 pages (300 raw results before filtering)
       if (pageNum >= 10) {
         hasMore = false;
       }
@@ -373,13 +471,9 @@ async function fetchDuckDuckGoResults(
 // ---------------------------------------------------------------------------
 
 /**
- * Search for businesses via DuckDuckGo HTML search.
- *
- * Builds a German-oriented query (`keyword city Firma Kontakt`), fetches
- * results, filters aggregator sites, and deduplicates by domain.
- *
- * The returned `searchResults` contain direct business website URLs that can
- * be enriched via `enrichSearchResults()` for contact details.
+ * Search for businesses via web search.
+ * Tries SearXNG instances first (JSON API, server-friendly),
+ * then falls back to DuckDuckGo HTML.
  */
 export async function searchBusinesses(
   keyword: string,
@@ -391,16 +485,25 @@ export async function searchBusinesses(
 
   const query = `${keyword} ${city} Firma Kontakt`;
 
-  const { results: searchResults, error } = await fetchDuckDuckGoResults(
-    query,
-    maxResults,
-  );
+  // Try SearXNG first
+  console.log(`[WebSearch] Suche: "${query}" (max ${maxResults})`);
+  const searxng = await fetchSearxngResults(query, maxResults);
 
-  if (error) {
-    errors.push(error);
+  let searchResults: SearchResult[];
+
+  if (searxng.results.length > 0) {
+    console.log(`[WebSearch] SearXNG erfolgreich: ${searxng.results.length} Ergebnisse via ${searxng.instanceUsed}`);
+    searchResults = searxng.results;
+  } else {
+    if (searxng.error) errors.push(searxng.error);
+
+    // Fallback to DuckDuckGo
+    console.log('[WebSearch] Fallback: DuckDuckGo HTML');
+    const ddg = await fetchDuckDuckGoResults(query, maxResults);
+    searchResults = ddg.results;
+    if (ddg.error) errors.push(ddg.error);
   }
 
-  // Build basic ScrapedBusiness entries from search results (without enrichment)
   const businesses: ScrapedBusiness[] = searchResults.map((sr) => ({
     name: sr.title || extractDomain(sr.url),
     address: city,
@@ -430,10 +533,6 @@ export async function searchBusinesses(
 /**
  * Enrich search results by visiting each business website and parsing the
  * Impressum / Kontakt page for contact details.
- *
- * Runs in batches of `concurrency` to avoid hammering servers.
- * Returns a `ScrapedBusiness[]` with company name, email, phone and address
- * where available.
  */
 export async function enrichSearchResults(
   results: SearchResult[],
@@ -455,21 +554,14 @@ export async function enrichSearchResults(
       }
     }
 
-    // Short delay between batches to be polite
     if (i + concurrency < results.length) {
-      await delay(800 + Math.random() * 700); // 0.8–1.5s
+      await delay(800 + Math.random() * 700);
     }
   }
 
   return businesses;
 }
 
-/**
- * Visit a single business website:
- * 1. Fetch the homepage to get the <title> (used as company name).
- * 2. Run `parseImpressum` to extract email, phone, address, Geschäftsführer.
- * 3. Assemble a `ScrapedBusiness`.
- */
 async function enrichSingleResult(
   sr: SearchResult,
   city: string,
@@ -482,7 +574,6 @@ async function enrichSingleResult(
   let phone: string | null = null;
   let address: string | null = city;
 
-  // --- Step 1: Fetch homepage title ---
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
@@ -502,12 +593,10 @@ async function enrichSingleResult(
     if (res.ok) {
       const html = await res.text();
 
-      // Extract <title>
       const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
       if (titleMatch) {
         const pageTitle = decodeHtmlEntities(stripHtmlTags(titleMatch[1])).trim();
         if (pageTitle && pageTitle.length > 1 && pageTitle.length < 200) {
-          // Clean common suffixes like " | Startseite", " - Home" etc.
           companyName = pageTitle
             .replace(/\s*[\|–-]\s*(?:Start(?:seite)?|Home|Willkommen|Hauptseite|Über uns)$/i, '')
             .trim() || pageTitle;
@@ -518,7 +607,6 @@ async function enrichSingleResult(
     // Homepage fetch failed — continue with Impressum parsing
   }
 
-  // --- Step 2: Parse Impressum ---
   try {
     const baseUrl = `https://${domain}`;
     const impressum = await parseImpressum(baseUrl);
@@ -528,10 +616,6 @@ async function enrichSingleResult(
     }
     if (impressum.phones.length > 0) {
       phone = impressum.phones[0];
-    }
-    if (impressum.geschaeftsfuehrer) {
-      // Prefer the Geschäftsführer name + company for the business name
-      companyName = companyName || domain;
     }
   } catch {
     // Impressum parsing failed — return what we have
