@@ -1,34 +1,15 @@
 import { NextRequest } from 'next/server';
 import getDb from '@/lib/db';
-import { scrapeBranchenportale, type BranchenportalResult } from '@/lib/branchenportal-scraper';
+import { scrapeGelbeSeiten, scrape11880, type BranchenportalResult } from '@/lib/branchenportal-scraper';
 import { normalizeWebsite } from '@/lib/utils';
 import { parseImpressum } from '@/lib/impressum-parser';
 import { type ScrapedBusiness } from '@/lib/maps-scraper';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
 
 const EMAIL_CONCURRENCY = 5;
-
-async function enrichWithEmail(businesses: ScrapedBusiness[]): Promise<void> {
-  const withWebsite = businesses.filter(b => b.website && !b.email);
-  for (let i = 0; i < withWebsite.length; i += EMAIL_CONCURRENCY) {
-    const batch = withWebsite.slice(i, i + EMAIL_CONCURRENCY);
-    const results = await Promise.allSettled(
-      batch.map(async biz => {
-        const imp = await parseImpressum(biz.website!);
-        return { email: imp.emails[0] || null, phone: imp.phones[0] || null };
-      })
-    );
-    for (let j = 0; j < results.length; j++) {
-      const r = results[j];
-      if (r.status === 'fulfilled') {
-        if (r.value.email) batch[j].email = r.value.email;
-        if (r.value.phone && !batch[j].phone) batch[j].phone = r.value.phone;
-      }
-    }
-  }
-}
 
 function importBusinessesToLeads(
   db: ReturnType<typeof getDb>,
@@ -73,6 +54,9 @@ function importBusinessesToLeads(
         if (biz.email) {
           db.prepare(`UPDATE leads SET email = COALESCE(NULLIF(email, ''), ?) WHERE id = ?`).run(biz.email, existing.id);
         }
+        if (biz.phone) {
+          db.prepare(`UPDATE leads SET phone = COALESCE(NULLIF(phone, ''), ?) WHERE id = ?`).run(biz.phone, existing.id);
+        }
         duplicates++;
       } else {
         try {
@@ -110,61 +94,123 @@ export async function POST(request: NextRequest) {
   ).run(jobLabel, maxPages);
   const jobId = Number(jobResult.lastInsertRowid);
 
-  try {
-    const portalResults = await scrapeBranchenportale(keyword, city, maxPages);
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      function send(data: Record<string, unknown>) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      }
 
-    const allBusinesses: ScrapedBusiness[] = [];
-    const allErrors: string[] = [];
+      try {
+        const allBusinesses: ScrapedBusiness[] = [];
+        const allErrors: string[] = [];
 
-    for (const pr of portalResults) {
-      allBusinesses.push(...pr.businesses);
-      allErrors.push(...pr.errors.map(e => `${pr.source}: ${e}`));
-    }
+        // Gelbe Seiten
+        send({ type: 'status', message: 'Gelbe Seiten: Suche läuft...' });
+        let gsResult: BranchenportalResult;
+        try {
+          gsResult = await scrapeGelbeSeiten(keyword, city, maxPages);
+          allBusinesses.push(...gsResult.businesses);
+          allErrors.push(...gsResult.errors.map(e => `gelbeseiten: ${e}`));
+          send({ type: 'status', message: `Gelbe Seiten: ${gsResult.businesses.length} Ergebnisse (${(gsResult.duration / 1000).toFixed(1)}s)` });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Fehler';
+          allErrors.push(`gelbeseiten: ${msg}`);
+          send({ type: 'status', message: `Gelbe Seiten: Fehler — ${msg}` });
+        }
 
-    if (autoEnrich && allBusinesses.length > 0) {
-      await enrichWithEmail(allBusinesses);
-    }
+        // 11880
+        send({ type: 'status', message: '11880.com: Suche läuft...' });
+        let elResult: BranchenportalResult;
+        try {
+          elResult = await scrape11880(keyword, city, maxPages);
+          allBusinesses.push(...elResult.businesses);
+          allErrors.push(...elResult.errors.map(e => `11880: ${e}`));
+          send({ type: 'status', message: `11880.com: ${elResult.businesses.length} Ergebnisse (${(elResult.duration / 1000).toFixed(1)}s)` });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Fehler';
+          allErrors.push(`11880: ${msg}`);
+          send({ type: 'status', message: `11880.com: Fehler — ${msg}` });
+        }
 
-    const importResult = importBusinessesToLeads(db, allBusinesses, jobLabel);
+        send({ type: 'status', message: `Gesamt: ${allBusinesses.length} Firmen gefunden` });
 
-    db.prepare(`
-      UPDATE scraper_jobs SET
-        status = 'completed',
-        businesses_found = ?,
-        businesses_imported = ?,
-        businesses_duplicate = ?,
-        errors = ?,
-        results = ?,
-        completed_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      allBusinesses.length,
-      importResult.imported,
-      importResult.duplicates,
-      JSON.stringify(allErrors),
-      JSON.stringify(allBusinesses),
-      jobId,
-    );
+        // Enrichment
+        if (autoEnrich && allBusinesses.length > 0) {
+          const withWebsite = allBusinesses.filter(b => b.website && !b.email);
+          if (withWebsite.length > 0) {
+            send({ type: 'status', message: `E-Mail-Enrichment: 0/${withWebsite.length}` });
+            let done = 0;
+            for (let i = 0; i < withWebsite.length; i += EMAIL_CONCURRENCY) {
+              const batch = withWebsite.slice(i, i + EMAIL_CONCURRENCY);
+              const results = await Promise.allSettled(
+                batch.map(async biz => {
+                  const imp = await parseImpressum(biz.website!);
+                  return { email: imp.emails[0] || null, phone: imp.phones[0] || null };
+                })
+              );
+              for (let j = 0; j < results.length; j++) {
+                const r = results[j];
+                if (r.status === 'fulfilled') {
+                  if (r.value.email) batch[j].email = r.value.email;
+                  if (r.value.phone && !batch[j].phone) batch[j].phone = r.value.phone;
+                }
+              }
+              done += batch.length;
+              send({ type: 'status', message: `E-Mail-Enrichment: ${done}/${withWebsite.length}` });
+            }
+          }
+        }
 
-    const resultsBySource: Record<string, BranchenportalResult> = {};
-    for (const pr of portalResults) {
-      resultsBySource[pr.source] = pr;
-    }
+        // Import
+        send({ type: 'status', message: 'Importiere in Datenbank...' });
+        const importResult = importBusinessesToLeads(db, allBusinesses, jobLabel);
 
-    return Response.json({
-      success: true,
-      jobId,
-      totalFound: allBusinesses.length,
-      imported: importResult.imported,
-      duplicates: importResult.duplicates,
-      skipped: importResult.skipped,
-      sources: resultsBySource,
-      errors: allErrors,
-    });
-  } catch (error) {
-    db.prepare("UPDATE scraper_jobs SET status = 'error', errors = ?, completed_at = datetime('now') WHERE id = ?")
-      .run(JSON.stringify([String(error)]), jobId);
-    console.error('Branchenportal scraper error:', error);
-    return Response.json({ error: 'Scraper-Fehler' }, { status: 500 });
-  }
+        db.prepare(`
+          UPDATE scraper_jobs SET
+            status = 'completed',
+            businesses_found = ?,
+            businesses_imported = ?,
+            businesses_duplicate = ?,
+            errors = ?,
+            results = ?,
+            completed_at = datetime('now')
+          WHERE id = ?
+        `).run(
+          allBusinesses.length,
+          importResult.imported,
+          importResult.duplicates,
+          JSON.stringify(allErrors),
+          JSON.stringify(allBusinesses),
+          jobId,
+        );
+
+        send({
+          type: 'complete',
+          success: true,
+          jobId,
+          totalFound: allBusinesses.length,
+          imported: importResult.imported,
+          duplicates: importResult.duplicates,
+          skipped: importResult.skipped,
+          errors: allErrors,
+        });
+      } catch (error) {
+        db.prepare("UPDATE scraper_jobs SET status = 'error', errors = ?, completed_at = datetime('now') WHERE id = ?")
+          .run(JSON.stringify([String(error)]), jobId);
+        console.error('Branchenportal scraper error:', error);
+        send({ type: 'complete', success: false, totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [String(error)] });
+      }
+
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
 }

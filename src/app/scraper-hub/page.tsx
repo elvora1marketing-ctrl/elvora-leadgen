@@ -1,13 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-
-interface ScraperSource {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-}
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 interface ScrapeResult {
   source: string;
@@ -16,36 +9,42 @@ interface ScrapeResult {
   duplicates: number;
   skipped: number;
   errors: string[];
-  duration?: number;
 }
 
-const SOURCES: ScraperSource[] = [
-  { id: 'maps', name: 'Google Maps', description: 'Google Places API — max 60 Ergebnisse pro Suche, strukturierte Daten, höchste Qualität', icon: 'map' },
-  { id: 'branchenportal', name: 'Branchenportale', description: 'Gelbe Seiten + 11880 — klassische Branchenverzeichnisse mit Telefon & Website', icon: 'book' },
-  { id: 'websearch', name: 'Web-Suche', description: 'SearXNG — findet Firmen-Websites über Google, Bing & 70+ Quellen + Impressum-Analyse', icon: 'search' },
+interface LogEntry {
+  time: string;
+  source: string;
+  message: string;
+  type: 'info' | 'success' | 'error';
+}
+
+const SOURCES = [
+  { id: 'maps', name: 'Google Maps', description: 'Google Places API — strukturierte Daten, höchste Qualität', icon: 'map' },
+  { id: 'branchenportal', name: 'Branchenportale', description: 'Gelbe Seiten + 11880 — Branchenverzeichnisse mit Telefon & E-Mail', icon: 'book' },
+  { id: 'websearch', name: 'Web-Suche', description: 'SearXNG — Google, Bing & 70+ Quellen + Impressum-Analyse', icon: 'search' },
 ];
 
 function SourceIcon({ name }: { name: string }) {
-  if (name === 'map') {
-    return (
-      <svg className="w-5 h-5 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    );
-  }
-  if (name === 'book') {
-    return (
-      <svg className="w-5 h-5 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-      </svg>
-    );
-  }
+  if (name === 'map') return (
+    <svg className="w-5 h-5 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+  if (name === 'book') return (
+    <svg className="w-5 h-5 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+    </svg>
+  );
   return (
     <svg className="w-5 h-5 text-elvora-purple-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
     </svg>
   );
+}
+
+function nowTime() {
+  return new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 export default function ScraperHubPage() {
@@ -54,165 +53,173 @@ export default function ScraperHubPage() {
   const [selectedSources, setSelectedSources] = useState<string[]>(['maps', 'branchenportal', 'websearch']);
   const [autoEnrich, setAutoEnrich] = useState(true);
   const [scraping, setScraping] = useState(false);
-  const [currentSource, setCurrentSource] = useState<string | null>(null);
   const [results, setResults] = useState<ScrapeResult[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [mapsProgress, setMapsProgress] = useState<string | null>(null);
-  const [websearchProgress, setWebsearchProgress] = useState<string | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const consoleRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (consoleRef.current) {
+      consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  function addLog(source: string, message: string, type: LogEntry['type'] = 'info') {
+    setLogs(prev => [...prev, { time: nowTime(), source, message, type }]);
+  }
 
   function toggleSource(id: string) {
-    setSelectedSources((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
-    );
+    setSelectedSources(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
+  }
+
+  async function readStream(
+    response: Response,
+    source: string,
+    onComplete: (data: Record<string, unknown>) => void,
+  ) {
+    if (!response.body) return;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'status' || data.type === 'search_start' || data.type === 'page_progress' || data.type === 'email_scrape_progress') {
+            const msg = data.message || data.keyword || `Seite ${data.currentPage}/${data.totalPages}`;
+            addLog(source, msg);
+          } else if (data.type === 'batch_complete' || data.type === 'complete') {
+            onComplete(data);
+          }
+        } catch { /* skip */ }
+      }
+    }
   }
 
   const scrapeAll = useCallback(async () => {
-    if (!keyword.trim() || !city.trim()) {
-      setError('Bitte Keyword und Stadt eingeben');
-      return;
-    }
-    if (selectedSources.length === 0) {
-      setError('Mindestens eine Quelle auswählen');
-      return;
-    }
+    if (!keyword.trim() || !city.trim()) { setError('Bitte Keyword und Stadt eingeben'); return; }
+    if (selectedSources.length === 0) { setError('Mindestens eine Quelle auswählen'); return; }
 
     setScraping(true);
     setError(null);
     setResults([]);
-    setMapsProgress(null);
-    setWebsearchProgress(null);
+    setLogs([]);
+
+    addLog('System', `Starte Scraping: "${keyword}" in "${city}"`, 'info');
 
     const newResults: ScrapeResult[] = [];
 
     for (const sourceId of selectedSources) {
-      setCurrentSource(sourceId);
+      const sourceName = SOURCES.find(s => s.id === sourceId)?.name || sourceId;
 
       try {
         if (sourceId === 'maps') {
-          setMapsProgress('Starte Maps-Suche...');
+          addLog('Maps', 'Starte Google Maps Suche...', 'info');
           const response = await fetch('/api/scraper/maps/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ keywords: [keyword.trim()], cities: [city.trim()], maxPages: 3 }),
           });
+
           if (!response.ok) {
-            const err = await response.json().catch(() => ({ error: 'Maps-Fehler' }));
-            newResults.push({ source: 'Google Maps', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [(err as { error?: string }).error || `HTTP ${response.status}`] });
-            setResults([...newResults]);
-            continue;
+            const err = await response.json().catch(() => ({ error: 'Fehler' }));
+            addLog('Maps', (err as { error?: string }).error || `HTTP ${response.status}`, 'error');
+            newResults.push({ source: 'Google Maps', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [(err as { error?: string }).error || 'Fehler'] });
+          } else {
+            let mapsResult: ScrapeResult = { source: 'Google Maps', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [] };
+            await readStream(response, 'Maps', (data) => {
+              mapsResult = {
+                source: 'Google Maps',
+                totalFound: (data.totalFound as number) || 0,
+                imported: (data.totalImported as number) || 0,
+                duplicates: (data.totalDuplicates as number) || 0,
+                skipped: (data.totalSkipped as number) || 0,
+                errors: (data.errors as string[]) || [],
+              };
+            });
+            addLog('Maps', `Fertig: ${mapsResult.totalFound} gefunden, +${mapsResult.imported} neu`, 'success');
+            newResults.push(mapsResult);
           }
-          const reader = response.body?.getReader();
-          if (!reader) continue;
-          const decoder = new TextDecoder();
-          let buffer = '';
-          let mapsResult: ScrapeResult | null = null;
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue;
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.type === 'search_start') setMapsProgress(`Suche: ${data.keyword}...`);
-                else if (data.type === 'page_progress') setMapsProgress(`${data.keyword} — Seite ${data.currentPage}/${data.totalPages}`);
-                else if (data.type === 'email_scrape_progress') setMapsProgress(`E-Mails: ${data.emailsDone}/${data.emailsTotal}`);
-                else if (data.type === 'batch_complete') {
-                  mapsResult = {
-                    source: 'Google Maps',
-                    totalFound: data.totalFound || 0,
-                    imported: data.totalImported || 0,
-                    duplicates: data.totalDuplicates || 0,
-                    skipped: data.totalSkipped || 0,
-                    errors: data.errors || [],
-                    duration: data.duration,
-                  };
-                }
-              } catch { /* skip parse errors */ }
-            }
-          }
-          newResults.push(mapsResult || { source: 'Google Maps', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: ['Keine Ergebnisse'] });
-          setMapsProgress(null);
           setResults([...newResults]);
+
         } else if (sourceId === 'branchenportal') {
+          addLog('Portal', 'Starte Branchenportal-Suche...', 'info');
           const response = await fetch('/api/scraper/branchenportal', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ keyword: keyword.trim(), city: city.trim(), maxPages: 2, autoEnrich }),
+            body: JSON.stringify({ keyword: keyword.trim(), city: city.trim(), maxPages: 3, autoEnrich }),
           });
-          const data = await response.json();
-          newResults.push({
-            source: 'Branchenportale',
-            totalFound: response.ok ? (data.totalFound || 0) : 0,
-            imported: response.ok ? (data.imported || 0) : 0,
-            duplicates: response.ok ? (data.duplicates || 0) : 0,
-            skipped: response.ok ? (data.skipped || 0) : 0,
-            errors: response.ok ? (data.errors || []) : [data.error || 'Fehler'],
-          });
+
+          if (!response.ok || !response.body) {
+            const errData = await response.json().catch(() => ({ error: 'Fehler' }));
+            addLog('Portal', errData.error || `HTTP ${response.status}`, 'error');
+            newResults.push({ source: 'Branchenportale', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [errData.error || 'Fehler'] });
+          } else {
+            let portalResult: ScrapeResult = { source: 'Branchenportale', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [] };
+            await readStream(response, 'Portal', (data) => {
+              portalResult = {
+                source: 'Branchenportale',
+                totalFound: (data.totalFound as number) || 0,
+                imported: (data.imported as number) || 0,
+                duplicates: (data.duplicates as number) || 0,
+                skipped: (data.skipped as number) || 0,
+                errors: (data.errors as string[]) || [],
+              };
+            });
+            addLog('Portal', `Fertig: ${portalResult.totalFound} gefunden, +${portalResult.imported} neu`, 'success');
+            newResults.push(portalResult);
+          }
           setResults([...newResults]);
+
         } else if (sourceId === 'websearch') {
-          setWebsearchProgress('Starte Web-Suche...');
+          addLog('Web', 'Starte Web-Suche (SearXNG)...', 'info');
           const response = await fetch('/api/scraper/websearch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ keyword: keyword.trim(), city: city.trim(), maxResults: 20, autoEnrich }),
           });
+
           if (!response.ok || !response.body) {
             const errData = await response.json().catch(() => ({ error: 'Fehler' }));
-            newResults.push({ source: 'Web-Suche', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [errData.error || `HTTP ${response.status}`] });
+            addLog('Web', errData.error || `HTTP ${response.status}`, 'error');
+            newResults.push({ source: 'Web-Suche', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [errData.error || 'Fehler'] });
           } else {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let wsResult: ScrapeResult | null = null;
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
-              for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  if (data.type === 'status') setWebsearchProgress(data.message);
-                  else if (data.type === 'complete') {
-                    wsResult = {
-                      source: 'Web-Suche',
-                      totalFound: data.totalFound || 0,
-                      imported: data.imported || 0,
-                      duplicates: data.duplicates || 0,
-                      skipped: data.skipped || 0,
-                      errors: data.errors || [],
-                    };
-                  }
-                } catch { /* skip */ }
-              }
-            }
-            newResults.push(wsResult || { source: 'Web-Suche', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: ['Keine Antwort'] });
+            let wsResult: ScrapeResult = { source: 'Web-Suche', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [] };
+            await readStream(response, 'Web', (data) => {
+              wsResult = {
+                source: 'Web-Suche',
+                totalFound: (data.totalFound as number) || 0,
+                imported: (data.imported as number) || 0,
+                duplicates: (data.duplicates as number) || 0,
+                skipped: (data.skipped as number) || 0,
+                errors: (data.errors as string[]) || [],
+              };
+            });
+            addLog('Web', `Fertig: ${wsResult.totalFound} gefunden, +${wsResult.imported} neu`, 'success');
+            newResults.push(wsResult);
           }
-          setWebsearchProgress(null);
           setResults([...newResults]);
         }
       } catch (err) {
-        newResults.push({
-          source: SOURCES.find((s) => s.id === sourceId)?.name || sourceId,
-          totalFound: 0, imported: 0, duplicates: 0, skipped: 0,
-          errors: [err instanceof Error ? err.message : 'Unbekannter Fehler'],
-        });
+        const msg = err instanceof Error ? err.message : 'Fehler';
+        addLog(sourceName, msg, 'error');
+        newResults.push({ source: sourceName, totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [msg] });
         setResults([...newResults]);
       }
     }
 
-    setCurrentSource(null);
+    addLog('System', 'Alle Scraper abgeschlossen.', 'success');
     setScraping(false);
   }, [keyword, city, selectedSources, autoEnrich]);
 
-  let totalFound = 0;
-  let totalImported = 0;
-  let totalDuplicates = 0;
+  let totalFound = 0, totalImported = 0, totalDuplicates = 0;
   for (const r of results) {
     totalFound += r.totalFound || 0;
     totalImported += r.imported || 0;
@@ -234,7 +241,7 @@ export default function ScraperHubPage() {
               type="text"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="z.B. Heizungsinstallateur, Zahnarzt, Rechtsanwalt..."
+              placeholder="z.B. Heizungsinstallateur, Zahnarzt..."
               className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50"
             />
           </div>
@@ -251,7 +258,7 @@ export default function ScraperHubPage() {
         </div>
 
         <div>
-          <label className="block text-xs text-elvora-text-dim mb-2">Quellen auswählen</label>
+          <label className="block text-xs text-elvora-text-dim mb-2">Quellen</label>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {SOURCES.map((source) => {
               const active = selectedSources.includes(source.id);
@@ -260,11 +267,7 @@ export default function ScraperHubPage() {
                   key={source.id}
                   type="button"
                   onClick={() => toggleSource(source.id)}
-                  className={`text-left p-3 rounded-lg border transition-all ${
-                    active
-                      ? 'border-elvora-purple/50 bg-elvora-purple/10'
-                      : 'border-elvora-border bg-elvora-bg-alt hover:border-elvora-border-light'
-                  }`}
+                  className={`text-left p-3 rounded-lg border transition-all ${active ? 'border-elvora-purple/50 bg-elvora-purple/10' : 'border-elvora-border bg-elvora-bg-alt hover:border-elvora-border-light'}`}
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <SourceIcon name={source.icon} />
@@ -283,20 +286,11 @@ export default function ScraperHubPage() {
         </div>
 
         <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={autoEnrich}
-            onChange={(e) => setAutoEnrich(e.target.checked)}
-            className="w-4 h-4 rounded bg-elvora-bg-alt border-elvora-border"
-          />
+          <input type="checkbox" checked={autoEnrich} onChange={(e) => setAutoEnrich(e.target.checked)} className="w-4 h-4 rounded bg-elvora-bg-alt border-elvora-border" />
           <span className="text-sm text-elvora-text-muted">Auto-Enrichment (E-Mail & Telefon von Websites scrapen)</span>
         </label>
 
-        {error && (
-          <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
-            {error}
-          </div>
-        )}
+        {error && <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">{error}</div>}
 
         <button
           onClick={scrapeAll}
@@ -304,27 +298,55 @@ export default function ScraperHubPage() {
           className="px-5 py-2.5 rounded-lg bg-elvora-purple text-white text-sm font-medium hover:bg-elvora-purple/80 transition-colors disabled:opacity-50 flex items-center gap-2"
         >
           {scraping ? (
-            <span>Scraping läuft...</span>
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <span>Scraping läuft...</span>
+            </>
           ) : (
             <span>Alle Quellen durchsuchen</span>
           )}
         </button>
       </div>
 
-      {scraping && currentSource && (
-        <div className="card rounded-xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-4 h-4 border-2 border-elvora-purple border-t-transparent rounded-full animate-spin" />
-            <span className="text-white text-sm font-medium">
-              {SOURCES.find((s) => s.id === currentSource)?.name || currentSource}
-            </span>
-            <span className="text-elvora-text-dim text-xs ml-auto">
-              {currentSource === 'websearch' ? (websearchProgress || 'Wird durchsucht...') : (mapsProgress || 'Wird durchsucht...')}
-            </span>
+      {/* Live-Konsole */}
+      {logs.length > 0 && (
+        <div className="card rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-elvora-border bg-elvora-bg-alt/50">
+            <div className={`w-2 h-2 rounded-full ${scraping ? 'bg-green-400 animate-pulse' : 'bg-elvora-text-dim'}`} />
+            <span className="text-xs font-mono text-elvora-text-dim">Konsole</span>
+            {scraping && <span className="text-[10px] text-elvora-text-dim ml-auto">Live</span>}
+          </div>
+          <div
+            ref={consoleRef}
+            className="px-4 py-3 max-h-64 overflow-y-auto font-mono text-[11px] leading-[1.7] bg-[#0a0a12] space-y-0"
+          >
+            {logs.map((log, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-elvora-text-dim/50 shrink-0">{log.time}</span>
+                <span className={`shrink-0 w-14 ${
+                  log.source === 'System' ? 'text-elvora-purple-light' :
+                  log.source === 'Maps' ? 'text-blue-400' :
+                  log.source === 'Portal' ? 'text-yellow-400' :
+                  log.source === 'Web' ? 'text-orange-400' : 'text-elvora-text-dim'
+                }`}>[{log.source}]</span>
+                <span className={
+                  log.type === 'error' ? 'text-red-400' :
+                  log.type === 'success' ? 'text-green-400' :
+                  'text-elvora-text'
+                }>{log.message}</span>
+              </div>
+            ))}
+            {scraping && (
+              <div className="flex gap-2 text-elvora-text-dim">
+                <span className="shrink-0">{nowTime()}</span>
+                <span className="animate-pulse">_</span>
+              </div>
+            )}
           </div>
         </div>
       )}
 
+      {/* Ergebnisse */}
       {results.length > 0 && (
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-3">
@@ -351,14 +373,11 @@ export default function ScraperHubPage() {
                     <span className="text-elvora-text-muted">{r.totalFound} gefunden</span>
                     <span className="text-elvora-success">+{r.imported} neu</span>
                     {r.duplicates > 0 && <span className="text-elvora-warning">{r.duplicates} duplikat</span>}
-                    {r.duration ? <span className="text-elvora-text-dim">{(r.duration / 1000).toFixed(1)}s</span> : null}
                   </div>
                 </div>
                 {r.errors && r.errors.length > 0 && (
                   <div className="mt-2 space-y-0.5">
-                    {r.errors.map((e, j) => (
-                      <p key={j} className="text-red-400/70 text-[11px]">{e}</p>
-                    ))}
+                    {r.errors.map((e, j) => <p key={j} className="text-red-400/70 text-[11px]">{e}</p>)}
                   </div>
                 )}
               </div>
