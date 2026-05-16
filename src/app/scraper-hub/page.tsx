@@ -22,7 +22,7 @@ interface ScrapeResult {
 const SOURCES: ScraperSource[] = [
   { id: 'maps', name: 'Google Maps', description: 'Google Places API — max 60 Ergebnisse pro Suche, strukturierte Daten, höchste Qualität', icon: 'map' },
   { id: 'branchenportal', name: 'Branchenportale', description: 'Gelbe Seiten + 11880 — klassische Branchenverzeichnisse mit Telefon & Website', icon: 'book' },
-  { id: 'websearch', name: 'Web-Suche', description: 'DuckDuckGo-basiert — findet Firmen-Websites über Suchmaschine + Impressum-Analyse', icon: 'search' },
+  { id: 'websearch', name: 'Web-Suche', description: 'SearXNG — findet Firmen-Websites über Google, Bing & 70+ Quellen + Impressum-Analyse', icon: 'search' },
 ];
 
 function SourceIcon({ name }: { name: string }) {
@@ -58,6 +58,7 @@ export default function ScraperHubPage() {
   const [results, setResults] = useState<ScrapeResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [mapsProgress, setMapsProgress] = useState<string | null>(null);
+  const [websearchProgress, setWebsearchProgress] = useState<string | null>(null);
 
   function toggleSource(id: string) {
     setSelectedSources((prev) =>
@@ -79,6 +80,7 @@ export default function ScraperHubPage() {
     setError(null);
     setResults([]);
     setMapsProgress(null);
+    setWebsearchProgress(null);
 
     const newResults: ScrapeResult[] = [];
 
@@ -151,20 +153,47 @@ export default function ScraperHubPage() {
           });
           setResults([...newResults]);
         } else if (sourceId === 'websearch') {
+          setWebsearchProgress('Starte Web-Suche...');
           const response = await fetch('/api/scraper/websearch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ keyword: keyword.trim(), city: city.trim(), maxResults: 20, autoEnrich }),
           });
-          const data = await response.json();
-          newResults.push({
-            source: 'Web-Suche',
-            totalFound: response.ok ? (data.totalFound || 0) : 0,
-            imported: response.ok ? (data.imported || 0) : 0,
-            duplicates: response.ok ? (data.duplicates || 0) : 0,
-            skipped: response.ok ? (data.skipped || 0) : 0,
-            errors: response.ok ? (data.errors || []) : [data.error || 'Fehler'],
-          });
+          if (!response.ok || !response.body) {
+            const errData = await response.json().catch(() => ({ error: 'Fehler' }));
+            newResults.push({ source: 'Web-Suche', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [errData.error || `HTTP ${response.status}`] });
+          } else {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let wsResult: ScrapeResult | null = null;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.type === 'status') setWebsearchProgress(data.message);
+                  else if (data.type === 'complete') {
+                    wsResult = {
+                      source: 'Web-Suche',
+                      totalFound: data.totalFound || 0,
+                      imported: data.imported || 0,
+                      duplicates: data.duplicates || 0,
+                      skipped: data.skipped || 0,
+                      errors: data.errors || [],
+                    };
+                  }
+                } catch { /* skip */ }
+              }
+            }
+            newResults.push(wsResult || { source: 'Web-Suche', totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: ['Keine Antwort'] });
+          }
+          setWebsearchProgress(null);
           setResults([...newResults]);
         }
       } catch (err) {
@@ -290,7 +319,7 @@ export default function ScraperHubPage() {
               {SOURCES.find((s) => s.id === currentSource)?.name || currentSource}
             </span>
             <span className="text-elvora-text-dim text-xs ml-auto">
-              {mapsProgress || 'Wird durchsucht...'}
+              {currentSource === 'websearch' ? (websearchProgress || 'Wird durchsucht...') : (mapsProgress || 'Wird durchsucht...')}
             </span>
           </div>
         </div>

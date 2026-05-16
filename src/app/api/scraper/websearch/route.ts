@@ -6,6 +6,7 @@ import { type ScrapedBusiness } from '@/lib/maps-scraper';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
 
 function importBusinessesToLeads(
   db: ReturnType<typeof getDb>,
@@ -50,6 +51,9 @@ function importBusinessesToLeads(
         if (biz.email) {
           db.prepare(`UPDATE leads SET email = COALESCE(NULLIF(email, ''), ?) WHERE id = ?`).run(biz.email, existing.id);
         }
+        if (biz.phone) {
+          db.prepare(`UPDATE leads SET phone = COALESCE(NULLIF(phone, ''), ?) WHERE id = ?`).run(biz.phone, existing.id);
+        }
         duplicates++;
       } else {
         try {
@@ -87,58 +91,105 @@ export async function POST(request: NextRequest) {
   ).run(jobLabel, 1);
   const jobId = Number(jobResult.lastInsertRowid);
 
-  try {
-    const settingsRows = db.prepare("SELECT key, value FROM settings WHERE key IN ('searxng_url', 'brave_search_api_key')").all() as { key: string; value: string }[];
-    const cfg: Record<string, string> = {};
-    for (const r of settingsRows) cfg[r.key] = r.value;
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      function send(data: Record<string, unknown>) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      }
 
-    const searchResult = await searchBusinesses(keyword, city, maxResults, {
-      searxngUrl: cfg.searxng_url || undefined,
-      braveApiKey: cfg.brave_search_api_key || undefined,
-    });
+      try {
+        const settingsRows = db.prepare("SELECT key, value FROM settings WHERE key IN ('searxng_url', 'brave_search_api_key')").all() as { key: string; value: string }[];
+        const cfg: Record<string, string> = {};
+        for (const r of settingsRows) cfg[r.key] = r.value;
 
-    let businesses = searchResult.businesses;
+        send({ type: 'status', message: 'Suche läuft...' });
 
-    if (autoEnrich && searchResult.searchResults.length > 0) {
-      const enriched = await enrichSearchResults(searchResult.searchResults, city, 3);
-      if (enriched.length > 0) businesses = enriched;
-    }
+        const searchResult = await searchBusinesses(keyword, city, maxResults, {
+          searxngUrl: cfg.searxng_url || undefined,
+          braveApiKey: cfg.brave_search_api_key || undefined,
+        });
 
-    const importResult = importBusinessesToLeads(db, businesses, jobLabel);
+        send({ type: 'status', message: `${searchResult.searchResults.length} Websites gefunden` });
 
-    db.prepare(`
-      UPDATE scraper_jobs SET
-        status = 'completed',
-        businesses_found = ?,
-        businesses_imported = ?,
-        businesses_duplicate = ?,
-        errors = ?,
-        results = ?,
-        completed_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      businesses.length,
-      importResult.imported,
-      importResult.duplicates,
-      JSON.stringify(searchResult.errors),
-      JSON.stringify(businesses),
-      jobId,
-    );
+        let businesses = searchResult.businesses;
 
-    return Response.json({
-      success: true,
-      jobId,
-      totalFound: businesses.length,
-      searchResults: searchResult.searchResults.length,
-      imported: importResult.imported,
-      duplicates: importResult.duplicates,
-      skipped: importResult.skipped,
-      errors: searchResult.errors,
-    });
-  } catch (error) {
-    db.prepare("UPDATE scraper_jobs SET status = 'error', errors = ?, completed_at = datetime('now') WHERE id = ?")
-      .run(JSON.stringify([String(error)]), jobId);
-    console.error('Web search scraper error:', error);
-    return Response.json({ error: 'Scraper-Fehler' }, { status: 500 });
-  }
+        // Enrichment: visit each website for contact details
+        if (autoEnrich && searchResult.searchResults.length > 0) {
+          send({ type: 'status', message: `Impressum-Analyse: 0/${searchResult.searchResults.length}` });
+
+          const enriched: ScrapedBusiness[] = [];
+          const concurrency = 3;
+
+          for (let i = 0; i < searchResult.searchResults.length; i += concurrency) {
+            const batch = searchResult.searchResults.slice(i, i + concurrency);
+            const settled = await Promise.allSettled(
+              batch.map(async (sr) => {
+                const { enrichSearchResults } = await import('@/lib/google-search-scraper');
+                const results = await enrichSearchResults([sr], city, 1);
+                return results[0] || null;
+              }),
+            );
+
+            for (const outcome of settled) {
+              if (outcome.status === 'fulfilled' && outcome.value) enriched.push(outcome.value);
+            }
+
+            const done = Math.min(i + concurrency, searchResult.searchResults.length);
+            send({ type: 'status', message: `Impressum-Analyse: ${done}/${searchResult.searchResults.length}` });
+          }
+
+          if (enriched.length > 0) businesses = enriched;
+        }
+
+        const importResult = importBusinessesToLeads(db, businesses, jobLabel);
+
+        db.prepare(`
+          UPDATE scraper_jobs SET
+            status = 'completed',
+            businesses_found = ?,
+            businesses_imported = ?,
+            businesses_duplicate = ?,
+            errors = ?,
+            results = ?,
+            completed_at = datetime('now')
+          WHERE id = ?
+        `).run(
+          businesses.length,
+          importResult.imported,
+          importResult.duplicates,
+          JSON.stringify(searchResult.errors),
+          JSON.stringify(businesses),
+          jobId,
+        );
+
+        send({
+          type: 'complete',
+          success: true,
+          jobId,
+          totalFound: businesses.length,
+          searchResults: searchResult.searchResults.length,
+          imported: importResult.imported,
+          duplicates: importResult.duplicates,
+          skipped: importResult.skipped,
+          errors: searchResult.errors,
+        });
+      } catch (error) {
+        db.prepare("UPDATE scraper_jobs SET status = 'error', errors = ?, completed_at = datetime('now') WHERE id = ?")
+          .run(JSON.stringify([String(error)]), jobId);
+        console.error('Web search scraper error:', error);
+        send({ type: 'complete', success: false, totalFound: 0, imported: 0, duplicates: 0, skipped: 0, errors: [String(error)] });
+      }
+
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
 }
