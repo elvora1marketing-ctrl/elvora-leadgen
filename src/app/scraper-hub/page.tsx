@@ -221,13 +221,13 @@ export default function ScraperHubPage() {
 
           if (sourceId === 'maps') {
             endpoint = '/api/scraper/maps/stream';
-            body = { keywords: [keyword.trim()], cities: [ct], maxPages: deepScan ? 5 : 3 };
+            body = { keywords: [keyword.trim()], cities: [ct], maxPages: deepScan ? 10 : 3 };
           } else if (sourceId === 'branchenportal') {
             endpoint = '/api/scraper/branchenportal';
-            body = { keyword: keyword.trim(), city: ct, maxPages: deepScan ? 20 : 3, autoEnrich };
+            body = { keyword: keyword.trim(), city: ct, maxPages: deepScan ? 999 : 50, autoEnrich };
           } else if (sourceId === 'websearch') {
             endpoint = '/api/scraper/websearch';
-            body = { keyword: keyword.trim(), city: ct, maxResults: 100, autoEnrich, deepScan };
+            body = { keyword: keyword.trim(), city: ct, maxResults: deepScan ? 500 : 200, autoEnrich, deepScan };
           }
 
           const response = await fetch(endpoint, {

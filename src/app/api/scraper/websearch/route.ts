@@ -7,7 +7,7 @@ import { getDistricts } from '@/lib/german-districts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 function importBusinessesToLeads(
   db: ReturnType<typeof getDb>,

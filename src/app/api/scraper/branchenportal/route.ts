@@ -7,7 +7,7 @@ import { type ScrapedBusiness } from '@/lib/maps-scraper';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 600;
 
 const EMAIL_CONCURRENCY = 5;
 
@@ -76,7 +76,7 @@ function importBusinessesToLeads(
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { keyword, city, maxPages = 2, autoEnrich = true } = body as {
+  const { keyword, city, maxPages = 50, autoEnrich = true } = body as {
     keyword: string;
     city: string;
     maxPages?: number;

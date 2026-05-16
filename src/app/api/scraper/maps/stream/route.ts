@@ -79,6 +79,7 @@ async function scrapeEmailsForBusinesses(
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 600;
 
 /**
  * POST /api/scraper/maps/stream - Start batch scraping with SSE live progress
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const pages = Math.min(Math.max(1, Number(maxPages) || 3), 3);
+  const pages = Math.min(Math.max(1, Number(maxPages) || 3), 10);
   const totalSearches = keywords.length * searchLocations.length;
 
   const encoder = new TextEncoder();

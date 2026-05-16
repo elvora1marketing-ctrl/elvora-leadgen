@@ -277,7 +277,7 @@ function parseGelbeSeitenHtml(html: string, city: string): ScrapedBusiness[] {
 export async function scrapeGelbeSeiten(
   keyword: string,
   city: string,
-  maxPages: number = 3,
+  maxPages: number = 50,
 ): Promise<BranchenportalResult> {
   const startTime = Date.now();
   const allBusinesses: ScrapedBusiness[] = [];
@@ -526,7 +526,7 @@ function parse11880Html(html: string, city: string): ScrapedBusiness[] {
 export async function scrape11880(
   keyword: string,
   city: string,
-  maxPages: number = 3,
+  maxPages: number = 50,
 ): Promise<BranchenportalResult> {
   const startTime = Date.now();
   const allBusinesses: ScrapedBusiness[] = [];
