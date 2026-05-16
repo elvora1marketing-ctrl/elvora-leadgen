@@ -88,11 +88,14 @@ export async function POST(request: NextRequest) {
   const jobId = Number(jobResult.lastInsertRowid);
 
   try {
-    // Load Brave Search API key from settings
-    const braveRow = db.prepare("SELECT value FROM settings WHERE key = 'brave_search_api_key'").get() as { value: string } | undefined;
-    const braveApiKey = braveRow?.value || undefined;
+    const settingsRows = db.prepare("SELECT key, value FROM settings WHERE key IN ('searxng_url', 'brave_search_api_key')").all() as { key: string; value: string }[];
+    const cfg: Record<string, string> = {};
+    for (const r of settingsRows) cfg[r.key] = r.value;
 
-    const searchResult = await searchBusinesses(keyword, city, maxResults, braveApiKey);
+    const searchResult = await searchBusinesses(keyword, city, maxResults, {
+      searxngUrl: cfg.searxng_url || undefined,
+      braveApiKey: cfg.brave_search_api_key || undefined,
+    });
 
     let businesses = searchResult.businesses;
 

@@ -60,6 +60,7 @@ export default function SettingsPage() {
   const [rapidapiKey, setRapidapiKey] = useState('');
   const [rapidapiLinkedinHost, setRapidapiLinkedinHost] = useState('fresh-linkedin-profile-data.p.rapidapi.com');
   const [braveSearchApiKey, setBraveSearchApiKey] = useState('');
+  const [searxngUrl, setSearxngUrl] = useState('http://localhost:8888');
 
   const [agencyName, setAgencyName] = useState('');
   const [agencyAddress, setAgencyAddress] = useState('');
@@ -113,6 +114,7 @@ export default function SettingsPage() {
         if (data.rapidapi_key) setRapidapiKey(data.rapidapi_key);
         if (data.rapidapi_linkedin_host) setRapidapiLinkedinHost(data.rapidapi_linkedin_host);
         if (data.brave_search_api_key) setBraveSearchApiKey(data.brave_search_api_key);
+        if (data.searxng_url) setSearxngUrl(data.searxng_url);
         if (data.ai_personalization_enabled) setAiEnabled(data.ai_personalization_enabled === 'true');
         if (data.ai_classify_enabled) setAiClassifyEnabled(data.ai_classify_enabled === 'true');
         if (data.openai_api_key) setOpenaiApiKey(data.openai_api_key);
@@ -226,6 +228,7 @@ export default function SettingsPage() {
         rapidapi_key: rapidapiKey,
         rapidapi_linkedin_host: rapidapiLinkedinHost,
         brave_search_api_key: braveSearchApiKey,
+        searxng_url: searxngUrl,
         ai_personalization_enabled: aiEnabled ? 'true' : 'false',
         ai_classify_enabled: aiClassifyEnabled ? 'true' : 'false',
         openai_api_key: openaiApiKey,
@@ -480,21 +483,35 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Brave Search API */}
+        {/* Web-Suche: SearXNG + Brave */}
         <div className="card rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <span className="text-sm font-semibold text-elvora-text">Web-Suche</span>
-            <span className="px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-400 text-[10px] font-semibold">BRAVE</span>
+            <span className="px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-400 text-[10px] font-semibold">SEARXNG</span>
           </div>
           <p className="text-xs text-elvora-text-dim mb-4">
-            Die Web-Suche im Scraper Hub nutzt die Brave Search API, um Firmen-Websites zu finden. Kostenlos: 2.000 Suchanfragen/Monat, keine Kreditkarte nötig.
+            Die Web-Suche nutzt eine lokale SearXNG-Instanz (Metasuchmaschine, unlimitiert, kostenlos). Durchsucht Google, Bing &amp; 70+ Quellen gleichzeitig.
           </p>
           <div className="space-y-3">
             <div>
-              <label className="block text-xs text-elvora-text-dim mb-1">Brave Search API-Key</label>
+              <label className="block text-xs text-elvora-text-dim mb-1">SearXNG URL</label>
+              <input
+                type="text"
+                value={searxngUrl}
+                onChange={(e) => setSearxngUrl(e.target.value)}
+                placeholder="http://localhost:8888"
+                className={inputMonoClass}
+              />
+            </div>
+            <p className="text-[11px] text-elvora-text-dim">
+              SearXNG starten:<br />
+              <code className="bg-white/5 px-1.5 py-0.5 rounded text-[10px]">docker run -d --name searxng --restart unless-stopped -p 8888:8080 searxng/searxng</code>
+            </p>
+            <div className="border-t border-white/5 pt-3 mt-3">
+              <label className="block text-xs text-elvora-text-dim mb-1">Brave Search API-Key <span className="text-elvora-text-dim/50">(optional, Fallback)</span></label>
               <input
                 type="password"
                 value={braveSearchApiKey}
@@ -502,12 +519,10 @@ export default function SettingsPage() {
                 placeholder="BSA..."
                 className={inputMonoClass}
               />
+              <p className="text-[11px] text-elvora-text-dim mt-1">
+                Fallback wenn SearXNG nicht läuft. Kostenlos auf brave.com/search/api (2.000/Monat).
+              </p>
             </div>
-            <p className="text-[11px] text-elvora-text-dim">
-              1. Gehe zu brave.com/search/api und erstelle ein Konto<br />
-              2. Wähle den &quot;Free&quot;-Plan (2.000 Queries/Monat)<br />
-              3. Erstelle einen API-Key und füge ihn hier ein
-            </p>
           </div>
         </div>
 

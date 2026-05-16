@@ -233,6 +233,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
     has_email: 5,
     multiple_found: 5,
   }),
+  searxng_url: 'http://localhost:8888',
   brave_search_api_key: '',
   agency_name: '',
   agency_address: '',
