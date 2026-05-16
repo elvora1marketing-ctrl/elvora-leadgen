@@ -3,10 +3,11 @@ import getDb from '@/lib/db';
 import { searchBusinesses, enrichSearchResults } from '@/lib/google-search-scraper';
 import { normalizeWebsite } from '@/lib/utils';
 import { type ScrapedBusiness } from '@/lib/maps-scraper';
+import { getDistricts } from '@/lib/german-districts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 function importBusinessesToLeads(
   db: ReturnType<typeof getDb>,
@@ -73,11 +74,12 @@ function importBusinessesToLeads(
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { keyword, city, maxResults = 100, autoEnrich = true } = body as {
+  const { keyword, city, maxResults = 100, autoEnrich = true, deepScan = false } = body as {
     keyword: string;
     city: string;
     maxResults?: number;
     autoEnrich?: boolean;
+    deepScan?: boolean;
   };
 
   if (!keyword || !city) {
@@ -85,7 +87,7 @@ export async function POST(request: NextRequest) {
   }
 
   const db = getDb();
-  const jobLabel = `Websuche: ${keyword} in ${city}`;
+  const jobLabel = `Websuche${deepScan ? ' (Tiefenscan)' : ''}: ${keyword} in ${city}`;
   const jobResult = db.prepare(
     "INSERT INTO scraper_jobs (keyword, max_pages, status, started_at) VALUES (?, ?, 'running', datetime('now'))"
   ).run(jobLabel, 1);
@@ -95,7 +97,9 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       function send(data: Record<string, unknown>) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch { /* stream closed */ }
       }
 
       try {
@@ -103,29 +107,83 @@ export async function POST(request: NextRequest) {
         const cfg: Record<string, string> = {};
         for (const r of settingsRows) cfg[r.key] = r.value;
 
-        send({ type: 'status', message: 'Suche läuft...' });
-
-        const searchResult = await searchBusinesses(keyword, city, maxResults, {
+        const searchOpts = {
           searxngUrl: cfg.searxng_url || undefined,
           braveApiKey: cfg.brave_search_api_key || undefined,
-        });
+        };
 
-        send({ type: 'status', message: `${searchResult.searchResults.length} Websites gefunden` });
+        // Build search queries: city + districts (deep scan)
+        const searchQueries: Array<{ query: string; label: string }> = [
+          { query: city, label: city },
+        ];
 
-        let businesses = searchResult.businesses;
+        if (deepScan) {
+          const districts = getDistricts(city);
+          if (districts.length > 0) {
+            send({ type: 'status', message: `Tiefenscan: ${city} + ${districts.length} Stadtteile` });
+            for (const d of districts) {
+              searchQueries.push({ query: `${city} ${d}`, label: `${city}-${d}` });
+            }
+          } else {
+            send({ type: 'status', message: `Tiefenscan: Keine Stadtteile für ${city} hinterlegt, nur Stadtsuche` });
+          }
+        }
+
+        send({ type: 'status', message: `Suche läuft... (${searchQueries.length} ${searchQueries.length === 1 ? 'Suche' : 'Suchen'})` });
+
+        // Search all queries, deduplicate across all
+        const allSearchResults: Array<{ title: string; url: string; snippet: string }> = [];
+        const seenDomains = new Set<string>();
+        const allErrors: string[] = [];
+
+        for (let qi = 0; qi < searchQueries.length; qi++) {
+          const sq = searchQueries[qi];
+          const perQueryMax = deepScan ? Math.max(50, Math.floor(maxResults / searchQueries.length * 2)) : maxResults;
+
+          const searchResult = await searchBusinesses(keyword, sq.query, perQueryMax, searchOpts);
+
+          if (searchResult.errors.length > 0) allErrors.push(...searchResult.errors);
+
+          let newCount = 0;
+          for (const sr of searchResult.searchResults) {
+            const domain = normalizeWebsite(sr.url);
+            if (!domain || seenDomains.has(domain)) continue;
+            seenDomains.add(domain);
+            allSearchResults.push(sr);
+            newCount++;
+          }
+
+          if (searchQueries.length > 1) {
+            send({ type: 'status', message: `[${qi + 1}/${searchQueries.length}] ${sq.label}: +${newCount} neue (gesamt: ${allSearchResults.length})` });
+          }
+        }
+
+        send({ type: 'status', message: `${allSearchResults.length} einzigartige Websites gefunden` });
+
+        let businesses: ScrapedBusiness[] = allSearchResults.map((sr) => ({
+          name: sr.title || normalizeWebsite(sr.url),
+          address: city,
+          city,
+          phone: null,
+          website: sr.url,
+          email: null,
+          rating: null,
+          reviews: null,
+          category: keyword,
+          placeId: null,
+        }));
 
         // Enrichment: visit each website for contact details
-        if (autoEnrich && searchResult.searchResults.length > 0) {
-          send({ type: 'status', message: `Impressum-Analyse: 0/${searchResult.searchResults.length}` });
+        if (autoEnrich && allSearchResults.length > 0) {
+          send({ type: 'status', message: `Impressum-Analyse: 0/${allSearchResults.length}` });
 
           const enriched: ScrapedBusiness[] = [];
           const concurrency = 3;
 
-          for (let i = 0; i < searchResult.searchResults.length; i += concurrency) {
-            const batch = searchResult.searchResults.slice(i, i + concurrency);
+          for (let i = 0; i < allSearchResults.length; i += concurrency) {
+            const batch = allSearchResults.slice(i, i + concurrency);
             const settled = await Promise.allSettled(
               batch.map(async (sr) => {
-                const { enrichSearchResults } = await import('@/lib/google-search-scraper');
                 const results = await enrichSearchResults([sr], city, 1);
                 return results[0] || null;
               }),
@@ -135,8 +193,8 @@ export async function POST(request: NextRequest) {
               if (outcome.status === 'fulfilled' && outcome.value) enriched.push(outcome.value);
             }
 
-            const done = Math.min(i + concurrency, searchResult.searchResults.length);
-            send({ type: 'status', message: `Impressum-Analyse: ${done}/${searchResult.searchResults.length}` });
+            const done = Math.min(i + concurrency, allSearchResults.length);
+            send({ type: 'status', message: `Impressum-Analyse: ${done}/${allSearchResults.length}` });
           }
 
           if (enriched.length > 0) businesses = enriched;
@@ -158,7 +216,7 @@ export async function POST(request: NextRequest) {
           businesses.length,
           importResult.imported,
           importResult.duplicates,
-          JSON.stringify(searchResult.errors),
+          JSON.stringify(allErrors),
           JSON.stringify(businesses),
           jobId,
         );
@@ -168,11 +226,11 @@ export async function POST(request: NextRequest) {
           success: true,
           jobId,
           totalFound: businesses.length,
-          searchResults: searchResult.searchResults.length,
+          searchResults: allSearchResults.length,
           imported: importResult.imported,
           duplicates: importResult.duplicates,
           skipped: importResult.skipped,
-          errors: searchResult.errors,
+          errors: allErrors,
         });
       } catch (error) {
         db.prepare("UPDATE scraper_jobs SET status = 'error', errors = ?, completed_at = datetime('now') WHERE id = ?")

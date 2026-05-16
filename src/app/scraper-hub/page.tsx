@@ -44,6 +44,7 @@ export default function ScraperHubPage() {
   const [radius, setRadius] = useState(50);
   const [selectedSources, setSelectedSources] = useState<string[]>(['maps', 'branchenportal', 'websearch']);
   const [autoEnrich, setAutoEnrich] = useState(true);
+  const [deepScan, setDeepScan] = useState(false);
   const [phase, setPhase] = useState<Phase>('config');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [countResult, setCountResult] = useState<CountResult | null>(null);
@@ -133,6 +134,7 @@ export default function ScraperHubPage() {
           keyword: keyword.trim(),
           cities: targetCities,
           sources: selectedSources,
+          deepScan,
         }),
         signal: controller.signal,
       });
@@ -194,7 +196,7 @@ export default function ScraperHubPage() {
         setPhase('config');
       }
     }
-  }, [keyword, city, searchMode, radius, selectedSources]);
+  }, [keyword, city, searchMode, radius, selectedSources, deepScan]);
 
   // Phase 2: Scrapen
   const startScraping = useCallback(async () => {
@@ -219,13 +221,13 @@ export default function ScraperHubPage() {
 
           if (sourceId === 'maps') {
             endpoint = '/api/scraper/maps/stream';
-            body = { keywords: [keyword.trim()], cities: [ct], maxPages: 3 };
+            body = { keywords: [keyword.trim()], cities: [ct], maxPages: deepScan ? 5 : 3 };
           } else if (sourceId === 'branchenportal') {
             endpoint = '/api/scraper/branchenportal';
-            body = { keyword: keyword.trim(), city: ct, maxPages: 3, autoEnrich };
+            body = { keyword: keyword.trim(), city: ct, maxPages: deepScan ? 20 : 3, autoEnrich };
           } else if (sourceId === 'websearch') {
             endpoint = '/api/scraper/websearch';
-            body = { keyword: keyword.trim(), city: ct, maxResults: 100, autoEnrich };
+            body = { keyword: keyword.trim(), city: ct, maxResults: 100, autoEnrich, deepScan };
           }
 
           const response = await fetch(endpoint, {
@@ -292,7 +294,7 @@ export default function ScraperHubPage() {
 
     addLog('System', `Fertig: ${totals.found} gefunden, ${totals.imported} importiert, ${totals.duplicates} Duplikate`, 'success');
     setPhase('done');
-  }, [keyword, cities, selectedSources, autoEnrich]);
+  }, [keyword, cities, selectedSources, autoEnrich, deepScan]);
 
   const totalFound = results.reduce((s, r) => s + r.totalFound, 0);
   const totalImported = results.reduce((s, r) => s + r.imported, 0);
@@ -396,10 +398,16 @@ export default function ScraperHubPage() {
           </div>
         </div>
 
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input type="checkbox" checked={autoEnrich} onChange={(e) => setAutoEnrich(e.target.checked)} className="w-4 h-4 rounded bg-elvora-bg-alt border-elvora-border" />
-          <span className="text-xs text-elvora-text-muted">Auto-Enrichment (E-Mail & Telefon via Impressum)</span>
-        </label>
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={autoEnrich} onChange={(e) => setAutoEnrich(e.target.checked)} className="w-4 h-4 rounded bg-elvora-bg-alt border-elvora-border" />
+            <span className="text-xs text-elvora-text-muted">Auto-Enrichment (E-Mail & Telefon via Impressum)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={deepScan} onChange={(e) => setDeepScan(e.target.checked)} className="w-4 h-4 rounded bg-elvora-bg-alt border-elvora-border" />
+            <span className="text-xs text-elvora-text-muted">Tiefenscan — Web-Suche auch pro Stadtteil (findet mehr Firmen, dauert länger)</span>
+          </label>
+        </div>
 
         {/* Action Buttons */}
         <div className="flex gap-3">

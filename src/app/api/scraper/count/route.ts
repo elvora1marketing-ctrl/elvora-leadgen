@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import getDb from '@/lib/db';
+import { getDistricts } from '@/lib/german-districts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -212,14 +213,14 @@ async function countMaps(keyword: string, city: string, apiKey: string): Promise
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest) {
-  let body: { keyword?: string; cities?: string[]; sources?: string[] };
+  let body: { keyword?: string; cities?: string[]; sources?: string[]; deepScan?: boolean };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: 'Ungültiger Request-Body' }, { status: 400 });
   }
 
-  const { keyword, cities, sources } = body;
+  const { keyword, cities, sources, deepScan = false } = body;
 
   if (!keyword || typeof keyword !== 'string' || keyword.trim().length < 2) {
     return Response.json({ error: 'Keyword ist erforderlich (min. 2 Zeichen)' }, { status: 400 });
@@ -294,9 +295,19 @@ export async function POST(request: NextRequest) {
               case 'branchenportal':
                 count = await countBranchenportal(cleanKeyword, city);
                 break;
-              case 'websearch':
+              case 'websearch': {
                 count = await countWebsearch(cleanKeyword, city, searxngUrl);
+                if (deepScan) {
+                  const districts = getDistricts(city);
+                  if (districts.length > 0) {
+                    // Estimate: each district typically yields ~40-60% unique results vs city search
+                    const districtMultiplier = Math.min(districts.length, 20);
+                    count = Math.round(count * (1 + districtMultiplier * 0.5));
+                    send({ type: 'status', message: `${city}: Tiefenscan mit ${districts.length} Stadtteilen → ~${count} geschätzt` });
+                  }
+                }
                 break;
+              }
               case 'maps':
                 count = await countMaps(cleanKeyword, city, mapsApiKey);
                 break;
@@ -309,7 +320,6 @@ export async function POST(request: NextRequest) {
               city,
               message: err instanceof Error ? err.message : 'Unbekannter Fehler',
             });
-            // Continue with other sources/cities
           }
 
           bySource[source] = (bySource[source] || 0) + count;
