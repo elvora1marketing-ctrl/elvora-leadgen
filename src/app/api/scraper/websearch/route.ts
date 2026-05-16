@@ -73,7 +73,7 @@ function importBusinessesToLeads(
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { keyword, city, maxResults = 20, autoEnrich = true } = body as {
+  const { keyword, city, maxResults = 100, autoEnrich = true } = body as {
     keyword: string;
     city: string;
     maxResults?: number;
