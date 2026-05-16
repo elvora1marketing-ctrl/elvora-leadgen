@@ -470,6 +470,31 @@ export const CITY_DISTRICTS: Record<string, string[]> = {
     'Sandow', 'Sachsendorf', 'Madlow', 'Ströbitz', 'Spremberger Vorstadt',
     'Schmellwitz', 'Sielow', 'Dissenchen', 'Branitz', 'Kahren',
   ],
+
+  'Bergisch Gladbach': [
+    'Bensberg', 'Refrath', 'Schildgen', 'Paffrath', 'Hand',
+    'Gronau', 'Heidkamp', 'Frankenforst', 'Herkenrath', 'Moitzfeld',
+  ],
+
+  Bottrop: [
+    'Kirchhellen', 'Boy', 'Welheim', 'Batenbrock', 'Fuhlenbrock',
+    'Eigen', 'Ebel', 'Welheimer Mark', 'Grafenwald', 'Feldhausen',
+  ],
+
+  Recklinghausen: [
+    'Süd', 'Suderwich', 'König-Ludwig', 'Hochlarmark', 'Hillerheide',
+    'Grullbad', 'Hochlar', 'Stuckenbusch', 'Speckhorn', 'Berghausen',
+  ],
+
+  Witten: [
+    'Annen', 'Stockum', 'Heven', 'Herbede', 'Bommern',
+    'Rüdinghausen', 'Durchholz', 'Vormholz', 'Crengeldanz',
+  ],
+
+  Gütersloh: [
+    'Friedrichsdorf', 'Spexard', 'Avenwedde', 'Isselhorst', 'Nordhorn',
+    'Blankenhagen', 'Pavenstädt', 'Sundern', 'Kattenstroth',
+  ],
 };
 
 export function getDistricts(cityName: string): string[] {
