@@ -218,7 +218,7 @@ async function fetchBraveResults(
 ): Promise<{ results: SearchResult[]; error: string | null }> {
   const seenDomains = new Set<string>();
   const allItems: Array<{ url: string; title: string; snippet: string }> = [];
-  const pages = Math.ceil(Math.min(maxResults, 40) / 20);
+  const pages = Math.ceil(Math.min(maxResults, 200) / 20);
 
   for (let page = 0; page < pages; page++) {
     try {
@@ -358,7 +358,7 @@ export async function searchBusinesses(
   if (searchResults.length === 0) {
     console.log('[WebSearch] Öffentliche SearXNG-Instanzen...');
     for (const instance of PUBLIC_SEARXNG) {
-      const pub = await fetchSearxng(instance, query, maxResults, 2);
+      const pub = await fetchSearxng(instance, query, maxResults, 5);
       if (pub.results.length > 0) {
         console.log(`[WebSearch] ${instance}: ${pub.results.length} Ergebnisse`);
         searchResults = pub.results;

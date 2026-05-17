@@ -320,7 +320,20 @@ export async function scrapeGelbeSeiten(
           errors,
         );
 
-        if (!ajaxHtml) break;
+        if (!ajaxHtml) {
+          // Retry once after short wait
+          await delay(3000);
+          const retry = await fetchPost(
+            'https://www.gelbeseiten.de/ajaxsuche',
+            { WAS: keyword, WO: city, position: String(position), anzahl: String(ajaxBatchSize), umkreis: '50' },
+            errors,
+          );
+          if (!retry) break;
+          const retryParsed = parseGelbeSeitenHtml(retry, city);
+          if (retryParsed.length === 0) break;
+          allBusinesses.push(...retryParsed);
+          continue;
+        }
 
         const ajaxParsed = parseGelbeSeitenHtml(ajaxHtml, city);
         console.log(`[Branchenportal] Gelbe Seiten AJAX Batch ${batch + 1}: ${ajaxParsed.length} Ergebnisse`);
@@ -541,8 +554,13 @@ export async function scrape11880(
 
     console.log(`[Branchenportal] 11880: "${keyword}" in "${city}" — Seite ${page}/${maxPages}`);
 
-    const html = await fetchPage(url, errors);
-    if (!html) break;
+    let html = await fetchPage(url, errors);
+    if (!html) {
+      // Retry once
+      await delay(3000);
+      html = await fetchPage(url, errors);
+      if (!html) break;
+    }
 
     const parsed = parse11880Html(html, city);
     console.log(`[Branchenportal] 11880 Seite ${page}: ${parsed.length} Ergebnisse`);

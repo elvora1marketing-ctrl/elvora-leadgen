@@ -349,11 +349,11 @@ async function scrapeWebSearch(
 
     jobRunner.addLog(jobId, 'Web', `[${qi + 1}/${searchQueries.length}] ${sq.label}: +${newCount} neu (gesamt: ${allSearchResults.length})`, newCount > 0 ? 'info' : 'warn');
 
-    // Stop early if 3 queries in a row returned nothing new
+    // Stop early if 5 queries in a row returned nothing new
     if (newCount === 0) {
       zeroResultsInRow++;
-      if (zeroResultsInRow >= 3 && qi > 0) {
-        jobRunner.addLog(jobId, 'Web', `${city}: 3× keine neuen — überspringe Rest`, 'warn');
+      if (zeroResultsInRow >= 5 && qi > 2) {
+        jobRunner.addLog(jobId, 'Web', `${city}: 5× keine neuen — überspringe Rest`, 'warn');
         break;
       }
     } else {
