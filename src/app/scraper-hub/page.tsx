@@ -70,6 +70,7 @@ export default function ScraperHubPage() {
       .then(data => {
         if (data.jobs?.length > 0) {
           const job = data.jobs[0];
+          setLogs([]);
           setStats(job.stats);
           setProgress(job.progress);
           connectToJobRef.current?.(job.id);
@@ -87,16 +88,32 @@ export default function ScraperHubPage() {
     setActiveJobId(jobId);
     setPhase('scraping');
 
+    // Buffer for batch replay on reconnect
+    let replayBuffer: LogEntry[] = [];
+    let isReplaying = true;
+    const replayTimer = setTimeout(() => {
+      if (replayBuffer.length > 0) {
+        setLogs(replayBuffer);
+        replayBuffer = [];
+      }
+      isReplaying = false;
+    }, 500);
+
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'log') {
-          setLogs(prev => [...prev, {
+          const entry: LogEntry = {
             time: formatTime(data.time),
             source: data.source,
             message: data.message,
             type: data.logType || 'info',
-          }]);
+          };
+          if (isReplaying) {
+            replayBuffer.push(entry);
+          } else {
+            setLogs(prev => [...prev, entry]);
+          }
         } else if (data.type === 'stats') {
           setStats({
             totalFound: data.totalFound || 0,
@@ -106,6 +123,12 @@ export default function ScraperHubPage() {
         } else if (data.type === 'progress') {
           setProgress({ current: data.current || 0, total: data.total || 0, label: data.label || '' });
         } else if (data.type === 'done') {
+          clearTimeout(replayTimer);
+          if (replayBuffer.length > 0) {
+            setLogs(replayBuffer);
+            replayBuffer = [];
+          }
+          isReplaying = false;
           setPhase('done');
           if (data.stats) {
             setStats({
@@ -120,9 +143,14 @@ export default function ScraperHubPage() {
     };
 
     es.onerror = () => {
-      // SSE reconnects automatically, but if job is done we close
       setTimeout(() => {
         if (es.readyState === EventSource.CLOSED) {
+          clearTimeout(replayTimer);
+          if (replayBuffer.length > 0) {
+            setLogs(replayBuffer);
+            replayBuffer = [];
+          }
+          isReplaying = false;
           setPhase('done');
         }
       }, 2000);
