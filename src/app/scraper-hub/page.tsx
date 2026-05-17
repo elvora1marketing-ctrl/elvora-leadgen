@@ -36,7 +36,7 @@ export default function ScraperHubPage() {
   const [inputMode, setInputMode] = useState<InputMode>('keyword');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [radius, setRadius] = useState(50);
-  const [selectedSources, setSelectedSources] = useState<string[]>(['maps', 'branchenportal', 'websearch']);
+  const [selectedSources, setSelectedSources] = useState<string[]>(['branchenportal', 'websearch']);
   const [autoEnrich, setAutoEnrich] = useState(true);
   const [deepScan, setDeepScan] = useState(false);
   const [phase, setPhase] = useState<Phase>('config');
@@ -365,7 +365,12 @@ export default function ScraperHubPage() {
             ]).map(mode => (
               <button
                 key={mode.id}
-                onClick={() => setSearchMode(mode.id)}
+                onClick={() => {
+                  setSearchMode(mode.id);
+                  if (mode.id === 'germany') {
+                    setSelectedSources(prev => prev.filter(s => s !== 'maps'));
+                  }
+                }}
                 disabled={phase === 'scraping'}
                 className={`px-4 py-2 rounded-lg text-xs font-medium transition-all ${
                   searchMode === mode.id
@@ -405,7 +410,7 @@ export default function ScraperHubPage() {
                 disabled={phase === 'scraping'}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
                   selectedSources.includes(source.id)
-                    ? 'bg-elvora-purple/15 border border-elvora-purple/40 text-white'
+                    ? source.id === 'maps' ? 'bg-yellow-600/20 border border-yellow-500/40 text-white' : 'bg-elvora-purple/15 border border-elvora-purple/40 text-white'
                     : 'bg-elvora-bg-alt border border-elvora-border text-elvora-text-dim'
                 } disabled:opacity-50`}
               >
@@ -415,8 +420,15 @@ export default function ScraperHubPage() {
                   </svg>
                 )}
                 {source.name}
+                {source.id === 'maps' && <span className="text-[9px] text-yellow-400">$</span>}
               </button>
             ))}
+          </div>
+          {selectedSources.includes('maps') && (searchMode === 'germany' || searchMode === 'radius') && (
+            <p className="mt-2 text-[11px] text-yellow-400">
+              Google Maps API kostet ~$32/1.000 Requests. Bei {searchMode === 'germany' ? '428 Städten' : 'Umkreis-Scan'} wird das teuer. Web-Suche + Branchenportale sind kostenlos.
+            </p>
+          )}
           </div>
         </div>
 
