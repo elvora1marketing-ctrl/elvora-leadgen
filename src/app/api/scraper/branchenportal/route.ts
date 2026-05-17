@@ -4,6 +4,7 @@ import { scrapeGelbeSeiten, scrape11880, type BranchenportalResult } from '@/lib
 import { normalizeWebsite } from '@/lib/utils';
 import { parseImpressum } from '@/lib/impressum-parser';
 import { type ScrapedBusiness } from '@/lib/maps-scraper';
+import { detectCategory } from '@/lib/lead-categories';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,14 +16,17 @@ function importBusinessesToLeads(
   db: ReturnType<typeof getDb>,
   businesses: ScrapedBusiness[],
   source: string,
+  keyword: string,
 ): { imported: number; duplicates: number; skipped: number } {
   let imported = 0;
   let duplicates = 0;
   let skipped = 0;
 
+  const category = detectCategory(keyword);
+
   const insertLead = db.prepare(`
-    INSERT INTO leads (name, website_original, website_normalized, phone, email, city, status, found_via_keywords, score, rating)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, 'pending')
+    INSERT INTO leads (name, website_original, website_normalized, phone, email, city, status, found_via_keywords, score, rating, category)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, 'pending', ?)
   `);
 
   const updateSeen = db.prepare(`
@@ -60,7 +64,7 @@ function importBusinessesToLeads(
         duplicates++;
       } else {
         try {
-          insertLead.run(biz.name, biz.website || null, websiteNorm, biz.phone || null, biz.email || null, biz.city || 'Unbekannt', source);
+          insertLead.run(biz.name, biz.website || null, websiteNorm, biz.phone || null, biz.email || null, biz.city || 'Unbekannt', source, category);
           imported++;
         } catch (err) {
           console.error(`Failed to import "${biz.name}":`, err);
@@ -164,7 +168,7 @@ export async function POST(request: NextRequest) {
 
         // Import
         send({ type: 'status', message: 'Importiere in Datenbank...' });
-        const importResult = importBusinessesToLeads(db, allBusinesses, jobLabel);
+        const importResult = importBusinessesToLeads(db, allBusinesses, jobLabel, keyword);
 
         db.prepare(`
           UPDATE scraper_jobs SET

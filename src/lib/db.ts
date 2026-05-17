@@ -695,6 +695,19 @@ export function getDb(): Database.Database {
       console.error('[DB] Panel password migration error:', e);
     }
 
+    // Migration: Add category column to leads
+    try {
+      const colCheckCat = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colNamesCat = colCheckCat.map(c => c.name);
+      if (!colNamesCat.includes('category')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN category TEXT");
+        instance.exec("CREATE INDEX IF NOT EXISTS idx_leads_category ON leads(category)");
+        console.log('[DB] Migration: added category column');
+      }
+    } catch (e) {
+      console.error('[DB] Category column migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }

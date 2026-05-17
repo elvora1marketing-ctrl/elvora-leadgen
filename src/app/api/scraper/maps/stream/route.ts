@@ -6,6 +6,7 @@ import { expandCityToStadtteile } from '@/lib/stadtteile';
 import { findCitiesInRadius } from '@/lib/umkreis';
 
 import { parseImpressum } from '@/lib/impressum-parser';
+import { detectCategory } from '@/lib/lead-categories';
 
 const EMAIL_FETCH_TIMEOUT = 5000;
 const EMAIL_CONCURRENCY = 5;
@@ -342,9 +343,11 @@ function importBusinessesToLeads(
   let duplicates = 0;
   let skipped = 0;
 
+  const category = detectCategory(keyword);
+
   const insertLead = db.prepare(`
-    INSERT INTO leads (name, website_original, website_normalized, phone, email, city, status, found_via_keywords, score, rating)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, 'pending')
+    INSERT INTO leads (name, website_original, website_normalized, phone, email, city, status, found_via_keywords, score, rating, category)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, 'pending', ?)
   `);
 
   const updateSeen = db.prepare(`
@@ -392,6 +395,7 @@ function importBusinessesToLeads(
             biz.email || null,
             biz.city || 'Unbekannt',
             keyword,
+            category,
           );
           imported++;
         } catch (err) {

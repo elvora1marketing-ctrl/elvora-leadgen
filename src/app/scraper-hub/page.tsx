@@ -382,22 +382,20 @@ export default function ScraperHubPage() {
         </div>
       )}
 
-      {/* Ergebnisse */}
-      {results.length > 0 && (
-        <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
-            <div className="card rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-white">{totalFound.toLocaleString('de-DE')}</div>
-              <div className="text-xs text-elvora-text-dim mt-1">Gefunden</div>
-            </div>
-            <div className="card rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-elvora-success">{totalImported.toLocaleString('de-DE')}</div>
-              <div className="text-xs text-elvora-text-dim mt-1">Neu importiert</div>
-            </div>
-            <div className="card rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-elvora-warning">{totalDuplicates.toLocaleString('de-DE')}</div>
-              <div className="text-xs text-elvora-text-dim mt-1">Duplikate</div>
-            </div>
+      {/* Live Stats */}
+      {(phase === 'scraping' || results.length > 0) && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="card rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-white">{totalFound.toLocaleString('de-DE')}</div>
+            <div className="text-xs text-elvora-text-dim mt-1">Gefunden</div>
+          </div>
+          <div className="card rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-elvora-success">{totalImported.toLocaleString('de-DE')}</div>
+            <div className="text-xs text-elvora-text-dim mt-1">Neu importiert</div>
+          </div>
+          <div className="card rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-elvora-warning">{totalDuplicates.toLocaleString('de-DE')}</div>
+            <div className="text-xs text-elvora-text-dim mt-1">Duplikate</div>
           </div>
         </div>
       )}
