@@ -9,15 +9,6 @@ interface LogEntry {
   type: 'info' | 'success' | 'error' | 'warn';
 }
 
-interface ScrapeResult {
-  source: string;
-  totalFound: number;
-  imported: number;
-  duplicates: number;
-  skipped: number;
-  errors: string[];
-}
-
 interface Category {
   id: string;
   name: string;
@@ -34,8 +25,8 @@ const SOURCES = [
   { id: 'websearch', name: 'Web-Suche', color: 'text-orange-400' },
 ];
 
-function nowTime() {
-  return new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+function formatTime(ts: number) {
+  return new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 export default function ScraperHubPage() {
@@ -50,13 +41,14 @@ export default function ScraperHubPage() {
   const [deepScan, setDeepScan] = useState(false);
   const [phase, setPhase] = useState<Phase>('config');
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [results, setResults] = useState<ScrapeResult[]>([]);
   const [allCities, setAllCities] = useState<Array<{ name: string; state: string }>>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [currentKeywordIdx, setCurrentKeywordIdx] = useState(0);
-  const [totalKeywords, setTotalKeywords] = useState(0);
+  const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const [stats, setStats] = useState({ totalFound: 0, imported: 0, duplicates: 0 });
+  const [progress, setProgress] = useState({ current: 0, total: 0, label: '' });
   const consoleRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const connectToJobRef = useRef<((id: number) => void) | null>(null);
 
   useEffect(() => {
     if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
@@ -71,24 +63,99 @@ export default function ScraperHubPage() {
       .then(r => r.json())
       .then(data => { if (data.categories) setCategories(data.categories); })
       .catch(() => {});
+
+    // Check for running jobs (reconnect after page reload)
+    fetch('/api/scraper/jobs')
+      .then(r => r.json())
+      .then(data => {
+        if (data.jobs?.length > 0) {
+          const job = data.jobs[0];
+          setStats(job.stats);
+          setProgress(job.progress);
+          connectToJobRef.current?.(job.id);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Connect to job stream
+  const connectToJob = useCallback((jobId: number) => {
+    if (eventSourceRef.current) eventSourceRef.current.close();
+
+    const es = new EventSource(`/api/scraper/jobs/${jobId}/stream`);
+    eventSourceRef.current = es;
+    setActiveJobId(jobId);
+    setPhase('scraping');
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'log') {
+          setLogs(prev => [...prev, {
+            time: formatTime(data.time),
+            source: data.source,
+            message: data.message,
+            type: data.logType || 'info',
+          }]);
+        } else if (data.type === 'stats') {
+          setStats({
+            totalFound: data.totalFound || 0,
+            imported: data.imported || 0,
+            duplicates: data.duplicates || 0,
+          });
+        } else if (data.type === 'progress') {
+          setProgress({ current: data.current || 0, total: data.total || 0, label: data.label || '' });
+        } else if (data.type === 'done') {
+          setPhase('done');
+          if (data.stats) {
+            setStats({
+              totalFound: data.stats.totalFound || 0,
+              imported: data.stats.imported || 0,
+              duplicates: data.stats.duplicates || 0,
+            });
+          }
+          es.close();
+        }
+      } catch { /* skip */ }
+    };
+
+    es.onerror = () => {
+      // SSE reconnects automatically, but if job is done we close
+      setTimeout(() => {
+        if (es.readyState === EventSource.CLOSED) {
+          setPhase('done');
+        }
+      }, 2000);
+    };
+  }, []);
+
+  // Keep ref in sync for reconnect logic
+  connectToJobRef.current = connectToJob;
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => { eventSourceRef.current?.close(); };
   }, []);
 
   function addLog(source: string, message: string, type: LogEntry['type'] = 'info') {
-    setLogs(prev => [...prev, { time: nowTime(), source, message, type }]);
+    setLogs(prev => [...prev, { time: formatTime(Date.now()), source, message, type }]);
   }
 
   function toggleSource(id: string) {
     setSelectedSources(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
   }
 
-  function stop() {
-    if (abortRef.current) abortRef.current.abort();
+  async function stop() {
+    if (activeJobId) {
+      await fetch(`/api/scraper/jobs/${activeJobId}/abort`, { method: 'POST' });
+    }
+    eventSourceRef.current?.close();
     addLog('System', 'Abgebrochen.', 'warn');
     setPhase('done');
   }
 
   const startScraping = useCallback(async () => {
-    // Determine keywords to scrape
+    // Determine keywords
     let keywords: string[] = [];
     if (inputMode === 'category') {
       const cat = categories.find(c => c.id === selectedCategory);
@@ -128,122 +195,36 @@ export default function ScraperHubPage() {
       return;
     }
 
-    setPhase('scraping');
     setLogs([]);
-    setResults([]);
-    setTotalKeywords(keywords.length);
-    setCurrentKeywordIdx(0);
+    setStats({ totalFound: 0, imported: 0, duplicates: 0 });
+    setProgress({ current: 0, total: 0, label: '' });
 
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const newResults: ScrapeResult[] = [];
+    // Start background job
+    try {
+      const res = await fetch('/api/scraper/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keywords,
+          cities: targetCities,
+          sources: selectedSources,
+          autoEnrich,
+          deepScan,
+        }),
+      });
 
-    const catName = inputMode === 'category' ? categories.find(c => c.id === selectedCategory)?.name : null;
-    addLog('System', `Scraping: ${keywords.length} Keywords × ${targetCities.length} Städte × ${selectedSources.length} Quellen`, 'info');
-    if (catName) addLog('System', `Kategorie: ${catName}`, 'info');
-    if (deepScan) addLog('System', 'Tiefenscan aktiv — alle Seiten + Stadtteile', 'info');
-
-    for (let ki = 0; ki < keywords.length; ki++) {
-      if (controller.signal.aborted) break;
-      const kw = keywords[ki];
-      setCurrentKeywordIdx(ki + 1);
-      addLog('System', `━━━ Keyword ${ki + 1}/${keywords.length}: "${kw}" ━━━`, 'info');
-
-      for (let ci = 0; ci < targetCities.length; ci++) {
-        if (controller.signal.aborted) break;
-        const ct = targetCities[ci];
-        if (targetCities.length > 1) {
-          addLog('System', `[${ci + 1}/${targetCities.length}] ${ct}`, 'info');
-        }
-
-        for (const sourceId of selectedSources) {
-          if (controller.signal.aborted) break;
-
-          try {
-            let endpoint = '';
-            let body: Record<string, unknown> = {};
-
-            if (sourceId === 'maps') {
-              endpoint = '/api/scraper/maps/stream';
-              body = { keywords: [kw], cities: [ct], maxPages: deepScan ? 10 : 3 };
-            } else if (sourceId === 'branchenportal') {
-              endpoint = '/api/scraper/branchenportal';
-              body = { keyword: kw, city: ct, maxPages: deepScan ? 999 : 50, autoEnrich };
-            } else if (sourceId === 'websearch') {
-              endpoint = '/api/scraper/websearch';
-              body = { keyword: kw, city: ct, maxResults: deepScan ? 500 : 200, autoEnrich, deepScan };
-            }
-
-            const response = await fetch(endpoint, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-              signal: controller.signal,
-            });
-
-            if (!response.ok || !response.body) {
-              addLog(sourceId, `${ct}: HTTP ${response.status}`, 'error');
-              continue;
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
-
-              for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  if (data.type === 'status' || data.type === 'search_start' || data.type === 'page_progress' || data.type === 'email_scrape_progress') {
-                    addLog(sourceId === 'maps' ? 'Maps' : sourceId === 'branchenportal' ? 'Portal' : 'Web', data.message || `${ct}: ${data.keyword || ''}`, 'info');
-                  } else if (data.type === 'batch_complete' || data.type === 'complete') {
-                    const found = (data.totalFound as number) || 0;
-                    const imported = ((data.totalImported || data.imported) as number) || 0;
-                    const duplicates = ((data.totalDuplicates || data.duplicates) as number) || 0;
-
-                    const sourceName = SOURCES.find(s => s.id === sourceId)?.name || sourceId;
-                    newResults.push({
-                      source: `${sourceName} — ${kw} — ${ct}`,
-                      totalFound: found,
-                      imported,
-                      duplicates,
-                      skipped: (data.skipped as number) || 0,
-                      errors: (data.errors as string[]) || [],
-                    });
-                    setResults([...newResults]);
-                    addLog(sourceId === 'maps' ? 'Maps' : sourceId === 'branchenportal' ? 'Portal' : 'Web', `${ct}: ${found} gefunden, +${imported} neu`, 'success');
-                  }
-                } catch { /* skip */ }
-              }
-            }
-          } catch (err) {
-            if (err instanceof Error && err.name === 'AbortError') break;
-            addLog(sourceId, `${ct}: ${err instanceof Error ? err.message : 'Fehler'}`, 'error');
-          }
-        }
+      const data = await res.json();
+      if (!data.jobId) {
+        addLog('System', `Fehler: ${data.error || 'Unbekannt'}`, 'error');
+        return;
       }
+
+      // Connect to live stream
+      connectToJob(data.jobId);
+    } catch (err) {
+      addLog('System', `Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
     }
-
-    const totals = newResults.reduce((acc, r) => ({
-      found: acc.found + r.totalFound,
-      imported: acc.imported + r.imported,
-      duplicates: acc.duplicates + r.duplicates,
-    }), { found: 0, imported: 0, duplicates: 0 });
-
-    addLog('System', `Fertig: ${totals.found} gefunden, ${totals.imported} importiert, ${totals.duplicates} Duplikate`, 'success');
-    setPhase('done');
-  }, [keyword, city, searchMode, inputMode, selectedCategory, categories, radius, selectedSources, autoEnrich, deepScan]);
-
-  const totalFound = results.reduce((s, r) => s + r.totalFound, 0);
-  const totalImported = results.reduce((s, r) => s + r.imported, 0);
-  const totalDuplicates = results.reduce((s, r) => s + r.duplicates, 0);
+  }, [keyword, city, searchMode, inputMode, selectedCategory, categories, radius, selectedSources, autoEnrich, deepScan, connectToJob]);
 
   const selectedCat = categories.find(c => c.id === selectedCategory);
   const canStart = inputMode === 'category'
@@ -447,9 +428,9 @@ export default function ScraperHubPage() {
                 </svg>
                 Stoppen
               </button>
-              {totalKeywords > 1 && (
+              {progress.total > 0 && (
                 <span className="text-xs text-elvora-text-dim">
-                  Keyword {currentKeywordIdx}/{totalKeywords}
+                  {progress.current}/{progress.total} — {progress.label}
                 </span>
               )}
             </>
@@ -458,19 +439,35 @@ export default function ScraperHubPage() {
       </div>
 
       {/* Live Stats */}
-      {(phase === 'scraping' || results.length > 0) && (
+      {(phase === 'scraping' || stats.totalFound > 0) && (
         <div className="grid grid-cols-3 gap-3">
           <div className="card rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-white">{totalFound.toLocaleString('de-DE')}</div>
+            <div className="text-2xl font-bold text-white">{stats.totalFound.toLocaleString('de-DE')}</div>
             <div className="text-xs text-elvora-text-dim mt-1">Gefunden</div>
           </div>
           <div className="card rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-elvora-success">{totalImported.toLocaleString('de-DE')}</div>
+            <div className="text-2xl font-bold text-elvora-success">{stats.imported.toLocaleString('de-DE')}</div>
             <div className="text-xs text-elvora-text-dim mt-1">Neu importiert</div>
           </div>
           <div className="card rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-elvora-warning">{totalDuplicates.toLocaleString('de-DE')}</div>
+            <div className="text-2xl font-bold text-elvora-warning">{stats.duplicates.toLocaleString('de-DE')}</div>
             <div className="text-xs text-elvora-text-dim mt-1">Duplikate</div>
+          </div>
+        </div>
+      )}
+
+      {/* Progress Bar */}
+      {phase === 'scraping' && progress.total > 0 && (
+        <div className="card rounded-xl p-4">
+          <div className="flex justify-between text-xs text-elvora-text-dim mb-2">
+            <span>Fortschritt</span>
+            <span>{Math.round((progress.current / progress.total) * 100)}%</span>
+          </div>
+          <div className="h-2 bg-elvora-bg-alt rounded-full overflow-hidden">
+            <div
+              className="h-full bg-elvora-purple rounded-full transition-all duration-300"
+              style={{ width: `${(progress.current / progress.total) * 100}%` }}
+            />
           </div>
         </div>
       )}
