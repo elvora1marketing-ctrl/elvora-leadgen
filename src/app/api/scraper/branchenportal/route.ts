@@ -10,7 +10,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 600;
 
-const EMAIL_CONCURRENCY = 5;
+const EMAIL_CONCURRENCY = 15;
 
 function importBusinessesToLeads(
   db: ReturnType<typeof getDb>,

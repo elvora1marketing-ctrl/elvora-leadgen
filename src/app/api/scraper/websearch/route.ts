@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
           send({ type: 'status', message: `Impressum-Analyse: 0/${allSearchResults.length}` });
 
           const enriched: ScrapedBusiness[] = [];
-          const concurrency = 3;
+          const concurrency = 15;
 
           for (let i = 0; i < allSearchResults.length; i += concurrency) {
             const batch = allSearchResults.slice(i, i + concurrency);

@@ -9,16 +9,17 @@ export interface ImpressumData {
   handelsregister: string | null;
 }
 
-const IMPRESSUM_PATHS = [
+const IMPRESSUM_PATHS_PRIORITY = [
   '/impressum',
-  '/impressum/',
   '/kontakt',
-  '/kontakt/',
+  '/imprint',
+];
+
+const IMPRESSUM_PATHS_FALLBACK = [
   '/contact',
   '/about',
   '/ueber-uns',
   '/legal',
-  '/imprint',
 ];
 
 const PHONE_REGEX = /(?:Tel(?:efon)?|Fon|Phone|Ruf|Mobil|Handy)[.:\s]*\+?[\d\s/()-]{8,20}/gi;
@@ -108,10 +109,10 @@ export async function parseImpressum(baseUrl: string): Promise<ImpressumData> {
   const allEmails = new Set<string>();
   const allPhones = new Set<string>();
 
-  for (const path of IMPRESSUM_PATHS) {
+  async function fetchPath(path: string): Promise<boolean> {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
+      const timeout = setTimeout(() => controller.abort(), 5000);
 
       const res = await fetch(`${origin}${path}`, {
         headers: {
@@ -124,7 +125,7 @@ export async function parseImpressum(baseUrl: string): Promise<ImpressumData> {
       });
 
       clearTimeout(timeout);
-      if (!res.ok) continue;
+      if (!res.ok) return false;
 
       const html = await res.text();
       const text = stripHtml(html);
@@ -149,10 +150,26 @@ export async function parseImpressum(baseUrl: string): Promise<ImpressumData> {
         if (hrMatch) result.handelsregister = hrMatch[1].trim();
       }
 
-      if (result.geschaeftsfuehrer && allEmails.size > 0) break;
+      return allEmails.size > 0;
     } catch {
-      continue;
+      return false;
     }
+  }
+
+  // Fetch priority paths in parallel
+  const priorityResults = await Promise.allSettled(
+    IMPRESSUM_PATHS_PRIORITY.map(p => fetchPath(p))
+  );
+
+  const foundInPriority = priorityResults.some(
+    r => r.status === 'fulfilled' && r.value === true
+  );
+
+  // Only try fallback paths if priority didn't find emails
+  if (!foundInPriority) {
+    await Promise.allSettled(
+      IMPRESSUM_PATHS_FALLBACK.map(p => fetchPath(p))
+    );
   }
 
   result.emails = Array.from(allEmails);

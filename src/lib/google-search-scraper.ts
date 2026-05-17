@@ -18,7 +18,7 @@ import { parseImpressum } from './impressum-parser';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-const FETCH_TIMEOUT = 12000;
+const FETCH_TIMEOUT = 8000;
 
 const PUBLIC_SEARXNG = [
   'https://search.sapti.me',
@@ -174,7 +174,7 @@ async function fetchSearxng(
       if (allResults.length >= maxResults) break;
       if (data.results.length < 5) break;
 
-      if (page < maxPages) await delay(200 + Math.random() * 300);
+      if (page < maxPages) await delay(50 + Math.random() * 100);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Fehler';
       return { results: allResults, error: `SearXNG: ${msg}` };
@@ -385,7 +385,7 @@ export async function searchBusinesses(
 export async function enrichSearchResults(
   results: SearchResult[],
   city: string,
-  concurrency: number = 3,
+  concurrency: number = 15,
 ): Promise<ScrapedBusiness[]> {
   const businesses: ScrapedBusiness[] = [];
 
@@ -395,7 +395,6 @@ export async function enrichSearchResults(
     for (const outcome of settled) {
       if (outcome.status === 'fulfilled' && outcome.value) businesses.push(outcome.value);
     }
-    if (i + concurrency < results.length) await delay(800 + Math.random() * 700);
   }
 
   return businesses;
@@ -409,32 +408,37 @@ async function enrichSingleResult(sr: SearchResult, city: string): Promise<Scrap
   let email: string | null = null;
   let phone: string | null = null;
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-    const res = await fetch(sr.url, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html', 'Accept-Language': 'de-DE,de;q=0.9' },
-      redirect: 'follow', signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (res.ok) {
+  // Fetch homepage title + impressum in parallel
+  const [homepageResult, impressumResult] = await Promise.allSettled([
+    (async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+      const res = await fetch(sr.url, {
+        headers: { 'User-Agent': USER_AGENT, Accept: 'text/html', 'Accept-Language': 'de-DE,de;q=0.9' },
+        redirect: 'follow', signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) return null;
       const html = await res.text();
       const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
       if (titleMatch) {
         const pageTitle = decodeHtmlEntities(stripHtmlTags(titleMatch[1])).trim();
         if (pageTitle && pageTitle.length > 1 && pageTitle.length < 200) {
-          companyName = pageTitle.replace(/\s*[\|–-]\s*(?:Start(?:seite)?|Home|Willkommen|Hauptseite|Über uns)$/i, '').trim() || pageTitle;
+          return pageTitle.replace(/\s*[\|–-]\s*(?:Start(?:seite)?|Home|Willkommen|Hauptseite|Über uns)$/i, '').trim() || pageTitle;
         }
       }
-    }
-  } catch { /* homepage failed */ }
+      return null;
+    })(),
+    parseImpressum(`https://${domain}`),
+  ]);
 
-  try {
-    const impressum = await parseImpressum(`https://${domain}`);
-    if (impressum.emails.length > 0) email = impressum.emails[0];
-    if (impressum.phones.length > 0) phone = impressum.phones[0];
-  } catch { /* impressum failed */ }
+  if (homepageResult.status === 'fulfilled' && homepageResult.value) {
+    companyName = homepageResult.value;
+  }
+  if (impressumResult.status === 'fulfilled') {
+    if (impressumResult.value.emails.length > 0) email = impressumResult.value.emails[0];
+    if (impressumResult.value.phones.length > 0) phone = impressumResult.value.phones[0];
+  }
 
   return {
     name: companyName, address: city, city, phone, website: sr.url, email,
