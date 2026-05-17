@@ -283,7 +283,10 @@ async function scrapeWebSearch(
     braveApiKey: cfg.brave_search_api_key || undefined,
   };
 
-  const searchQueries: Array<{ query: string; label: string }> = [{ query: city, label: city }];
+  const searchQueries: Array<{ query: string; label: string }> = [
+    { query: city, label: city },
+    { query: `${city} in der Nähe`, label: `${city} (Nähe)` },
+  ];
 
   if (deepScan) {
     const districts = getDistricts(city);
@@ -295,14 +298,13 @@ async function scrapeWebSearch(
     }
   }
 
-  const maxResults = deepScan ? 500 : 200;
   const allSearchResults: Array<{ title: string; url: string; snippet: string }> = [];
   const seenDomains = new Set<string>();
 
   for (let qi = 0; qi < searchQueries.length; qi++) {
     if (signal?.aborted) break;
     const sq = searchQueries[qi];
-    const perQueryMax = deepScan ? Math.max(50, Math.floor(maxResults / searchQueries.length * 2)) : maxResults;
+    const perQueryMax = 500;
 
     jobRunner.addLog(jobId, 'Web', `[${qi + 1}/${searchQueries.length}] "${keyword} ${sq.query}"`, 'info');
 

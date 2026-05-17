@@ -41,6 +41,12 @@ const BLOCKED_DOMAINS = new Set([
   'branchenbuch.meinestadt.de', 'meinestadt.de', 'cylex.de',
   'hotfrog.de', 'firmenwissen.de', 'northdata.de', 'wlw.de',
   'kompass.com', 'duckduckgo.com', 'brave.com',
+  'kennstdueinen.de', 'werkenntdenbesten.de', 'stadtbranchenbuch.com',
+  'dasoertliche.de', 'branchenbuch.de', 'tupalo.com', 'stayfriends.de',
+  'marktplatz-mittelstand.de', 'myhammer.de', 'check24.de',
+  'provenexpert.com', 'trustpilot.com', 'auskunft.de',
+  'herold.at', 'local.ch', 'reddit.com', 'gutefrage.net',
+  'handwerker.de', 'handwerkerportal.de', 'my-hammer.de',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -132,10 +138,11 @@ async function fetchSearxng(
   baseUrl: string,
   query: string,
   maxResults: number,
-  maxPages: number = 5,
+  maxPages: number = 10,
 ): Promise<{ results: SearchResult[]; error: string | null }> {
   const seenDomains = new Set<string>();
   const allResults: SearchResult[] = [];
+  let emptyPages = 0;
 
   for (let page = 1; page <= maxPages; page++) {
     try {
@@ -145,6 +152,7 @@ async function fetchSearxng(
         categories: 'general',
         language: 'de',
         pageno: String(page),
+        engines: 'google,bing,duckduckgo,qwant,brave,startpage,mojeek,yahoo',
       });
 
       const controller = new AbortController();
@@ -163,8 +171,13 @@ async function fetchSearxng(
       if (!contentType.includes('json')) return { results: allResults, error: 'SearXNG: kein JSON' };
 
       const data = await res.json() as { results?: SearxngResult[] };
-      if (!data.results || data.results.length === 0) break;
+      if (!data.results || data.results.length === 0) {
+        emptyPages++;
+        if (emptyPages >= 2) break;
+        continue;
+      }
 
+      const prevCount = allResults.length;
       const items = data.results.map(r => ({
         url: r.url || '', title: r.title || '', snippet: r.content || '',
       }));
@@ -172,7 +185,14 @@ async function fetchSearxng(
       allResults.push(...pageResults);
 
       if (allResults.length >= maxResults) break;
-      if (data.results.length < 5) break;
+
+      // If no new unique results from this page, count as empty
+      if (allResults.length === prevCount) {
+        emptyPages++;
+        if (emptyPages >= 2) break;
+      } else {
+        emptyPages = 0;
+      }
 
       if (page < maxPages) await delay(50 + Math.random() * 100);
     } catch (err) {
@@ -297,7 +317,7 @@ export async function searchBusinesses(
 ): Promise<GoogleSearchResult> {
   const startTime = Date.now();
   const errors: string[] = [];
-  const query = `${keyword} ${city} Firma Kontakt`;
+  const query = `${keyword} ${city}`;
   const searxngUrl = options?.searxngUrl;
   const braveApiKey = options?.braveApiKey;
 
@@ -308,7 +328,8 @@ export async function searchBusinesses(
   // 1. Lokale SearXNG-Instanz (unlimitiert)
   if (searxngUrl) {
     console.log(`[WebSearch] SearXNG lokal: ${searxngUrl}`);
-    const local = await fetchSearxng(searxngUrl, query, maxResults, Math.ceil(maxResults / 10));
+    const maxPages = Math.max(20, Math.ceil(maxResults / 5));
+    const local = await fetchSearxng(searxngUrl, query, maxResults, maxPages);
     if (local.results.length > 0) {
       console.log(`[WebSearch] SearXNG lokal: ${local.results.length} Ergebnisse`);
       searchResults = local.results;
