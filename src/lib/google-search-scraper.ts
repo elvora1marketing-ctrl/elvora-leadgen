@@ -146,14 +146,17 @@ async function fetchSearxng(
 
   for (let page = 1; page <= maxPages; page++) {
     try {
+      const isLocal = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1');
       const params = new URLSearchParams({
         q: query,
         format: 'json',
         categories: 'general',
         language: 'de',
         pageno: String(page),
-        engines: 'google,bing,duckduckgo,qwant,brave,startpage,mojeek,yahoo',
       });
+      if (isLocal) {
+        params.set('engines', 'google,bing,duckduckgo,qwant,brave,startpage,mojeek,yahoo');
+      }
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);

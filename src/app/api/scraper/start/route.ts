@@ -283,23 +283,26 @@ async function scrapeWebSearch(
     braveApiKey: cfg.brave_search_api_key || undefined,
   };
 
+  // Multiple query variations to find more unique domains
   const searchQueries: Array<{ query: string; label: string }> = [
     { query: city, label: city },
-    { query: `${city} in der Nähe`, label: `${city} (Nähe)` },
   ];
 
   if (deepScan) {
-    const districts = getDistricts(city);
-    if (districts.length > 0) {
-      jobRunner.addLog(jobId, 'Web', `${city}: + ${districts.length} Stadtteile`, 'info');
-      for (const d of districts) {
-        searchQueries.push({ query: `${city} ${d}`, label: d });
-      }
-    }
+    searchQueries.push(
+      { query: `${city} in der Nähe`, label: `${city} (Nähe)` },
+      { query: `${city} Bewertung`, label: `${city} (Bewertung)` },
+      { query: `${city} Empfehlung`, label: `${city} (Empfehlung)` },
+      { query: `${city} günstig`, label: `${city} (günstig)` },
+      { query: `${city} Termin`, label: `${city} (Termin)` },
+      { query: `bester ${keyword} ${city}`, label: `${city} (bester)` },
+      { query: `${keyword} Firma ${city}`, label: `${city} (Firma)` },
+    );
   }
 
   const allSearchResults: Array<{ title: string; url: string; snippet: string }> = [];
   const seenDomains = new Set<string>();
+  let zeroResultsInRow = 0;
 
   for (let qi = 0; qi < searchQueries.length; qi++) {
     if (signal?.aborted) break;
@@ -319,7 +322,18 @@ async function scrapeWebSearch(
       newCount++;
     }
 
-    jobRunner.addLog(jobId, 'Web', `[${qi + 1}/${searchQueries.length}] ${sq.label}: +${newCount} neu (gesamt: ${allSearchResults.length})`, 'info');
+    jobRunner.addLog(jobId, 'Web', `[${qi + 1}/${searchQueries.length}] ${sq.label}: +${newCount} neu (gesamt: ${allSearchResults.length})`, newCount > 0 ? 'info' : 'warn');
+
+    // Stop early if 3 queries in a row returned nothing new
+    if (newCount === 0) {
+      zeroResultsInRow++;
+      if (zeroResultsInRow >= 3 && qi > 0) {
+        jobRunner.addLog(jobId, 'Web', `${city}: 3× keine neuen — überspringe Rest`, 'warn');
+        break;
+      }
+    } else {
+      zeroResultsInRow = 0;
+    }
   }
 
   if (signal?.aborted) return;
