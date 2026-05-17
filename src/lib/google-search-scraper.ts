@@ -192,7 +192,7 @@ async function fetchSearxng(
       // If no new unique results from this page, count as empty
       if (allResults.length === prevCount) {
         emptyPages++;
-        if (emptyPages >= 2) break;
+        if (emptyPages >= 3) break;
       } else {
         emptyPages = 0;
       }
@@ -324,57 +324,84 @@ export async function searchBusinesses(
   const searxngUrl = options?.searxngUrl;
   const braveApiKey = options?.braveApiKey;
 
-  console.log(`[WebSearch] Suche: "${query}" (max ${maxResults})`);
+  console.log(`[WebSearch] Suche: "${query}" (max ${maxResults}) — alle Quellen parallel`);
 
-  let searchResults: SearchResult[] = [];
+  const allResults: SearchResult[] = [];
+  const seenUrls = new Set<string>();
 
-  // 1. Lokale SearXNG-Instanz (unlimitiert)
-  if (searxngUrl) {
-    console.log(`[WebSearch] SearXNG lokal: ${searxngUrl}`);
-    const maxPages = Math.max(20, Math.ceil(maxResults / 5));
-    const local = await fetchSearxng(searxngUrl, query, maxResults, maxPages);
-    if (local.results.length > 0) {
-      console.log(`[WebSearch] SearXNG lokal: ${local.results.length} Ergebnisse`);
-      searchResults = local.results;
-    }
-    if (local.error) {
-      errors.push(`Lokal: ${local.error}`);
-      console.log(`[WebSearch] SearXNG lokal Fehler: ${local.error}`);
-    }
-  }
-
-  // 2. Brave Search API
-  if (searchResults.length === 0 && braveApiKey) {
-    console.log('[WebSearch] Brave Search API...');
-    const brave = await fetchBraveResults(query, braveApiKey, maxResults);
-    if (brave.results.length > 0) {
-      console.log(`[WebSearch] Brave: ${brave.results.length} Ergebnisse`);
-      searchResults = brave.results;
-    }
-    if (brave.error) errors.push(brave.error);
-  }
-
-  // 3. Öffentliche SearXNG-Instanzen
-  if (searchResults.length === 0) {
-    console.log('[WebSearch] Öffentliche SearXNG-Instanzen...');
-    for (const instance of PUBLIC_SEARXNG) {
-      const pub = await fetchSearxng(instance, query, maxResults, 5);
-      if (pub.results.length > 0) {
-        console.log(`[WebSearch] ${instance}: ${pub.results.length} Ergebnisse`);
-        searchResults = pub.results;
-        break;
+  function mergeResults(results: SearchResult[]) {
+    for (const r of results) {
+      const normalized = r.url.replace(/\/+$/, '').toLowerCase();
+      if (!seenUrls.has(normalized)) {
+        seenUrls.add(normalized);
+        allResults.push(r);
       }
     }
-    if (searchResults.length === 0) errors.push('Öffentliche SearXNG-Instanzen nicht erreichbar');
   }
 
-  // 4. DuckDuckGo HTML
-  if (searchResults.length === 0) {
-    console.log('[WebSearch] DuckDuckGo Fallback...');
-    const ddg = await fetchDdgResults(query, maxResults);
-    if (ddg.results.length > 0) searchResults = ddg.results;
-    if (ddg.error) errors.push(ddg.error);
+  // Query ALL available sources in parallel for maximum coverage
+  const promises: Promise<void>[] = [];
+
+  // 1. Lokale SearXNG-Instanz (unlimitiert, primäre Quelle)
+  if (searxngUrl) {
+    promises.push((async () => {
+      console.log(`[WebSearch] SearXNG lokal: ${searxngUrl}`);
+      const maxPages = Math.max(20, Math.ceil(maxResults / 5));
+      const local = await fetchSearxng(searxngUrl, query, maxResults, maxPages);
+      if (local.results.length > 0) {
+        console.log(`[WebSearch] SearXNG lokal: ${local.results.length} Ergebnisse`);
+        mergeResults(local.results);
+      }
+      if (local.error) {
+        errors.push(`Lokal: ${local.error}`);
+        console.log(`[WebSearch] SearXNG lokal Fehler: ${local.error}`);
+      }
+    })());
   }
+
+  // 2. Brave Search API (parallel)
+  if (braveApiKey) {
+    promises.push((async () => {
+      console.log('[WebSearch] Brave Search API...');
+      const brave = await fetchBraveResults(query, braveApiKey, maxResults);
+      if (brave.results.length > 0) {
+        console.log(`[WebSearch] Brave: ${brave.results.length} Ergebnisse`);
+        mergeResults(brave.results);
+      }
+      if (brave.error) errors.push(brave.error);
+    })());
+  }
+
+  // 3. DuckDuckGo HTML (parallel)
+  promises.push((async () => {
+    console.log('[WebSearch] DuckDuckGo...');
+    const ddg = await fetchDdgResults(query, maxResults);
+    if (ddg.results.length > 0) {
+      console.log(`[WebSearch] DuckDuckGo: ${ddg.results.length} Ergebnisse`);
+      mergeResults(ddg.results);
+    }
+    if (ddg.error) errors.push(`DDG: ${ddg.error}`);
+  })());
+
+  // 4. Öffentliche SearXNG-Instanzen (parallel, nur wenn keine lokale)
+  if (!searxngUrl) {
+    promises.push((async () => {
+      console.log('[WebSearch] Öffentliche SearXNG-Instanzen...');
+      for (const instance of PUBLIC_SEARXNG) {
+        const pub = await fetchSearxng(instance, query, maxResults, 5);
+        if (pub.results.length > 0) {
+          console.log(`[WebSearch] ${instance}: ${pub.results.length} Ergebnisse`);
+          mergeResults(pub.results);
+          break;
+        }
+      }
+    })());
+  }
+
+  await Promise.allSettled(promises);
+
+  const searchResults = allResults;
+  console.log(`[WebSearch] Gesamt nach Merge: ${searchResults.length} unique Ergebnisse aus ${promises.length} Quellen`);
 
   if (searchResults.length === 0 && !searxngUrl) {
     errors.push('Tipp: SearXNG lokal installieren für unlimitierte Web-Suche (docker run -d -p 8888:8080 searxng/searxng)');
