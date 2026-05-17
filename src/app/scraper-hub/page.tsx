@@ -429,7 +429,6 @@ export default function ScraperHubPage() {
               Google Maps API kostet ~$32/1.000 Requests. Bei {searchMode === 'germany' ? '428 Städten' : 'Umkreis-Scan'} wird das teuer. Web-Suche + Branchenportale sind kostenlos.
             </p>
           )}
-          </div>
         </div>
 
         <div className="flex flex-col gap-2">
