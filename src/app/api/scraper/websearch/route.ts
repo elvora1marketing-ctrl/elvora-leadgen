@@ -120,16 +120,14 @@ export async function POST(request: NextRequest) {
         if (deepScan) {
           const districts = getDistricts(city);
           if (districts.length > 0) {
-            send({ type: 'status', message: `Tiefenscan: ${city} + ${districts.length} Stadtteile` });
+            send({ type: 'status', message: `Tiefenscan: ${city} + ${districts.length} Stadtteile werden durchsucht` });
             for (const d of districts) {
-              searchQueries.push({ query: `${city} ${d}`, label: `${city}-${d}` });
+              searchQueries.push({ query: `${city} ${d}`, label: d });
             }
           } else {
-            send({ type: 'status', message: `Tiefenscan: Keine Stadtteile für ${city} hinterlegt, nur Stadtsuche` });
+            send({ type: 'status', message: `Keine Stadtteile für "${city}" hinterlegt — nur Stadtsuche` });
           }
         }
-
-        send({ type: 'status', message: `Suche läuft... (${searchQueries.length} ${searchQueries.length === 1 ? 'Suche' : 'Suchen'})` });
 
         // Search all queries, deduplicate across all
         const allSearchResults: Array<{ title: string; url: string; snippet: string }> = [];
@@ -139,6 +137,8 @@ export async function POST(request: NextRequest) {
         for (let qi = 0; qi < searchQueries.length; qi++) {
           const sq = searchQueries[qi];
           const perQueryMax = deepScan ? Math.max(50, Math.floor(maxResults / searchQueries.length * 2)) : maxResults;
+
+          send({ type: 'status', message: `[${qi + 1}/${searchQueries.length}] Suche: "${keyword} ${sq.query}"` });
 
           const searchResult = await searchBusinesses(keyword, sq.query, perQueryMax, searchOpts);
 
@@ -153,9 +153,7 @@ export async function POST(request: NextRequest) {
             newCount++;
           }
 
-          if (searchQueries.length > 1) {
-            send({ type: 'status', message: `[${qi + 1}/${searchQueries.length}] ${sq.label}: +${newCount} neue (gesamt: ${allSearchResults.length})` });
-          }
+          send({ type: 'status', message: `[${qi + 1}/${searchQueries.length}] ${sq.label}: +${newCount} neue Firmen (gesamt: ${allSearchResults.length})` });
         }
 
         send({ type: 'status', message: `${allSearchResults.length} einzigartige Websites gefunden` });
