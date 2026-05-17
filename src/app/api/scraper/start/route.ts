@@ -160,7 +160,6 @@ async function runScrapeJob(
 
 async function scrapeGoogleMaps(jobId: number, db: ReturnType<typeof getDb>, keyword: string, city: string, deepScan: boolean) {
   const signal = jobRunner.getAbortSignal(jobId);
-  const maxPages = deepScan ? 10 : 3;
 
   const apiKeySetting = db.prepare("SELECT value FROM settings WHERE key = 'google_maps_api_key'").get() as { value: string } | undefined;
   const googleApiKey = apiKeySetting?.value || '';
@@ -170,33 +169,51 @@ async function scrapeGoogleMaps(jobId: number, db: ReturnType<typeof getDb>, key
     return;
   }
 
-  const { scrapeGoogleMaps: scrapeMaps } = await import('@/lib/maps-scraper');
-  const searchQuery = `${keyword} ${city}`;
+  const { scrapeGoogleMaps: scrapeMaps, deduplicateBusinesses } = await import('@/lib/maps-scraper');
 
-  jobRunner.addLog(jobId, 'Maps', `${city}: Suche "${searchQuery}"...`, 'info');
+  // Google Places API: max 3 Seiten × 20 = 60 pro Query
+  // Deep scan: mehrere Queries pro Stadt um über 60 hinaus zu kommen
+  const queries: string[] = [`${keyword} ${city}`];
 
-  if (signal?.aborted) return;
-
-  const result = await scrapeMaps(searchQuery, maxPages, (progress) => {
-    jobRunner.addLog(jobId, 'Maps', `${city}: Seite ${progress.currentPage}/${progress.totalPages} — ${progress.businessesFound} Firmen`, 'info');
-  }, googleApiKey);
-
-  if (result.errors.length > 0) {
-    for (const err of result.errors) {
-      jobRunner.addLog(jobId, 'Maps', `${city}: ${err}`, 'error');
+  if (deepScan) {
+    const districts = getDistricts(city);
+    const topDistricts = districts.slice(0, 5);
+    for (const d of topDistricts) {
+      queries.push(`${keyword} ${city} ${d}`);
     }
   }
 
-  if (result.businesses.length > 0) {
-    const importResult = importBusinessesToLeads(db, result.businesses, `Maps: ${keyword} in ${city}`, keyword);
+  const allBiz: ScrapedBusiness[] = [];
+
+  for (let qi = 0; qi < queries.length; qi++) {
+    if (signal?.aborted) break;
+    const q = queries[qi];
+    jobRunner.addLog(jobId, 'Maps', `${city}: Suche "${q}" [${qi + 1}/${queries.length}]`, 'info');
+
+    const result = await scrapeMaps(q, 3, (progress) => {
+      jobRunner.addLog(jobId, 'Maps', `${city}: Seite ${progress.currentPage}/${progress.totalPages} — ${progress.businessesFound} Firmen`, 'info');
+    }, googleApiKey);
+
+    if (result.errors.length > 0) {
+      for (const err of result.errors) {
+        jobRunner.addLog(jobId, 'Maps', `${city}: ${err}`, 'error');
+      }
+    }
+
+    allBiz.push(...result.businesses);
+  }
+
+  if (allBiz.length > 0) {
+    const deduped = deduplicateBusinesses(allBiz);
+    const importResult = importBusinessesToLeads(db, deduped, `Maps: ${keyword} in ${city}`, keyword);
     const job = jobRunner.getJob(jobId);
     if (job) {
-      job.stats.totalFound += result.businesses.length;
+      job.stats.totalFound += deduped.length;
       job.stats.imported += importResult.imported;
       job.stats.duplicates += importResult.duplicates;
       job.stats.skipped += importResult.skipped;
     }
-    jobRunner.addLog(jobId, 'Maps', `${city}: ${result.businesses.length} gefunden, +${importResult.imported} neu`, 'success');
+    jobRunner.addLog(jobId, 'Maps', `${city}: ${deduped.length} gefunden, +${importResult.imported} neu`, 'success');
     jobRunner.updateStats(jobId, job!.stats);
   }
 }
@@ -283,20 +300,28 @@ async function scrapeWebSearch(
     braveApiKey: cfg.brave_search_api_key || undefined,
   };
 
-  // Multiple query variations to find more unique domains
+  // Multiple query variations to find more unique business domains
   const searchQueries: Array<{ query: string; label: string }> = [
-    { query: city, label: city },
+    { query: `${city} Kontakt`, label: city },
+    { query: `${city} Firma`, label: `${city} (Firma)` },
+    { query: `${city} in meiner Nähe`, label: `${city} (Nähe)` },
   ];
 
   if (deepScan) {
+    const districts = getDistricts(city);
+    // Use top districts (max 10) — more than that returns the same results
+    const topDistricts = districts.slice(0, 10);
+    if (topDistricts.length > 0) {
+      jobRunner.addLog(jobId, 'Web', `${city}: + ${topDistricts.length} Stadtteile`, 'info');
+      for (const d of topDistricts) {
+        searchQueries.push({ query: `${city} ${d}`, label: d });
+      }
+    }
     searchQueries.push(
-      { query: `${city} in der Nähe`, label: `${city} (Nähe)` },
       { query: `${city} Bewertung`, label: `${city} (Bewertung)` },
       { query: `${city} Empfehlung`, label: `${city} (Empfehlung)` },
-      { query: `${city} günstig`, label: `${city} (günstig)` },
-      { query: `${city} Termin`, label: `${city} (Termin)` },
       { query: `bester ${keyword} ${city}`, label: `${city} (bester)` },
-      { query: `${keyword} Firma ${city}`, label: `${city} (Firma)` },
+      { query: `${keyword} Betrieb ${city}`, label: `${city} (Betrieb)` },
     );
   }
 
