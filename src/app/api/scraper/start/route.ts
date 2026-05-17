@@ -171,8 +171,6 @@ async function scrapeGoogleMaps(jobId: number, db: ReturnType<typeof getDb>, key
 
   const { scrapeGoogleMaps: scrapeMaps, deduplicateBusinesses } = await import('@/lib/maps-scraper');
 
-  // Google Places API: max 3 Seiten × 20 = 60 pro Query
-  // Deep scan: mehrere Queries pro Stadt um über 60 hinaus zu kommen
   const queries: string[] = [`${keyword} ${city}`];
 
   if (deepScan) {
@@ -300,48 +298,43 @@ async function scrapeWebSearch(
     braveApiKey: cfg.brave_search_api_key || undefined,
   };
 
-  // Build query variations — each one is a full search query string
-  // The base query MUST come first so we always search "Friseur Berlin" etc.
-  const searchQueries: Array<{ query: string; label: string }> = [
-    { query: `${keyword} ${city}`, label: `${city}` },
-    { query: `${keyword} in ${city}`, label: `${city} (in)` },
-    { query: `${keyword} ${city} Kontakt`, label: `${city} (Kontakt)` },
-    { query: `${keyword} ${city} Firma`, label: `${city} (Firma)` },
-    { query: `${keyword} Salon ${city}`, label: `${city} (Salon)` },
-    { query: `${keyword} Betrieb ${city}`, label: `${city} (Betrieb)` },
-    { query: `bester ${keyword} ${city}`, label: `${city} (bester)` },
-    { query: `${keyword} ${city} Bewertung`, label: `${city} (Bewertung)` },
-    { query: `${keyword} ${city} Empfehlung`, label: `${city} (Empfehlung)` },
-    { query: `${keyword} ${city} Termin`, label: `${city} (Termin)` },
-    { query: `${keyword} ${city} Preise`, label: `${city} (Preise)` },
-    { query: `${keyword} ${city} günstig`, label: `${city} (günstig)` },
+  // Phase 1: Core queries — always run ALL of these, no early-stop
+  const coreQueries: Array<{ q: string; label: string }> = [
+    { q: `${keyword} ${city}`, label: city },
+    { q: `${keyword} in ${city}`, label: `in ${city}` },
+    { q: `bester ${keyword} ${city}`, label: 'bester' },
+    { q: `${keyword} ${city} Kontakt`, label: 'Kontakt' },
+    { q: `${keyword} ${city} Bewertung`, label: 'Bewertung' },
+    { q: `${keyword} ${city} Empfehlung`, label: 'Empfehlung' },
+    { q: `${keyword} ${city} Firma`, label: 'Firma' },
+    { q: `${keyword} ${city} Termin`, label: 'Termin' },
+    { q: `${keyword} ${city} Preise`, label: 'Preise' },
   ];
 
+  // Phase 2: District queries (deep scan) — separate early-stop counter
+  const districtQueries: Array<{ q: string; label: string }> = [];
   if (deepScan) {
     const districts = getDistricts(city);
     if (districts.length > 0) {
       jobRunner.addLog(jobId, 'Web', `${city}: + ${districts.length} Stadtteile`, 'info');
       for (const d of districts) {
-        searchQueries.push({ query: `${keyword} ${city} ${d}`, label: d });
+        districtQueries.push({ q: `${keyword} ${d} ${city}`, label: d });
+        districtQueries.push({ q: `${keyword} ${d}`, label: `${d} (solo)` });
       }
     }
   }
 
   const allSearchResults: Array<{ title: string; url: string; snippet: string }> = [];
   const seenDomains = new Set<string>();
-  let zeroResultsInRow = 0;
+  const totalQueries = coreQueries.length + districtQueries.length;
 
-  for (let qi = 0; qi < searchQueries.length; qi++) {
-    if (signal?.aborted) break;
-    const sq = searchQueries[qi];
-    const perQueryMax = 500;
+  async function runQuery(query: string, label: string, idx: number): Promise<number> {
+    jobRunner.addLog(jobId, 'Web', `[${idx}/${totalQueries}] "${query}"`, 'info');
 
-    jobRunner.addLog(jobId, 'Web', `[${qi + 1}/${searchQueries.length}] "${sq.query}"`, 'info');
-
-    const searchResult = await searchBusinesses(sq.query, '', perQueryMax, searchOpts);
+    const result = await searchBusinesses(query, '', 500, searchOpts);
 
     let newCount = 0;
-    for (const sr of searchResult.searchResults) {
+    for (const sr of result.searchResults) {
       const domain = normalizeWebsite(sr.url);
       if (!domain || seenDomains.has(domain)) continue;
       seenDomains.add(domain);
@@ -349,21 +342,35 @@ async function scrapeWebSearch(
       newCount++;
     }
 
-    jobRunner.addLog(jobId, 'Web', `[${qi + 1}/${searchQueries.length}] ${sq.label}: +${newCount} neu (gesamt: ${allSearchResults.length})`, newCount > 0 ? 'info' : 'warn');
+    const logType = newCount > 0 ? 'info' : 'warn';
+    jobRunner.addLog(jobId, 'Web', `[${idx}/${totalQueries}] ${label}: +${newCount} neu (gesamt: ${allSearchResults.length})`, logType as 'info' | 'warn');
+    return newCount;
+  }
+
+  // Phase 1: Run ALL core queries — never skip any
+  for (let i = 0; i < coreQueries.length; i++) {
+    if (signal?.aborted) break;
+    await runQuery(coreQueries[i].q, coreQueries[i].label, i + 1);
+  }
+
+  // Phase 2: District queries — separate early-stop (8 consecutive zeros)
+  let districtZeros = 0;
+  for (let i = 0; i < districtQueries.length; i++) {
+    if (signal?.aborted) break;
+    const newCount = await runQuery(districtQueries[i].q, districtQueries[i].label, coreQueries.length + i + 1);
 
     if (newCount === 0) {
-      zeroResultsInRow++;
-      // For base queries (first 12), be more patient — only stop after 8 zeros
-      // For district queries, stop after 5 zeros
-      const threshold = qi < 12 ? 8 : 5;
-      if (zeroResultsInRow >= threshold && qi > 3) {
-        jobRunner.addLog(jobId, 'Web', `${city}: ${zeroResultsInRow}× keine neuen — überspringe Rest`, 'warn');
+      districtZeros++;
+      if (districtZeros >= 8) {
+        jobRunner.addLog(jobId, 'Web', `${city}: 8 Stadtteile ohne neue Ergebnisse — überspringe Rest`, 'warn');
         break;
       }
     } else {
-      zeroResultsInRow = 0;
+      districtZeros = 0;
     }
   }
+
+  jobRunner.addLog(jobId, 'Web', `${city}: ${allSearchResults.length} unique Websites gefunden`, 'success');
 
   if (signal?.aborted) return;
 
