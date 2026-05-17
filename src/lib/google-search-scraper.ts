@@ -142,7 +142,8 @@ async function fetchSearxng(
 ): Promise<{ results: SearchResult[]; error: string | null }> {
   const seenDomains = new Set<string>();
   const allResults: SearchResult[] = [];
-  let emptyPages = 0;
+  let apiEmptyPages = 0; // API returned literally 0 results
+  let filteredEmptyPages = 0; // API had results but all were blocked/dupes
 
   for (let page = 1; page <= maxPages; page++) {
     try {
@@ -175,8 +176,8 @@ async function fetchSearxng(
 
       const data = await res.json() as { results?: SearxngResult[] };
       if (!data.results || data.results.length === 0) {
-        emptyPages++;
-        if (emptyPages >= 3) break;
+        apiEmptyPages++;
+        if (apiEmptyPages >= 3) break;
         continue;
       }
 
@@ -189,12 +190,13 @@ async function fetchSearxng(
 
       if (allResults.length >= maxResults) break;
 
-      // If no new unique results from this page, count as empty
+      // Only count as "filtered empty" if API had results but none passed filter
+      // Use a HIGH threshold — blocked domains are expected, keep paginating through them
       if (allResults.length === prevCount) {
-        emptyPages++;
-        if (emptyPages >= 3) break;
+        filteredEmptyPages++;
+        if (filteredEmptyPages >= 10) break;
       } else {
-        emptyPages = 0;
+        filteredEmptyPages = 0;
       }
 
       if (page < maxPages) await delay(50 + Math.random() * 100);
@@ -266,23 +268,9 @@ async function fetchDdgResults(
   const results: SearchResult[] = [];
   const seenDomains = new Set<string>();
   let error: string | null = null;
+  const maxPages = 5;
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-    const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html', 'Accept-Language': 'de-DE,de;q=0.9' },
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) return { results: [], error: `DuckDuckGo HTTP ${res.status}` };
-    const html = await res.text();
-
-    if (html.includes('detected unusual traffic') || html.includes('Please try again')) {
-      return { results: [], error: 'DuckDuckGo Rate-Limit' };
-    }
-
+  function parseHtmlPage(html: string): { nextFormData: string | null } {
     const linkRegex = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
     const snippetRegex = /<(?:a|td)[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|td)>/gi;
     const snippets: string[] = [];
@@ -299,7 +287,61 @@ async function fetchDdgResults(
       seenDomains.add(domain);
       results.push({ title: decodeHtmlEntities(stripHtmlTags(lm[2])), url: actualUrl, snippet: snippets[idx] || '' });
       idx++;
+    }
+
+    // Extract next page form data for pagination
+    const nextMatch = html.match(/<input[^>]+name="s"[^>]+value="([^"]+)"/);
+    const dcMatch = html.match(/<input[^>]+name="dc"[^>]+value="([^"]+)"/);
+    if (nextMatch) {
+      return { nextFormData: `q=${encodeURIComponent(query)}&s=${nextMatch[1]}${dcMatch ? `&dc=${dcMatch[1]}` : ''}` };
+    }
+    return { nextFormData: null };
+  }
+
+  try {
+    let url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    let method: 'GET' | 'POST' = 'GET';
+    let body: string | undefined;
+
+    for (let page = 0; page < maxPages; page++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+      const fetchOpts: RequestInit = {
+        headers: {
+          'User-Agent': USER_AGENT,
+          Accept: 'text/html',
+          'Accept-Language': 'de-DE,de;q=0.9',
+          ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+        },
+        signal: controller.signal,
+        method,
+        body: method === 'POST' ? body : undefined,
+      };
+
+      const res = await fetch(url, fetchOpts);
+      clearTimeout(timeout);
+
+      if (!res.ok) { error = `DuckDuckGo HTTP ${res.status}`; break; }
+      const html = await res.text();
+
+      if (html.includes('detected unusual traffic') || html.includes('Please try again')) {
+        error = 'DuckDuckGo Rate-Limit';
+        break;
+      }
+
+      const prevCount = results.length;
+      const { nextFormData } = parseHtmlPage(html);
+
       if (results.length >= maxResults) break;
+      if (results.length === prevCount && page > 0) break;
+      if (!nextFormData) break;
+
+      // Prepare next page request
+      url = 'https://html.duckduckgo.com/html/';
+      method = 'POST';
+      body = nextFormData;
+      await delay(200 + Math.random() * 300);
     }
   } catch (err) {
     error = err instanceof Error ? (err.name === 'AbortError' ? 'DuckDuckGo Timeout' : err.message) : 'Fehler';
