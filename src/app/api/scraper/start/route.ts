@@ -300,29 +300,31 @@ async function scrapeWebSearch(
     braveApiKey: cfg.brave_search_api_key || undefined,
   };
 
-  // Multiple query variations to find more unique business domains
+  // Build query variations — each one is a full search query string
+  // The base query MUST come first so we always search "Friseur Berlin" etc.
   const searchQueries: Array<{ query: string; label: string }> = [
-    { query: `${city} Kontakt`, label: city },
-    { query: `${city} Firma`, label: `${city} (Firma)` },
-    { query: `${city} in meiner Nähe`, label: `${city} (Nähe)` },
+    { query: `${keyword} ${city}`, label: `${city}` },
+    { query: `${keyword} in ${city}`, label: `${city} (in)` },
+    { query: `${keyword} ${city} Kontakt`, label: `${city} (Kontakt)` },
+    { query: `${keyword} ${city} Firma`, label: `${city} (Firma)` },
+    { query: `${keyword} Salon ${city}`, label: `${city} (Salon)` },
+    { query: `${keyword} Betrieb ${city}`, label: `${city} (Betrieb)` },
+    { query: `bester ${keyword} ${city}`, label: `${city} (bester)` },
+    { query: `${keyword} ${city} Bewertung`, label: `${city} (Bewertung)` },
+    { query: `${keyword} ${city} Empfehlung`, label: `${city} (Empfehlung)` },
+    { query: `${keyword} ${city} Termin`, label: `${city} (Termin)` },
+    { query: `${keyword} ${city} Preise`, label: `${city} (Preise)` },
+    { query: `${keyword} ${city} günstig`, label: `${city} (günstig)` },
   ];
 
   if (deepScan) {
     const districts = getDistricts(city);
-    // Use top districts (max 10) — more than that returns the same results
-    const topDistricts = districts.slice(0, 10);
-    if (topDistricts.length > 0) {
-      jobRunner.addLog(jobId, 'Web', `${city}: + ${topDistricts.length} Stadtteile`, 'info');
-      for (const d of topDistricts) {
-        searchQueries.push({ query: `${city} ${d}`, label: d });
+    if (districts.length > 0) {
+      jobRunner.addLog(jobId, 'Web', `${city}: + ${districts.length} Stadtteile`, 'info');
+      for (const d of districts) {
+        searchQueries.push({ query: `${keyword} ${city} ${d}`, label: d });
       }
     }
-    searchQueries.push(
-      { query: `${city} Bewertung`, label: `${city} (Bewertung)` },
-      { query: `${city} Empfehlung`, label: `${city} (Empfehlung)` },
-      { query: `bester ${keyword} ${city}`, label: `${city} (bester)` },
-      { query: `${keyword} Betrieb ${city}`, label: `${city} (Betrieb)` },
-    );
   }
 
   const allSearchResults: Array<{ title: string; url: string; snippet: string }> = [];
@@ -334,9 +336,9 @@ async function scrapeWebSearch(
     const sq = searchQueries[qi];
     const perQueryMax = 500;
 
-    jobRunner.addLog(jobId, 'Web', `[${qi + 1}/${searchQueries.length}] "${keyword} ${sq.query}"`, 'info');
+    jobRunner.addLog(jobId, 'Web', `[${qi + 1}/${searchQueries.length}] "${sq.query}"`, 'info');
 
-    const searchResult = await searchBusinesses(keyword, sq.query, perQueryMax, searchOpts);
+    const searchResult = await searchBusinesses(sq.query, '', perQueryMax, searchOpts);
 
     let newCount = 0;
     for (const sr of searchResult.searchResults) {
@@ -349,11 +351,13 @@ async function scrapeWebSearch(
 
     jobRunner.addLog(jobId, 'Web', `[${qi + 1}/${searchQueries.length}] ${sq.label}: +${newCount} neu (gesamt: ${allSearchResults.length})`, newCount > 0 ? 'info' : 'warn');
 
-    // Stop early if 5 queries in a row returned nothing new
     if (newCount === 0) {
       zeroResultsInRow++;
-      if (zeroResultsInRow >= 5 && qi > 2) {
-        jobRunner.addLog(jobId, 'Web', `${city}: 5× keine neuen — überspringe Rest`, 'warn');
+      // For base queries (first 12), be more patient — only stop after 8 zeros
+      // For district queries, stop after 5 zeros
+      const threshold = qi < 12 ? 8 : 5;
+      if (zeroResultsInRow >= threshold && qi > 3) {
+        jobRunner.addLog(jobId, 'Web', `${city}: ${zeroResultsInRow}× keine neuen — überspringe Rest`, 'warn');
         break;
       }
     } else {

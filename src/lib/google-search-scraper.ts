@@ -176,7 +176,7 @@ async function fetchSearxng(
       const data = await res.json() as { results?: SearxngResult[] };
       if (!data.results || data.results.length === 0) {
         emptyPages++;
-        if (emptyPages >= 2) break;
+        if (emptyPages >= 3) break;
         continue;
       }
 
@@ -320,7 +320,7 @@ export async function searchBusinesses(
 ): Promise<GoogleSearchResult> {
   const startTime = Date.now();
   const errors: string[] = [];
-  const query = `${keyword} ${city}`;
+  const query = city ? `${keyword} ${city}` : keyword;
   const searxngUrl = options?.searxngUrl;
   const braveApiKey = options?.braveApiKey;
 
