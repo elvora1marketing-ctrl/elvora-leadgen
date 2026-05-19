@@ -1,15 +1,6 @@
 /**
- * Web Search Business Scraper (SearXNG lokal → Brave API → Fallbacks)
- *
- * Findet Firmen-Websites über Web-Suche und extrahiert Kontaktdaten.
- *
- * Pipeline:
- * 1. Lokale SearXNG-Instanz (primär — unlimitiert, kostenlos, localhost)
- * 2. Brave Search API (Fallback mit API-Key)
- * 3. Öffentliche SearXNG-Instanzen (Fallback ohne API-Key)
- * 4. DuckDuckGo HTML (letzter Fallback)
- * 5. Filtert Aggregator-Seiten raus + Dedupliziert nach Domain
- * 6. (Optional) Enrichment: besucht jede Website, parst Impressum für Kontaktdaten
+ * Web Search Business Scraper
+ * Queries ALL available search sources in parallel, merges + deduplicates.
  */
 
 import { type ScrapedBusiness } from './maps-scraper';
@@ -142,12 +133,12 @@ async function fetchSearxng(
 ): Promise<{ results: SearchResult[]; error: string | null }> {
   const seenDomains = new Set<string>();
   const allResults: SearchResult[] = [];
-  let apiEmptyPages = 0; // API returned literally 0 results
-  let filteredEmptyPages = 0; // API had results but all were blocked/dupes
+  let apiEmptyPages = 0;
+  let filteredEmptyStreak = 0;
+  const isLocal = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1');
 
   for (let page = 1; page <= maxPages; page++) {
     try {
-      const isLocal = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1');
       const params = new URLSearchParams({
         q: query,
         format: 'json',
@@ -155,9 +146,8 @@ async function fetchSearxng(
         language: 'de',
         pageno: String(page),
       });
-      if (isLocal) {
-        params.set('engines', 'google,bing,duckduckgo,qwant,brave,startpage,mojeek,yahoo');
-      }
+      // Don't force engines on local — let SearXNG use ALL enabled engines
+      // Forcing engines that aren't installed causes it to return fewer results
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
@@ -190,15 +180,15 @@ async function fetchSearxng(
 
       if (allResults.length >= maxResults) break;
 
-      // Only count as "filtered empty" if API had results but none passed filter
-      // Use a HIGH threshold — blocked domains are expected, keep paginating through them
       if (allResults.length === prevCount) {
-        filteredEmptyPages++;
-        if (filteredEmptyPages >= 10) break;
+        filteredEmptyStreak++;
+        // Keep paginating through blocked domains — real business sites are buried deep
+        if (filteredEmptyStreak >= 15) break;
       } else {
-        filteredEmptyPages = 0;
+        filteredEmptyStreak = 0;
       }
 
+      // No delay on local SearXNG (our own server), small delay on public
       if (!isLocal && page < maxPages) await delay(50 + Math.random() * 100);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Fehler';
@@ -248,7 +238,7 @@ async function fetchBraveResults(
 
       for (const r of webResults) allItems.push({ url: r.url, title: r.title, snippet: r.description || '' });
       if (webResults.length < 20) break;
-      if (page < pages - 1) await delay(300);
+      if (page < pages - 1) await delay(200);
     } catch (err) {
       return { results: filterAndDedup(allItems, seenDomains, maxResults), error: `Brave: ${err instanceof Error ? err.message : 'Fehler'}` };
     }
@@ -258,7 +248,7 @@ async function fetchBraveResults(
 }
 
 // ---------------------------------------------------------------------------
-// DuckDuckGo HTML (letzter Fallback)
+// DuckDuckGo HTML (mit Pagination)
 // ---------------------------------------------------------------------------
 
 async function fetchDdgResults(
@@ -289,7 +279,6 @@ async function fetchDdgResults(
       idx++;
     }
 
-    // Extract next page form data for pagination
     const nextMatch = html.match(/<input[^>]+name="s"[^>]+value="([^"]+)"/);
     const dcMatch = html.match(/<input[^>]+name="dc"[^>]+value="([^"]+)"/);
     if (nextMatch) {
@@ -299,7 +288,7 @@ async function fetchDdgResults(
   }
 
   try {
-    let url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    let url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=de-de`;
     let method: 'GET' | 'POST' = 'GET';
     let body: string | undefined;
 
@@ -337,7 +326,6 @@ async function fetchDdgResults(
       if (results.length === prevCount && page > 0) break;
       if (!nextFormData) break;
 
-      // Prepare next page request
       url = 'https://html.duckduckgo.com/html/';
       method = 'POST';
       body = nextFormData;
@@ -382,31 +370,33 @@ export async function searchBusinesses(
 
   const promises: Promise<void>[] = [];
 
+  // SearXNG lokal — deep pagination for max results
   if (searxngUrl) {
     promises.push((async () => {
-      const maxPages = fast ? 5 : Math.max(20, Math.ceil(maxResults / 5));
-      const local = await fetchSearxng(searxngUrl, query, maxResults, maxPages);
+      const pages = fast ? 8 : 30;
+      const local = await fetchSearxng(searxngUrl, query, maxResults, pages);
       if (local.results.length > 0) mergeResults(local.results);
       if (local.error) errors.push(`Lokal: ${local.error}`);
     })());
   }
 
-  if (braveApiKey && !fast) {
+  // Brave Search API
+  if (braveApiKey) {
     promises.push((async () => {
-      const brave = await fetchBraveResults(query, braveApiKey, maxResults);
+      const brave = await fetchBraveResults(query, braveApiKey, fast ? 40 : maxResults);
       if (brave.results.length > 0) mergeResults(brave.results);
       if (brave.error) errors.push(brave.error);
     })());
   }
 
-  if (!fast) {
-    promises.push((async () => {
-      const ddg = await fetchDdgResults(query, maxResults);
-      if (ddg.results.length > 0) mergeResults(ddg.results);
-      if (ddg.error) errors.push(`DDG: ${ddg.error}`);
-    })());
-  }
+  // DuckDuckGo — always run, even in fast mode (it's quick)
+  promises.push((async () => {
+    const ddg = await fetchDdgResults(query, fast ? 50 : maxResults);
+    if (ddg.results.length > 0) mergeResults(ddg.results);
+    if (ddg.error) errors.push(`DDG: ${ddg.error}`);
+  })());
 
+  // Public SearXNG only if no local instance
   if (!searxngUrl) {
     promises.push((async () => {
       for (const instance of PUBLIC_SEARXNG) {
@@ -422,7 +412,6 @@ export async function searchBusinesses(
   await Promise.allSettled(promises);
 
   const searchResults = allResults;
-  console.log(`[WebSearch] Gesamt nach Merge: ${searchResults.length} unique Ergebnisse aus ${promises.length} Quellen`);
 
   if (searchResults.length === 0 && !searxngUrl) {
     errors.push('Tipp: SearXNG lokal installieren für unlimitierte Web-Suche (docker run -d -p 8888:8080 searxng/searxng)');
@@ -480,7 +469,6 @@ async function enrichSingleResult(sr: SearchResult, city: string): Promise<Scrap
   let email: string | null = null;
   let phone: string | null = null;
 
-  // Fetch homepage title + impressum in parallel
   const [homepageResult, impressumResult] = await Promise.allSettled([
     (async () => {
       const controller = new AbortController();

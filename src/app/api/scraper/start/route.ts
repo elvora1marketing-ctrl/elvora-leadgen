@@ -299,7 +299,8 @@ async function scrapeWebSearch(
     braveApiKey: cfg.brave_search_api_key || undefined,
   };
 
-  // Phase 1: Core queries — always run ALL of these, no early-stop
+  // Phase 1: Core queries — always run ALL, no early-stop
+  // Each variation surfaces different results from search engines
   const coreQueries: Array<{ q: string; label: string }> = [
     { q: `${keyword} ${city}`, label: city },
     { q: `${keyword} in ${city}`, label: `in ${city}` },
@@ -310,6 +311,12 @@ async function scrapeWebSearch(
     { q: `${keyword} ${city} Firma`, label: 'Firma' },
     { q: `${keyword} ${city} Termin`, label: 'Termin' },
     { q: `${keyword} ${city} Preise`, label: 'Preise' },
+    { q: `${keyword} ${city} Öffnungszeiten`, label: 'Öffnungszeiten' },
+    { q: `${keyword} ${city} in der Nähe`, label: 'Nähe' },
+    { q: `${keyword} ${city} Adresse Telefon`, label: 'Adresse' },
+    { q: `${keyword} Verzeichnis ${city}`, label: 'Verzeichnis' },
+    { q: `${keyword} Liste ${city}`, label: 'Liste' },
+    { q: `top ${keyword} ${city}`, label: 'top' },
   ];
 
   // Phase 2: District queries (deep scan) — separate early-stop counter
