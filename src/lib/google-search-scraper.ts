@@ -199,7 +199,7 @@ async function fetchSearxng(
         filteredEmptyPages = 0;
       }
 
-      if (page < maxPages) await delay(50 + Math.random() * 100);
+      if (!isLocal && page < maxPages) await delay(50 + Math.random() * 100);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Fehler';
       return { results: allResults, error: `SearXNG: ${msg}` };
@@ -341,7 +341,7 @@ async function fetchDdgResults(
       url = 'https://html.duckduckgo.com/html/';
       method = 'POST';
       body = nextFormData;
-      await delay(200 + Math.random() * 300);
+      await delay(100 + Math.random() * 150);
     }
   } catch (err) {
     error = err instanceof Error ? (err.name === 'AbortError' ? 'DuckDuckGo Timeout' : err.message) : 'Fehler';
@@ -358,15 +358,14 @@ export async function searchBusinesses(
   keyword: string,
   city: string,
   maxResults: number = 20,
-  options?: { searxngUrl?: string; braveApiKey?: string },
+  options?: { searxngUrl?: string; braveApiKey?: string; fast?: boolean },
 ): Promise<GoogleSearchResult> {
   const startTime = Date.now();
   const errors: string[] = [];
   const query = city ? `${keyword} ${city}` : keyword;
   const searxngUrl = options?.searxngUrl;
   const braveApiKey = options?.braveApiKey;
-
-  console.log(`[WebSearch] Suche: "${query}" (max ${maxResults}) — alle Quellen parallel`);
+  const fast = options?.fast || false;
 
   const allResults: SearchResult[] = [];
   const seenUrls = new Set<string>();
@@ -381,58 +380,38 @@ export async function searchBusinesses(
     }
   }
 
-  // Query ALL available sources in parallel for maximum coverage
   const promises: Promise<void>[] = [];
 
-  // 1. Lokale SearXNG-Instanz (unlimitiert, primäre Quelle)
   if (searxngUrl) {
     promises.push((async () => {
-      console.log(`[WebSearch] SearXNG lokal: ${searxngUrl}`);
-      const maxPages = Math.max(20, Math.ceil(maxResults / 5));
+      const maxPages = fast ? 5 : Math.max(20, Math.ceil(maxResults / 5));
       const local = await fetchSearxng(searxngUrl, query, maxResults, maxPages);
-      if (local.results.length > 0) {
-        console.log(`[WebSearch] SearXNG lokal: ${local.results.length} Ergebnisse`);
-        mergeResults(local.results);
-      }
-      if (local.error) {
-        errors.push(`Lokal: ${local.error}`);
-        console.log(`[WebSearch] SearXNG lokal Fehler: ${local.error}`);
-      }
+      if (local.results.length > 0) mergeResults(local.results);
+      if (local.error) errors.push(`Lokal: ${local.error}`);
     })());
   }
 
-  // 2. Brave Search API (parallel)
-  if (braveApiKey) {
+  if (braveApiKey && !fast) {
     promises.push((async () => {
-      console.log('[WebSearch] Brave Search API...');
       const brave = await fetchBraveResults(query, braveApiKey, maxResults);
-      if (brave.results.length > 0) {
-        console.log(`[WebSearch] Brave: ${brave.results.length} Ergebnisse`);
-        mergeResults(brave.results);
-      }
+      if (brave.results.length > 0) mergeResults(brave.results);
       if (brave.error) errors.push(brave.error);
     })());
   }
 
-  // 3. DuckDuckGo HTML (parallel)
-  promises.push((async () => {
-    console.log('[WebSearch] DuckDuckGo...');
-    const ddg = await fetchDdgResults(query, maxResults);
-    if (ddg.results.length > 0) {
-      console.log(`[WebSearch] DuckDuckGo: ${ddg.results.length} Ergebnisse`);
-      mergeResults(ddg.results);
-    }
-    if (ddg.error) errors.push(`DDG: ${ddg.error}`);
-  })());
+  if (!fast) {
+    promises.push((async () => {
+      const ddg = await fetchDdgResults(query, maxResults);
+      if (ddg.results.length > 0) mergeResults(ddg.results);
+      if (ddg.error) errors.push(`DDG: ${ddg.error}`);
+    })());
+  }
 
-  // 4. Öffentliche SearXNG-Instanzen (parallel, nur wenn keine lokale)
   if (!searxngUrl) {
     promises.push((async () => {
-      console.log('[WebSearch] Öffentliche SearXNG-Instanzen...');
       for (const instance of PUBLIC_SEARXNG) {
-        const pub = await fetchSearxng(instance, query, maxResults, 5);
+        const pub = await fetchSearxng(instance, query, maxResults, fast ? 3 : 5);
         if (pub.results.length > 0) {
-          console.log(`[WebSearch] ${instance}: ${pub.results.length} Ergebnisse`);
           mergeResults(pub.results);
           break;
         }
