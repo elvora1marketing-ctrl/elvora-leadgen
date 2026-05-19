@@ -112,8 +112,9 @@ async function runScrapeJob(
         jobRunner.addLog(jobId, 'System', `[${ci + 1}/${cities.length}] ${ct}`, 'info');
       }
 
-      for (const sourceId of sources) {
-        if (signal?.aborted) break;
+      // Run all selected sources in PARALLEL per city
+      const sourcePromises = sources.map(async (sourceId) => {
+        if (signal?.aborted) return;
         currentStep++;
         jobRunner.updateProgress(jobId, currentStep, totalSteps, `${kw} — ${ct} — ${sourceId}`);
 
@@ -126,11 +127,12 @@ async function runScrapeJob(
             await scrapeWebSearch(jobId, db, kw, ct, cfg, options.autoEnrich, options.deepScan);
           }
         } catch (err) {
-          if (signal?.aborted) break;
+          if (signal?.aborted) return;
           const msg = err instanceof Error ? err.message : 'Fehler';
           jobRunner.addLog(jobId, sourceId, `${ct}: ${msg}`, 'error');
         }
-      }
+      });
+      await Promise.allSettled(sourcePromises);
     }
   }
 
@@ -221,26 +223,25 @@ async function scrapeBranchenportale(jobId: number, db: ReturnType<typeof getDb>
   const maxPages = deepScan ? 999 : 50;
   const allBiz: ScrapedBusiness[] = [];
 
-  // Gelbe Seiten
-  jobRunner.addLog(jobId, 'Portal', `${city}: Gelbe Seiten...`, 'info');
-  try {
-    const gs = await scrapeGelbeSeiten(keyword, city, maxPages);
-    allBiz.push(...gs.businesses);
-    jobRunner.addLog(jobId, 'Portal', `${city}: Gelbe Seiten — ${gs.businesses.length} Ergebnisse`, 'info');
-  } catch (err) {
-    jobRunner.addLog(jobId, 'Portal', `${city}: Gelbe Seiten Fehler — ${err instanceof Error ? err.message : 'Fehler'}`, 'error');
+  // Gelbe Seiten + 11880 parallel
+  jobRunner.addLog(jobId, 'Portal', `${city}: Gelbe Seiten + 11880 parallel...`, 'info');
+  const [gsResult, elResult] = await Promise.allSettled([
+    scrapeGelbeSeiten(keyword, city, maxPages),
+    scrape11880(keyword, city, maxPages),
+  ]);
+
+  if (gsResult.status === 'fulfilled') {
+    allBiz.push(...gsResult.value.businesses);
+    jobRunner.addLog(jobId, 'Portal', `${city}: Gelbe Seiten — ${gsResult.value.businesses.length} Ergebnisse`, 'info');
+  } else {
+    jobRunner.addLog(jobId, 'Portal', `${city}: Gelbe Seiten Fehler — ${gsResult.reason}`, 'error');
   }
 
-  if (signal?.aborted) return;
-
-  // 11880
-  jobRunner.addLog(jobId, 'Portal', `${city}: 11880.com...`, 'info');
-  try {
-    const el = await scrape11880(keyword, city, maxPages);
-    allBiz.push(...el.businesses);
-    jobRunner.addLog(jobId, 'Portal', `${city}: 11880.com — ${el.businesses.length} Ergebnisse`, 'info');
-  } catch (err) {
-    jobRunner.addLog(jobId, 'Portal', `${city}: 11880 Fehler — ${err instanceof Error ? err.message : 'Fehler'}`, 'error');
+  if (elResult.status === 'fulfilled') {
+    allBiz.push(...elResult.value.businesses);
+    jobRunner.addLog(jobId, 'Portal', `${city}: 11880 — ${elResult.value.businesses.length} Ergebnisse`, 'info');
+  } else {
+    jobRunner.addLog(jobId, 'Portal', `${city}: 11880 Fehler — ${elResult.reason}`, 'error');
   }
 
   if (signal?.aborted) return;
@@ -250,7 +251,7 @@ async function scrapeBranchenportale(jobId: number, db: ReturnType<typeof getDb>
     const withWebsite = allBiz.filter(b => b.website && !b.email);
     if (withWebsite.length > 0) {
       jobRunner.addLog(jobId, 'Portal', `${city}: E-Mail-Enrichment ${withWebsite.length} Firmen...`, 'info');
-      const concurrency = 15;
+      const concurrency = 30;
       let done = 0;
       for (let i = 0; i < withWebsite.length; i += concurrency) {
         if (signal?.aborted) break;
