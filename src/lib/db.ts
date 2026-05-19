@@ -708,6 +708,26 @@ export function getDb(): Database.Database {
       console.error('[DB] Category column migration error:', e);
     }
 
+    // Migration: Add multi-email + decision-maker columns
+    try {
+      const colCheckEmail = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colNamesEmail = colCheckEmail.map(c => c.name);
+      if (!colNamesEmail.includes('all_emails')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN all_emails TEXT");
+        console.log('[DB] Migration: added all_emails column');
+      }
+      if (!colNamesEmail.includes('entscheider_name')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN entscheider_name TEXT");
+        console.log('[DB] Migration: added entscheider_name column');
+      }
+      if (!colNamesEmail.includes('entscheider_email')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN entscheider_email TEXT");
+        console.log('[DB] Migration: added entscheider_email column');
+      }
+    } catch (e) {
+      console.error('[DB] Multi-email columns migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }

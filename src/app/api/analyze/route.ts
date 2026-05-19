@@ -2,63 +2,50 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { analyzeWebsite } from '@/lib/website-analyzer';
 
-/**
- * POST /api/analyze - Analyze website(s)
- * Body: { leadId: number } - analyze single lead
- *   OR: { batch: true, limit?: number } - analyze all unscored leads with websites
- */
+const BATCH_CONCURRENCY = 10;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as {
       leadId?: number;
       batch?: boolean;
       limit?: number;
+      concurrency?: number;
     };
 
     const db = getDb();
 
-    // Single lead analysis
     if (body.leadId) {
       const lead = db.prepare('SELECT id, name, website_original, score FROM leads WHERE id = ?').get(body.leadId) as {
         id: number; name: string; website_original: string | null; score: number;
       } | undefined;
 
-      if (!lead) {
-        return NextResponse.json({ error: 'Lead nicht gefunden' }, { status: 404 });
-      }
-
-      if (!lead.website_original) {
-        return NextResponse.json({ error: 'Lead hat keine Website' }, { status: 400 });
-      }
+      if (!lead) return NextResponse.json({ error: 'Lead nicht gefunden' }, { status: 404 });
+      if (!lead.website_original) return NextResponse.json({ error: 'Lead hat keine Website' }, { status: 400 });
 
       const result = await analyzeWebsite(lead.website_original);
+      const bestEmail = result.contactEmails.length > 0 ? result.contactEmails[0] : null;
+      const allEmailsJson = result.contactEmails.length > 0 ? JSON.stringify(result.contactEmails) : null;
 
-      // Update lead in DB - also save first found email if lead has no email yet
-      const firstEmail = result.contactEmails.length > 0 ? result.contactEmails[0] : null;
-      if (firstEmail) {
-        db.prepare(`
-          UPDATE leads
-          SET score = ?, problems = ?, seo_issues = ?, email = COALESCE(NULLIF(email, ''), ?), updated_at = datetime('now')
-          WHERE id = ?
-        `).run(
-          result.score,
-          JSON.stringify(result.problems),
-          JSON.stringify(result.seoIssues),
-          firstEmail,
-          lead.id
-        );
-      } else {
-        db.prepare(`
-          UPDATE leads
-          SET score = ?, problems = ?, seo_issues = ?, updated_at = datetime('now')
-          WHERE id = ?
-        `).run(
-          result.score,
-          JSON.stringify(result.problems),
-          JSON.stringify(result.seoIssues),
-          lead.id
-        );
-      }
+      db.prepare(`
+        UPDATE leads
+        SET score = ?, problems = ?, seo_issues = ?,
+            email = COALESCE(NULLIF(email, ''), ?),
+            all_emails = ?,
+            entscheider_name = COALESCE(?, entscheider_name),
+            entscheider_email = COALESCE(?, entscheider_email),
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).run(
+        result.score,
+        JSON.stringify(result.problems),
+        JSON.stringify(result.seoIssues),
+        bestEmail,
+        allEmailsJson,
+        result.entscheiderName,
+        result.entscheiderEmail,
+        lead.id
+      );
 
       return NextResponse.json({
         success: true,
@@ -67,9 +54,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Batch analysis
     if (body.batch) {
       const limit = body.limit || 50;
+      const concurrency = body.concurrency || BATCH_CONCURRENCY;
 
       const leads = db.prepare(`
         SELECT id, name, website_original
@@ -91,51 +78,57 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const results: { id: number; name: string; score: number; error?: string }[] = [];
+      const results: { id: number; name: string; score: number; emails: number; entscheider: string | null; error?: string }[] = [];
 
       const updateStmt = db.prepare(`
         UPDATE leads
-        SET score = ?, problems = ?, seo_issues = ?, updated_at = datetime('now')
-        WHERE id = ?
-      `);
-      const updateWithEmailStmt = db.prepare(`
-        UPDATE leads
-        SET score = ?, problems = ?, seo_issues = ?, email = COALESCE(NULLIF(email, ''), ?), updated_at = datetime('now')
+        SET score = ?, problems = ?, seo_issues = ?,
+            email = COALESCE(NULLIF(email, ''), ?),
+            all_emails = ?,
+            entscheider_name = COALESCE(?, entscheider_name),
+            entscheider_email = COALESCE(?, entscheider_email),
+            updated_at = datetime('now')
         WHERE id = ?
       `);
 
-      for (const lead of leads) {
+      const analyzeLead = async (lead: { id: number; name: string; website_original: string }) => {
         try {
           const result = await analyzeWebsite(lead.website_original);
+          const bestEmail = result.contactEmails.length > 0 ? result.contactEmails[0] : null;
+          const allEmailsJson = result.contactEmails.length > 0 ? JSON.stringify(result.contactEmails) : null;
 
-          const firstEmail = result.contactEmails.length > 0 ? result.contactEmails[0] : null;
-          if (firstEmail) {
-            updateWithEmailStmt.run(
-              result.score,
-              JSON.stringify(result.problems),
-              JSON.stringify(result.seoIssues),
-              firstEmail,
-              lead.id
-            );
-          } else {
-            updateStmt.run(
-              result.score,
-              JSON.stringify(result.problems),
-              JSON.stringify(result.seoIssues),
-              lead.id
-            );
-          }
+          updateStmt.run(
+            result.score,
+            JSON.stringify(result.problems),
+            JSON.stringify(result.seoIssues),
+            bestEmail,
+            allEmailsJson,
+            result.entscheiderName,
+            result.entscheiderEmail,
+            lead.id
+          );
 
-          results.push({ id: lead.id, name: lead.name, score: result.score });
-
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          results.push({
+            id: lead.id,
+            name: lead.name,
+            score: result.score,
+            emails: result.contactEmails.length,
+            entscheider: result.entscheiderName,
+          });
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : 'Unbekannter Fehler';
-          results.push({ id: lead.id, name: lead.name, score: 0, error: errMsg });
+          results.push({ id: lead.id, name: lead.name, score: 0, emails: 0, entscheider: null, error: errMsg });
         }
+      };
+
+      // Process in parallel chunks
+      for (let i = 0; i < leads.length; i += concurrency) {
+        const chunk = leads.slice(i, i + concurrency);
+        await Promise.allSettled(chunk.map(lead => analyzeLead(lead)));
       }
 
       const analyzed = results.filter(r => !r.error).length;
+      const totalEmails = results.reduce((sum, r) => sum + r.emails, 0);
       const avgScore = analyzed > 0
         ? Math.round(results.filter(r => !r.error).reduce((sum, r) => sum + r.score, 0) / analyzed)
         : 0;
@@ -146,6 +139,8 @@ export async function POST(request: NextRequest) {
         errors: results.filter(r => r.error).length,
         total: leads.length,
         averageScore: avgScore,
+        totalEmails,
+        entscheiderFound: results.filter(r => r.entscheider).length,
         results,
       });
     }
@@ -158,12 +153,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * GET /api/analyze - Get analysis statistics & pending IDs
- * Supports optional filters: ?status=...&city=...&keyword=...
- * Without filters: returns ALL pending leads (no limit)
- * With filters: returns only pending leads matching the filter
- */
 export async function GET(request: NextRequest) {
   try {
     const db = getDb();
@@ -171,39 +160,22 @@ export async function GET(request: NextRequest) {
     const filterStatus = searchParams.get('status') || '';
     const filterCity = searchParams.get('city') || '';
     const filterKeyword = searchParams.get('keyword') || '';
-
     const forceAll = searchParams.get('force') === '1';
 
-    // Build WHERE conditions for filters
     const conditions: string[] = [
       "website_original IS NOT NULL",
       "website_original != ''",
       "status != 'rejected'",
     ];
-    // Only filter unanalyzed leads unless force re-analyze is requested
-    if (!forceAll) {
-      conditions.push("score = 0");
-    }
+    if (!forceAll) conditions.push("score = 0");
     const params: (string | number)[] = [];
 
-    if (filterStatus) {
-      conditions.push("status = ?");
-      params.push(filterStatus);
-    }
-
-    if (filterCity) {
-      conditions.push("(city = ? OR city LIKE ? || ' %' OR city LIKE ? || '-%')");
-      params.push(filterCity, filterCity, filterCity);
-    }
-
-    if (filterKeyword) {
-      conditions.push("found_via_keywords LIKE '%' || ? || '%'");
-      params.push(filterKeyword);
-    }
+    if (filterStatus) { conditions.push("status = ?"); params.push(filterStatus); }
+    if (filterCity) { conditions.push("(city = ? OR city LIKE ? || ' %' OR city LIKE ? || '-%')"); params.push(filterCity, filterCity, filterCity); }
+    if (filterKeyword) { conditions.push("found_via_keywords LIKE '%' || ? || '%'"); params.push(filterKeyword); }
 
     const whereClause = conditions.join(' AND ');
 
-    // Stats (unfiltered, for overview)
     const stats = db.prepare(`
       SELECT
         COUNT(*) as total,
@@ -217,7 +189,6 @@ export async function GET(request: NextRequest) {
       total: number; with_website: number; analyzed: number; pending: number; avg_score: number | null;
     };
 
-    // Score distribution
     const distribution = db.prepare(`
       SELECT
         CASE
@@ -244,28 +215,17 @@ export async function GET(request: NextRequest) {
         END
     `).all();
 
-    // Get ALL pending IDs matching the filter (NO LIMIT)
     const pendingIds = db.prepare(`
       SELECT id FROM leads
       WHERE ${whereClause}
       ORDER BY created_at DESC
     `).all(...params) as { id: number }[];
 
-    // Count total leads matching the category filter (without website/score conditions)
     const categoryConditions: string[] = ["status != 'rejected'"];
     const categoryParams: (string | number)[] = [];
-    if (filterStatus) {
-      categoryConditions.push("status = ?");
-      categoryParams.push(filterStatus);
-    }
-    if (filterCity) {
-      categoryConditions.push("(city = ? OR city LIKE ? || ' %' OR city LIKE ? || '-%')");
-      categoryParams.push(filterCity, filterCity, filterCity);
-    }
-    if (filterKeyword) {
-      categoryConditions.push("found_via_keywords LIKE '%' || ? || '%'");
-      categoryParams.push(filterKeyword);
-    }
+    if (filterStatus) { categoryConditions.push("status = ?"); categoryParams.push(filterStatus); }
+    if (filterCity) { categoryConditions.push("(city = ? OR city LIKE ? || ' %' OR city LIKE ? || '-%')"); categoryParams.push(filterCity, filterCity, filterCity); }
+    if (filterKeyword) { categoryConditions.push("found_via_keywords LIKE '%' || ? || '%'"); categoryParams.push(filterKeyword); }
     const categoryTotal = db.prepare(`
       SELECT
         COUNT(*) as total,

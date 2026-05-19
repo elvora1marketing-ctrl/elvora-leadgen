@@ -819,6 +819,33 @@ export default function CrmDetailPage() {
           </button>
         )}
       </div>
+      {/* Decision Maker + All Emails from Analysis */}
+      {(lead.entscheider_name || lead.all_emails) && (
+        <div className="mb-4 px-3 py-2.5 rounded-xl bg-elvora-purple/10 border border-elvora-purple/20">
+          {lead.entscheider_name && (
+            <div className="text-[10px] uppercase tracking-wider text-elvora-purple-light font-semibold mb-1">
+              Entscheider: {lead.entscheider_name}
+              {lead.entscheider_email && <span className="ml-2 font-mono normal-case">{lead.entscheider_email}</span>}
+            </div>
+          )}
+          {lead.all_emails && (() => {
+            try {
+              const emails = JSON.parse(lead.all_emails) as string[];
+              if (emails.length > 1) return (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-elvora-text-dim mb-1">{emails.length} E-Mails gefunden</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {emails.map((e: string) => (
+                      <button key={e} onClick={() => { navigator.clipboard.writeText(e); }} className="text-xs font-mono text-white bg-white/10 hover:bg-white/20 px-2 py-1 rounded transition-colors">{e}</button>
+                    ))}
+                  </div>
+                </div>
+              );
+              return null;
+            } catch { return null; }
+          })()}
+        </div>
+      )}
       {enrichResult && enrichResult.emails.length > 0 && (
         <div className="mb-4 px-3 py-2.5 rounded-xl bg-elvora-success/10 border border-elvora-success/20">
           <div className="text-[10px] uppercase tracking-wider text-elvora-success font-semibold mb-1">
