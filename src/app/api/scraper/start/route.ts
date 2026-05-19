@@ -341,49 +341,49 @@ async function scrapeWebSearch(
     return newCount;
   }
 
-  // Phase 1: Core queries — run 3 at a time for speed, all sources (deep)
-  const coreConcurrency = 3;
-  for (let i = 0; i < coreQueries.length; i += coreConcurrency) {
-    if (signal?.aborted) break;
-    const batch = coreQueries.slice(i, i + coreConcurrency);
-    const results = await Promise.allSettled(
-      batch.map(async (cq, bi) => {
-        const idx = i + bi + 1;
-        jobRunner.addLog(jobId, 'Web', `[${idx}/${totalQueries}] "${cq.q}"`, 'info');
-        const result = await searchBusinesses(cq.q, '', 500, searchOpts);
-        const newCount = collectResults(result.searchResults);
-        jobRunner.addLog(jobId, 'Web', `[${idx}/${totalQueries}] ${cq.label}: +${newCount} neu (gesamt: ${allSearchResults.length})`, newCount > 0 ? 'info' : 'warn');
-      })
-    );
-  }
+  // Phase 1: ALL 9 core queries at once — full depth, all sources
+  jobRunner.addLog(jobId, 'Web', `${city}: ${coreQueries.length} Core-Queries parallel...`, 'info');
+  await Promise.allSettled(
+    coreQueries.map(async (cq, i) => {
+      if (signal?.aborted) return;
+      const result = await searchBusinesses(cq.q, '', 500, searchOpts);
+      const newCount = collectResults(result.searchResults);
+      jobRunner.addLog(jobId, 'Web', `${cq.label}: +${newCount} (gesamt: ${allSearchResults.length})`, newCount > 0 ? 'info' : 'warn');
+    })
+  );
+  jobRunner.addLog(jobId, 'Web', `${city}: Core fertig — ${allSearchResults.length} unique`, 'info');
 
-  // Phase 2: District queries — run 5 at a time, fast mode (SearXNG only, 5 pages)
-  const districtConcurrency = 5;
-  let districtZeros = 0;
-  const fastOpts = { ...searchOpts, fast: true };
+  // Phase 2: District queries — 10 parallel, fast mode (SearXNG only, 5 pages)
+  if (districtQueries.length > 0) {
+    const districtConcurrency = 10;
+    let districtZeros = 0;
+    const fastOpts = { ...searchOpts, fast: true };
 
-  for (let i = 0; i < districtQueries.length; i += districtConcurrency) {
-    if (signal?.aborted) break;
-    if (districtZeros >= 15) {
-      jobRunner.addLog(jobId, 'Web', `${city}: 15 Stadtteile ohne neue Ergebnisse — überspringe Rest`, 'warn');
-      break;
-    }
-    const batch = districtQueries.slice(i, i + districtConcurrency);
-    let batchNew = 0;
-    await Promise.allSettled(
-      batch.map(async (dq, bi) => {
-        const idx = coreQueries.length + i + bi + 1;
-        jobRunner.addLog(jobId, 'Web', `[${idx}/${totalQueries}] "${dq.q}"`, 'info');
-        const result = await searchBusinesses(dq.q, '', 100, fastOpts);
-        const newCount = collectResults(result.searchResults);
-        batchNew += newCount;
-        jobRunner.addLog(jobId, 'Web', `[${idx}/${totalQueries}] ${dq.label}: +${newCount} neu (gesamt: ${allSearchResults.length})`, newCount > 0 ? 'info' : 'warn');
-      })
-    );
-    if (batchNew === 0) {
-      districtZeros += batch.length;
-    } else {
-      districtZeros = 0;
+    for (let i = 0; i < districtQueries.length; i += districtConcurrency) {
+      if (signal?.aborted) break;
+      if (districtZeros >= 20) {
+        jobRunner.addLog(jobId, 'Web', `${city}: 20× ohne neue — Stadtteile fertig`, 'warn');
+        break;
+      }
+      const batch = districtQueries.slice(i, i + districtConcurrency);
+      let batchNew = 0;
+      await Promise.allSettled(
+        batch.map(async (dq) => {
+          if (signal?.aborted) return;
+          const result = await searchBusinesses(dq.q, '', 100, fastOpts);
+          const newCount = collectResults(result.searchResults);
+          batchNew += newCount;
+          if (newCount > 0) {
+            jobRunner.addLog(jobId, 'Web', `${dq.label}: +${newCount} (gesamt: ${allSearchResults.length})`, 'info');
+          }
+        })
+      );
+      if (batchNew === 0) {
+        districtZeros += batch.length;
+      } else {
+        districtZeros = 0;
+      }
+      jobRunner.addLog(jobId, 'Web', `${city}: Batch ${Math.ceil((i + 1) / districtConcurrency)}/${Math.ceil(districtQueries.length / districtConcurrency)} — +${batchNew} neu`, batchNew > 0 ? 'info' : 'warn');
     }
   }
 
@@ -397,10 +397,10 @@ async function scrapeWebSearch(
     rating: null, reviews: null, category: keyword, placeId: null,
   }));
 
-  // Enrichment
+  // Enrichment — 30 concurrent (6 vCPU server)
   if (autoEnrich && allSearchResults.length > 0) {
-    jobRunner.addLog(jobId, 'Web', `${city}: Impressum-Analyse ${allSearchResults.length} Websites...`, 'info');
-    const concurrency = 15;
+    jobRunner.addLog(jobId, 'Web', `${city}: Impressum-Analyse ${allSearchResults.length} Websites (30 parallel)...`, 'info');
+    const concurrency = 30;
     const enriched: ScrapedBusiness[] = [];
 
     for (let i = 0; i < allSearchResults.length; i += concurrency) {
@@ -416,7 +416,9 @@ async function scrapeWebSearch(
         if (outcome.status === 'fulfilled' && outcome.value) enriched.push(outcome.value);
       }
       const done = Math.min(i + concurrency, allSearchResults.length);
-      jobRunner.addLog(jobId, 'Web', `${city}: Impressum ${done}/${allSearchResults.length}`, 'info');
+      if (done % 60 === 0 || done >= allSearchResults.length) {
+        jobRunner.addLog(jobId, 'Web', `${city}: Impressum ${done}/${allSearchResults.length}`, 'info');
+      }
     }
 
     if (enriched.length > 0) businesses = enriched;
