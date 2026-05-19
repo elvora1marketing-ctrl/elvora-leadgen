@@ -373,7 +373,7 @@ export async function searchBusinesses(
   // SearXNG lokal — deep pagination for max results
   if (searxngUrl) {
     promises.push((async () => {
-      const pages = fast ? 8 : 30;
+      const pages = fast ? 8 : 15;
       const local = await fetchSearxng(searxngUrl, query, maxResults, pages);
       if (local.results.length > 0) mergeResults(local.results);
       if (local.error) errors.push(`Lokal: ${local.error}`);

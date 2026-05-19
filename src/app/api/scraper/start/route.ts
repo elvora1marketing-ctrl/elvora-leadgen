@@ -299,42 +299,8 @@ async function scrapeWebSearch(
     braveApiKey: cfg.brave_search_api_key || undefined,
   };
 
-  // Phase 1: Core queries — always run ALL, no early-stop
-  // Each variation surfaces different results from search engines
-  const coreQueries: Array<{ q: string; label: string }> = [
-    { q: `${keyword} ${city}`, label: city },
-    { q: `${keyword} in ${city}`, label: `in ${city}` },
-    { q: `bester ${keyword} ${city}`, label: 'bester' },
-    { q: `${keyword} ${city} Kontakt`, label: 'Kontakt' },
-    { q: `${keyword} ${city} Bewertung`, label: 'Bewertung' },
-    { q: `${keyword} ${city} Empfehlung`, label: 'Empfehlung' },
-    { q: `${keyword} ${city} Firma`, label: 'Firma' },
-    { q: `${keyword} ${city} Termin`, label: 'Termin' },
-    { q: `${keyword} ${city} Preise`, label: 'Preise' },
-    { q: `${keyword} ${city} Öffnungszeiten`, label: 'Öffnungszeiten' },
-    { q: `${keyword} ${city} in der Nähe`, label: 'Nähe' },
-    { q: `${keyword} ${city} Adresse Telefon`, label: 'Adresse' },
-    { q: `${keyword} Verzeichnis ${city}`, label: 'Verzeichnis' },
-    { q: `${keyword} Liste ${city}`, label: 'Liste' },
-    { q: `top ${keyword} ${city}`, label: 'top' },
-  ];
-
-  // Phase 2: District queries (deep scan) — separate early-stop counter
-  const districtQueries: Array<{ q: string; label: string }> = [];
-  if (deepScan) {
-    const districts = getDistricts(city);
-    if (districts.length > 0) {
-      jobRunner.addLog(jobId, 'Web', `${city}: + ${districts.length} Stadtteile`, 'info');
-      for (const d of districts) {
-        districtQueries.push({ q: `${keyword} ${d} ${city}`, label: d });
-        districtQueries.push({ q: `${keyword} ${d}`, label: `${d} (solo)` });
-      }
-    }
-  }
-
   const allSearchResults: Array<{ title: string; url: string; snippet: string }> = [];
   const seenDomains = new Set<string>();
-  const totalQueries = coreQueries.length + districtQueries.length;
 
   function collectResults(searchResults: Array<{ title: string; url: string; snippet: string }>): number {
     let newCount = 0;
@@ -348,49 +314,83 @@ async function scrapeWebSearch(
     return newCount;
   }
 
-  // Phase 1: ALL 9 core queries at once — full depth, all sources
-  jobRunner.addLog(jobId, 'Web', `${city}: ${coreQueries.length} Core-Queries parallel...`, 'info');
-  await Promise.allSettled(
-    coreQueries.map(async (cq, i) => {
-      if (signal?.aborted) return;
-      const result = await searchBusinesses(cq.q, '', 500, searchOpts);
-      const newCount = collectResults(result.searchResults);
-      jobRunner.addLog(jobId, 'Web', `${cq.label}: +${newCount} (gesamt: ${allSearchResults.length})`, newCount > 0 ? 'info' : 'warn');
-    })
-  );
+  // === PHASE 1: Main query — deepest search, full depth, all sources ===
+  const mainQuery = `${keyword} ${city}`;
+  jobRunner.addLog(jobId, 'Web', `${city}: Hauptsuche "${mainQuery}"...`, 'info');
+  const mainResult = await searchBusinesses(mainQuery, '', 500, searchOpts);
+  const mainNew = collectResults(mainResult.searchResults);
+  jobRunner.addLog(jobId, 'Web', `${city}: Hauptsuche — ${mainNew} unique`, 'info');
+
+  if (signal?.aborted) return;
+
+  // === PHASE 2: Variation queries — 3 at a time, fast mode (fewer SearXNG pages) ===
+  const variationQueries = [
+    `bester ${keyword} ${city}`,
+    `${keyword} in ${city}`,
+    `top ${keyword} ${city}`,
+    `${keyword} ${city} Bewertung`,
+    `${keyword} ${city} Empfehlung`,
+    `${keyword} ${city} Kontakt`,
+    `${keyword} Verzeichnis ${city}`,
+    `${keyword} Liste ${city}`,
+    `${keyword} ${city} Firma`,
+    `${keyword} ${city} Adresse Telefon`,
+    `${keyword} ${city} Termin`,
+    `${keyword} ${city} Preise`,
+    `${keyword} ${city} Öffnungszeiten`,
+    `${keyword} ${city} in der Nähe`,
+  ];
+
+  const fastOpts = { ...searchOpts, fast: true };
+  for (let i = 0; i < variationQueries.length; i += 3) {
+    if (signal?.aborted) break;
+    const batch = variationQueries.slice(i, i + 3);
+    await Promise.allSettled(
+      batch.map(async (q) => {
+        const result = await searchBusinesses(q, '', 100, fastOpts);
+        const newCount = collectResults(result.searchResults);
+        if (newCount > 0) {
+          jobRunner.addLog(jobId, 'Web', `${q.replace(`${keyword} `, '').replace(` ${city}`, '').replace(city, '').trim()}: +${newCount} (gesamt: ${allSearchResults.length})`, 'info');
+        }
+      })
+    );
+  }
   jobRunner.addLog(jobId, 'Web', `${city}: Core fertig — ${allSearchResults.length} unique`, 'info');
 
-  // Phase 2: District queries — 10 parallel, fast mode (SearXNG only, 5 pages)
-  if (districtQueries.length > 0) {
-    const districtConcurrency = 10;
-    let districtZeros = 0;
-    const fastOpts = { ...searchOpts, fast: true };
+  // === PHASE 3: District queries (deep scan) — 5 at a time, fast mode ===
+  if (deepScan) {
+    const districts = getDistricts(city);
+    if (districts.length > 0) {
+      jobRunner.addLog(jobId, 'Web', `${city}: ${districts.length} Stadtteile...`, 'info');
+      let districtZeros = 0;
 
-    for (let i = 0; i < districtQueries.length; i += districtConcurrency) {
-      if (signal?.aborted) break;
-      if (districtZeros >= 20) {
-        jobRunner.addLog(jobId, 'Web', `${city}: 20× ohne neue — Stadtteile fertig`, 'warn');
-        break;
+      for (let i = 0; i < districts.length; i += 5) {
+        if (signal?.aborted) break;
+        if (districtZeros >= 15) {
+          jobRunner.addLog(jobId, 'Web', `${city}: Stadtteile liefern nichts mehr — fertig`, 'warn');
+          break;
+        }
+        const batch = districts.slice(i, i + 5);
+        let batchNew = 0;
+        await Promise.allSettled(
+          batch.map(async (d) => {
+            const r1 = await searchBusinesses(`${keyword} ${d} ${city}`, '', 50, fastOpts);
+            const r2 = await searchBusinesses(`${keyword} ${d}`, '', 50, fastOpts);
+            const n1 = collectResults(r1.searchResults);
+            const n2 = collectResults(r2.searchResults);
+            const total = n1 + n2;
+            batchNew += total;
+            if (total > 0) {
+              jobRunner.addLog(jobId, 'Web', `${d}: +${total} (gesamt: ${allSearchResults.length})`, 'info');
+            }
+          })
+        );
+        if (batchNew === 0) {
+          districtZeros += batch.length;
+        } else {
+          districtZeros = 0;
+        }
       }
-      const batch = districtQueries.slice(i, i + districtConcurrency);
-      let batchNew = 0;
-      await Promise.allSettled(
-        batch.map(async (dq) => {
-          if (signal?.aborted) return;
-          const result = await searchBusinesses(dq.q, '', 100, fastOpts);
-          const newCount = collectResults(result.searchResults);
-          batchNew += newCount;
-          if (newCount > 0) {
-            jobRunner.addLog(jobId, 'Web', `${dq.label}: +${newCount} (gesamt: ${allSearchResults.length})`, 'info');
-          }
-        })
-      );
-      if (batchNew === 0) {
-        districtZeros += batch.length;
-      } else {
-        districtZeros = 0;
-      }
-      jobRunner.addLog(jobId, 'Web', `${city}: Batch ${Math.ceil((i + 1) / districtConcurrency)}/${Math.ceil(districtQueries.length / districtConcurrency)} — +${batchNew} neu`, batchNew > 0 ? 'info' : 'warn');
     }
   }
 
@@ -404,15 +404,14 @@ async function scrapeWebSearch(
     rating: null, reviews: null, category: keyword, placeId: null,
   }));
 
-  // Enrichment — 30 concurrent (6 vCPU server)
+  // Enrichment — 30 concurrent
   if (autoEnrich && allSearchResults.length > 0) {
-    jobRunner.addLog(jobId, 'Web', `${city}: Impressum-Analyse ${allSearchResults.length} Websites (30 parallel)...`, 'info');
-    const concurrency = 30;
+    jobRunner.addLog(jobId, 'Web', `${city}: Impressum-Analyse ${allSearchResults.length} Websites...`, 'info');
     const enriched: ScrapedBusiness[] = [];
 
-    for (let i = 0; i < allSearchResults.length; i += concurrency) {
+    for (let i = 0; i < allSearchResults.length; i += 30) {
       if (signal?.aborted) break;
-      const batch = allSearchResults.slice(i, i + concurrency);
+      const batch = allSearchResults.slice(i, i + 30);
       const settled = await Promise.allSettled(
         batch.map(async (sr) => {
           const results = await enrichSearchResults([sr], city, 1);
@@ -422,7 +421,7 @@ async function scrapeWebSearch(
       for (const outcome of settled) {
         if (outcome.status === 'fulfilled' && outcome.value) enriched.push(outcome.value);
       }
-      const done = Math.min(i + concurrency, allSearchResults.length);
+      const done = Math.min(i + 30, allSearchResults.length);
       if (done % 60 === 0 || done >= allSearchResults.length) {
         jobRunner.addLog(jobId, 'Web', `${city}: Impressum ${done}/${allSearchResults.length}`, 'info');
       }
