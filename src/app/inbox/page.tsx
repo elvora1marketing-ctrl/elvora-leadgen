@@ -319,27 +319,61 @@ export default function InboxPage() {
 
                 {/* Lead card if linked */}
                 {selectedMessage.lead_id && (
-                  <Link
-                    href={`/akquise?lead=${selectedMessage.lead_id}`}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-elvora-purple/5 border border-elvora-purple/20 mb-4 hover:bg-elvora-purple/10 transition-all"
-                  >
-                    <div className="flex-1">
-                      <div className="text-xs text-elvora-text-dim">Verknüpfter Lead</div>
-                      <div className="text-sm font-medium text-white">{selectedMessage.lead_name}</div>
-                    </div>
-                    {selectedMessage.lead_city && (
-                      <span className="text-xs text-elvora-text-dim">{selectedMessage.lead_city}</span>
-                    )}
-                    {selectedMessage.contact_status && (
-                      <span className="px-2 py-0.5 rounded-full bg-elvora-accent/15 text-elvora-accent text-[10px] font-bold">
-                        {selectedMessage.contact_status}
-                      </span>
-                    )}
-                    <svg className="w-4 h-4 text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </Link>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Link
+                      href={`/crm/${selectedMessage.lead_id}`}
+                      className="flex items-center gap-3 p-3 rounded-lg bg-elvora-purple/5 border border-elvora-purple/20 flex-1 hover:bg-elvora-purple/10 transition-all"
+                    >
+                      <div className="flex-1">
+                        <div className="text-xs text-elvora-text-dim">Verknüpfter Lead</div>
+                        <div className="text-sm font-medium text-white">{selectedMessage.lead_name}</div>
+                      </div>
+                      {selectedMessage.lead_city && (
+                        <span className="text-xs text-elvora-text-dim">{selectedMessage.lead_city}</span>
+                      )}
+                      {selectedMessage.contact_status && (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          selectedMessage.contact_status === 'won' ? 'bg-elvora-success/15 text-elvora-success' :
+                          selectedMessage.contact_status === 'lost' ? 'bg-red-500/15 text-red-400' :
+                          selectedMessage.contact_status === 'meeting' ? 'bg-elvora-warning/15 text-elvora-warning' :
+                          'bg-elvora-accent/15 text-elvora-accent'
+                        }`}>
+                          {selectedMessage.contact_status}
+                        </span>
+                      )}
+                      <svg className="w-4 h-4 text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </Link>
+                  </div>
                 )}
+
+                {/* Quick Actions */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <a
+                    href={`mailto:${selectedMessage.from_email}?subject=Re: ${encodeURIComponent(selectedMessage.subject || '')}`}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-elvora-purple/10 border border-elvora-purple/20 text-elvora-purple-light text-xs font-medium hover:bg-elvora-purple/20 transition-all"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+                    Antworten
+                  </a>
+                  {selectedMessage.lead_id && (
+                    <Link
+                      href={`/crm/${selectedMessage.lead_id}`}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-elvora-text-muted text-xs font-medium hover:bg-white/10 transition-all"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                      CRM-Detail
+                    </Link>
+                  )}
+                  <button
+                    onClick={() => markAs([selectedMessage.id], selectedMessage.is_read ? 'unread' : 'read')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-elvora-text-muted text-xs font-medium hover:bg-white/10 transition-all"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    {selectedMessage.is_read ? 'Ungelesen' : 'Gelesen'}
+                  </button>
+                </div>
 
                 {/* AI Classification */}
                 <div className="mb-4">

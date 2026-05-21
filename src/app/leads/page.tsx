@@ -246,20 +246,34 @@ export default function LeadsPage() {
 
   return (
     <div className="animate-fade-in">
-      {/* Header */}
+      {/* Header + KPI Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-        <h1 className="text-lg font-bold text-white">Pipeline</h1>
+        <div>
+          <h1 className="text-lg font-bold text-white">Pipeline</h1>
+          <p className="text-xs text-elvora-text-dim mt-0.5">Drag & Drop zum Verschieben</p>
+        </div>
         <div className="flex items-center gap-2 sm:gap-3 text-xs overflow-x-auto">
-          <span className="text-elvora-text-dim whitespace-nowrap">{totalDeals} Deals</span>
-          <span className="text-elvora-accent font-semibold whitespace-nowrap">{totalValue.toLocaleString('de-DE')} EUR</span>
-          {wonValue > 0 && <span className="text-elvora-success font-semibold whitespace-nowrap hidden sm:inline">{wonValue.toLocaleString('de-DE')} gewonnen</span>}
-          <button
-            onClick={sendBulkEmails}
-            disabled={bulkSending}
-            className="px-3 py-1.5 rounded-lg bg-elvora-gradient text-white text-xs font-semibold hover:shadow-elvora-lg transition-all disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+          <div className="flex items-center gap-4 mr-2">
+            <div className="text-center">
+              <div className="text-sm font-bold text-elvora-text">{totalDeals}</div>
+              <div className="text-[9px] text-elvora-text-dim">Deals</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm font-bold text-elvora-accent">{totalValue.toLocaleString('de-DE')}€</div>
+              <div className="text-[9px] text-elvora-text-dim">Pipeline</div>
+            </div>
+            {wonValue > 0 && (
+              <div className="text-center hidden sm:block">
+                <div className="text-sm font-bold text-elvora-success">{wonValue.toLocaleString('de-DE')}€</div>
+                <div className="text-[9px] text-elvora-text-dim">Gewonnen</div>
+              </div>
+            )}
+          </div>
+          <Link href="/outreach"
+            className="px-3 py-1.5 rounded-lg bg-elvora-gradient text-white text-xs font-semibold hover:shadow-elvora-lg transition-all whitespace-nowrap flex-shrink-0"
           >
-            {bulkSending ? 'Sende...' : 'Alle pitchen'}
-          </button>
+            Outreach →
+          </Link>
         </div>
       </div>
 
