@@ -98,6 +98,17 @@ export default function OutreachPage() {
     return () => clearTimeout(t);
   }, [loadFilterCount]);
 
+  // Load defaults from settings
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data.outreach_default_mails_per_hour) setMailsPerHour(parseInt(data.outreach_default_mails_per_hour));
+        if (data.outreach_prefer_entscheider) setPreferEntscheider(data.outreach_prefer_entscheider === 'true');
+      })
+      .catch(() => { /* silent, keep defaults */ });
+  }, []);
+
   const loadPreview = useCallback(async (leadId: number) => {
     setPreviewLoading(true);
     try {
