@@ -122,18 +122,18 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="p-4 lg:p-8 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Aufgaben</h1>
-          <p className="text-sm text-elvora-text-dim mt-1">
+          <h1 className="text-xl lg:text-2xl font-semibold text-elvora-text">Aufgaben</h1>
+          <p className="text-sm text-elvora-text-dim mt-0.5">
             {counts.open} offen{counts.overdue > 0 && <span className="text-red-400 font-semibold"> ({counts.overdue} überfällig)</span>}
             {counts.due_today > 0 && <span className="text-elvora-warning font-semibold"> ({counts.due_today} heute fällig)</span>}
           </p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="px-4 py-2 rounded-xl bg-elvora-gradient text-white text-sm font-semibold shadow-elvora hover:opacity-90 transition-all flex items-center gap-2"
+          className="px-4 py-2 rounded-lg bg-elvora-primary text-white text-sm font-medium hover:bg-elvora-primary-dark transition-colors flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -144,7 +144,7 @@ export default function TasksPage() {
 
       {/* New Task Form */}
       {showForm && (
-        <div className="glass rounded-2xl p-5 border border-white/5 mb-6">
+        <div className="card rounded-xl p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
             <input
               type="text"
@@ -196,7 +196,7 @@ export default function TasksPage() {
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         {(['open', 'completed', 'all'] as const).map(f => (
           <button
             key={f}
@@ -241,7 +241,7 @@ export default function TasksPage() {
             return (
               <div
                 key={task.id}
-                className={`glass rounded-xl p-4 border transition-all group ${
+                className={`card rounded-xl p-4 transition-all group ${
                   task.is_completed ? 'border-white/3 opacity-50' : overdue ? 'border-red-500/30' : today ? 'border-elvora-warning/20' : 'border-white/5'
                 }`}
               >

@@ -107,24 +107,44 @@ export default function EmailFinderPage() {
 
       {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="card rounded-xl p-4">
-            <div className="text-xs text-elvora-text-dim">Leads gesamt</div>
-            <div className="text-2xl font-bold text-white mt-1">{stats.total_leads}</div>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { label: 'Leads gesamt', value: stats.total_leads, color: 'text-white', iconColor: 'text-elvora-purple-light', iconBg: 'bg-elvora-primary/10', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
+              { label: 'Mit E-Mail', value: stats.with_email, color: 'text-elvora-success', iconColor: 'text-elvora-success', iconBg: 'bg-elvora-success/10', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+              { label: 'Ohne E-Mail', value: stats.without_email, color: 'text-red-400', iconColor: 'text-red-400', iconBg: 'bg-red-500/10', icon: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636' },
+              { label: 'Anreicherbar', value: stats.enrichable, color: 'text-elvora-purple-light', iconColor: 'text-elvora-purple-light', iconBg: 'bg-elvora-primary/10', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9' },
+            ].map((s, i) => (
+              <div key={i} className="card rounded-xl p-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-lg ${s.iconBg} flex items-center justify-center flex-shrink-0`}>
+                    <svg className={`w-[18px] h-[18px] ${s.iconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={s.icon} />
+                    </svg>
+                  </div>
+                  <div>
+                    <div className={`text-2xl font-semibold ${s.color} stat-number`}>{s.value}</div>
+                    <div className="text-[10px] text-elvora-text-dim">{s.label}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="card rounded-xl p-4">
-            <div className="text-xs text-elvora-text-dim">Mit E-Mail</div>
-            <div className="text-2xl font-bold text-elvora-success mt-1">{stats.with_email}</div>
-          </div>
-          <div className="card rounded-xl p-4">
-            <div className="text-xs text-elvora-text-dim">Ohne E-Mail</div>
-            <div className="text-2xl font-bold text-red-400 mt-1">{stats.without_email}</div>
-          </div>
-          <div className="card rounded-xl p-4">
-            <div className="text-xs text-elvora-text-dim">Anreicherbar</div>
-            <div className="text-2xl font-bold text-elvora-purple-light mt-1">{stats.enrichable}</div>
-            <div className="text-[10px] text-elvora-text-dim mt-0.5">haben Website</div>
-          </div>
+          {stats.total_leads > 0 && (
+            <div className="card rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-elvora-text-dim">E-Mail-Abdeckung</span>
+                <span className="text-xs font-semibold text-elvora-success">{Math.round((stats.with_email / stats.total_leads) * 100)}%</span>
+              </div>
+              <div className="w-full h-2 bg-elvora-bg-alt rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-elvora-primary to-elvora-success rounded-full transition-all" style={{ width: `${(stats.with_email / stats.total_leads) * 100}%` }} />
+              </div>
+              <div className="flex justify-between mt-1.5 text-[10px] text-elvora-text-dim">
+                <span>{stats.with_email} mit E-Mail</span>
+                <span>{stats.enrichable} anreicherbar</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

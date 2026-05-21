@@ -58,9 +58,11 @@ export default function AkquisePage() {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
 
-  // Filter
+  // Filter & Sort
   const [filterContact, setFilterContact] = useState('');
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'updated_at' | 'engagement' | 'score' | 'name'>('updated_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   // Expanded lead detail
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -100,8 +102,8 @@ export default function AkquisePage() {
       const params = new URLSearchParams();
       params.set('status', 'akquise');
       params.set('limit', '200');
-      params.set('sort', 'updated_at');
-      params.set('dir', 'desc');
+      params.set('sort', sortBy);
+      params.set('dir', sortDir);
       if (filterContact) params.set('contact_status', filterContact);
       if (search) params.set('search', search);
 
@@ -113,7 +115,7 @@ export default function AkquisePage() {
       }
     } catch { /* silent */ }
     finally { setLoading(false); }
-  }, [filterContact, search]);
+  }, [filterContact, search, sortBy, sortDir]);
 
   useEffect(() => { loadLeads(); }, [loadLeads]);
 
@@ -265,7 +267,23 @@ export default function AkquisePage() {
         </p>
       </div>
 
-      {/* Stats Bar */}
+      {/* KPI Summary */}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { label: 'Leads', value: total, color: 'text-white', bg: 'bg-white/5 border-white/10' },
+          { label: 'Offen', value: statCounts['not_contacted'] || 0, color: 'text-elvora-text-muted', bg: 'bg-white/5 border-white/10' },
+          { label: 'In Gespräch', value: (statCounts['called'] || 0) + (statCounts['meeting'] || 0), color: 'text-elvora-warning', bg: 'bg-elvora-warning/5 border-elvora-warning/15' },
+          { label: 'Angebote', value: statCounts['proposal'] || 0, color: 'text-elvora-pink', bg: 'bg-elvora-pink/5 border-elvora-pink/15' },
+          { label: 'Won', value: statCounts['won'] || 0, color: 'text-elvora-success', bg: 'bg-elvora-success/5 border-elvora-success/15' },
+        ].map(kpi => (
+          <div key={kpi.label} className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 ${kpi.bg}`}>
+            <span className={kpi.color}>{kpi.value}</span>
+            <span className="text-elvora-text-dim">{kpi.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Status Filter */}
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setFilterContact('')}
@@ -296,18 +314,35 @@ export default function AkquisePage() {
         })}
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <svg className="w-4 h-4 text-elvora-text-dim absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Lead suchen..."
-          className="w-full pl-10 pr-4 py-2 rounded-xl bg-elvora-bg border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-elvora-primary/50 transition-all"
-        />
+      {/* Search + Sort */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <svg className="w-4 h-4 text-elvora-text-dim absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Lead suchen..."
+            className="w-full pl-10 pr-4 py-2 rounded-xl bg-elvora-bg border border-white/10 text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-elvora-primary/50 transition-all"
+          />
+        </div>
+        <select
+          value={`${sortBy}:${sortDir}`}
+          onChange={(e) => {
+            const [s, d] = e.target.value.split(':') as ['updated_at' | 'engagement' | 'score' | 'name', 'asc' | 'desc'];
+            setSortBy(s);
+            setSortDir(d);
+          }}
+          className="px-3 py-2 rounded-xl bg-elvora-bg border border-white/10 text-white text-xs focus:outline-none focus:ring-2 focus:ring-elvora-primary/50 transition-all appearance-none cursor-pointer"
+          title="Sortierung"
+        >
+          <option value="updated_at:desc">Zuletzt aktualisiert</option>
+          <option value="engagement:desc">Engagement</option>
+          <option value="score:desc">Score</option>
+          <option value="name:asc">Name A-Z</option>
+        </select>
       </div>
 
       {/* Empty state */}
@@ -341,6 +376,22 @@ export default function AkquisePage() {
                   {cs.label}
                 </span>
 
+                {/* Score circle */}
+                <span
+                  className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${
+                    lead.score === 0
+                      ? 'bg-white/5 text-elvora-text-dim'
+                      : lead.score <= 30
+                      ? 'bg-elvora-success/15 text-elvora-success border border-elvora-success/20'
+                      : lead.score <= 60
+                      ? 'bg-elvora-warning/15 text-elvora-warning border border-elvora-warning/20'
+                      : 'bg-red-500/15 text-red-400 border border-red-500/20'
+                  }`}
+                  title={lead.score > 0 ? `Website-Score: ${lead.score} (niedriger = besser)` : 'Kein Score'}
+                >
+                  {lead.score > 0 ? lead.score : '-'}
+                </span>
+
                 {/* Name + City */}
                 <div className="flex-1 min-w-0">
                   <Link
@@ -367,6 +418,25 @@ export default function AkquisePage() {
                     {lead.engagement_score}
                   </div>
                 )}
+
+                {/* Quick stats */}
+                <div className="hidden sm:flex items-center gap-1.5">
+                  {lead.email && (
+                    <span className="text-elvora-purple-light/60" title={lead.email}>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    </span>
+                  )}
+                  {lead.times_found > 1 && (
+                    <span
+                      className="px-1.5 py-0.5 rounded bg-white/5 text-[10px] text-elvora-text-dim font-medium border border-white/5"
+                      title={`${lead.times_found}x in Suchergebnissen gefunden`}
+                    >
+                      {lead.times_found}x
+                    </span>
+                  )}
+                </div>
 
                 {/* Contact info icons */}
                 <div className="flex items-center gap-1 sm:gap-2">

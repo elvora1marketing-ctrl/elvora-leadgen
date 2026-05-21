@@ -15,6 +15,17 @@ interface Category {
   scrapeKeywords: string[];
 }
 
+interface ScraperJobHistory {
+  id: number;
+  keyword: string;
+  city: string;
+  found: number;
+  imported: number;
+  duration: string;
+  status: string;
+  startedAt: string;
+}
+
 type SearchMode = 'city' | 'radius' | 'germany';
 type InputMode = 'keyword' | 'category';
 type Phase = 'config' | 'scraping' | 'done';
@@ -23,6 +34,50 @@ const SOURCES = [
   { id: 'maps', name: 'Google Maps', color: 'text-blue-400' },
   { id: 'branchenportal', name: 'Branchenportale', color: 'text-yellow-400' },
   { id: 'websearch', name: 'Web-Suche', color: 'text-orange-400' },
+];
+
+const QUICK_LINKS = [
+  {
+    href: '/scraper',
+    name: 'Maps Scraper',
+    description: 'Google Maps Places durchsuchen',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
+  },
+  {
+    href: '/linkedin-scraper',
+    name: 'Entscheider-Finder',
+    description: 'Ansprechpartner identifizieren',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
+  },
+  {
+    href: '/email-finder',
+    name: 'Email-Finder',
+    description: 'E-Mail-Adressen verifizieren',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+  {
+    href: '/lead-pool',
+    name: 'Lead-Pool',
+    description: 'Alle gefundenen Leads verwalten',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+      </svg>
+    ),
+  },
 ];
 
 function formatTime(ts: number) {
@@ -46,6 +101,8 @@ export default function ScraperHubPage() {
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [stats, setStats] = useState({ totalFound: 0, imported: 0, duplicates: 0 });
   const [progress, setProgress] = useState({ current: 0, total: 0, label: '' });
+  const [totalLeads, setTotalLeads] = useState<number | null>(null);
+  const [jobHistory, setJobHistory] = useState<ScraperJobHistory[]>([]);
   const consoleRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const connectToJobRef = useRef<((id: number) => void) | null>(null);
@@ -64,7 +121,13 @@ export default function ScraperHubPage() {
       .then(data => { if (data.categories) setCategories(data.categories); })
       .catch(() => {});
 
-    // Check for running jobs (reconnect after page reload)
+    // Fetch total lead count for header KPI
+    fetch('/api/leads?limit=0')
+      .then(r => r.json())
+      .then(data => { if (data.total != null) setTotalLeads(data.total); })
+      .catch(() => {});
+
+    // Check for running jobs (reconnect after page reload) and load history
     fetch('/api/scraper/jobs')
       .then(r => r.json())
       .then(data => {
@@ -74,6 +137,10 @@ export default function ScraperHubPage() {
           setStats(job.stats);
           setProgress(job.progress);
           connectToJobRef.current?.(job.id);
+        }
+        // Parse job history from all jobs
+        if (data.history) {
+          setJobHistory(data.history);
         }
       })
       .catch(() => {});
@@ -219,7 +286,7 @@ export default function ScraperHubPage() {
     }
 
     if (targetCities.length === 0) {
-      addLog('System', 'Keine Städte gefunden.', 'error');
+      addLog('System', 'Keine Staedte gefunden.', 'error');
       return;
     }
 
@@ -259,11 +326,34 @@ export default function ScraperHubPage() {
     ? !!selectedCategory && (searchMode === 'germany' || !!city.trim()) && selectedSources.length > 0
     : !!keyword.trim() && (searchMode === 'germany' || !!city.trim()) && selectedSources.length > 0;
 
+  const successRate = stats.totalFound > 0 ? Math.round((stats.imported / stats.totalFound) * 100) : 0;
+  const progressPct = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
+  const estimatedTimeLeft = progress.total > 0 && progress.current > 0 && phase === 'scraping'
+    ? Math.round(((progress.total - progress.current) / progress.current) * (Date.now() - (Date.now() - progress.current * 1000)) / 1000)
+    : null;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-white">Scraper Hub</h1>
-        <p className="text-sm text-elvora-text-dim mt-0.5">Lead-Maschine — Kategorien durchscrapen, alles absaugen</p>
+      {/* Header with KPIs */}
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-white">Scraper Hub</h1>
+          <p className="text-sm text-elvora-text-dim mt-0.5">Lead-Maschine -- Kategorien durchscrapen, alles absaugen</p>
+        </div>
+        <div className="flex gap-3">
+          {totalLeads !== null && (
+            <div className="glass rounded-xl px-4 py-2.5 border border-white/5">
+              <div className="text-[10px] uppercase tracking-wider text-elvora-text-dim">Leads gesamt</div>
+              <div className="text-lg font-bold text-white">{totalLeads.toLocaleString('de-DE')}</div>
+            </div>
+          )}
+          {stats.totalFound > 0 && (
+            <div className="glass rounded-xl px-4 py-2.5 border border-elvora-success/20">
+              <div className="text-[10px] uppercase tracking-wider text-elvora-text-dim">Erfolgsrate</div>
+              <div className="text-lg font-bold text-elvora-success">{successRate}%</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Config */}
@@ -319,7 +409,7 @@ export default function ScraperHubPage() {
                   disabled={phase === 'scraping'}
                   className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm focus:outline-none focus:border-elvora-purple/50 disabled:opacity-50"
                 >
-                  <option value="">Kategorie wählen...</option>
+                  <option value="">Kategorie waehlen...</option>
                   {categories.map(cat => (
                     <option key={cat.id} value={cat.id}>{cat.name} ({cat.scrapeKeywords.length} Keywords)</option>
                   ))}
@@ -333,7 +423,7 @@ export default function ScraperHubPage() {
             </label>
             <input
               type="text" value={city} onChange={(e) => setCity(e.target.value)}
-              placeholder={searchMode === 'germany' ? 'Nicht nötig bei Deutschland-Scan' : 'z.B. Essen, Düsseldorf...'}
+              placeholder={searchMode === 'germany' ? 'Nicht noetig bei Deutschland-Scan' : 'z.B. Essen, Duesseldorf...'}
               disabled={phase === 'scraping' || searchMode === 'germany'}
               className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 disabled:opacity-50"
             />
@@ -394,7 +484,7 @@ export default function ScraperHubPage() {
           )}
           {searchMode === 'germany' && (
             <p className="mt-2 text-[11px] text-elvora-text-dim">
-              Durchsucht ~{allCities.length || '428'}+ deutsche Städte.
+              Durchsucht ~{allCities.length || '428'}+ deutsche Staedte.
             </p>
           )}
         </div>
@@ -426,7 +516,7 @@ export default function ScraperHubPage() {
           </div>
           {selectedSources.includes('maps') && (searchMode === 'germany' || searchMode === 'radius') && (
             <p className="mt-2 text-[11px] text-yellow-400">
-              Google Maps API kostet ~$32/1.000 Requests. Bei {searchMode === 'germany' ? '428 Städten' : 'Umkreis-Scan'} wird das teuer. Web-Suche + Branchenportale sind kostenlos.
+              Google Maps API kostet ~$32/1.000 Requests. Bei {searchMode === 'germany' ? '428 Staedten' : 'Umkreis-Scan'} wird das teuer. Web-Suche + Branchenportale sind kostenlos.
             </p>
           )}
         </div>
@@ -438,7 +528,7 @@ export default function ScraperHubPage() {
           </label>
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={deepScan} onChange={(e) => setDeepScan(e.target.checked)} className="w-4 h-4 rounded bg-elvora-bg-alt border-elvora-border" />
-            <span className="text-xs text-elvora-text-muted">Tiefenscan — alle Seiten + Stadtteile durchsuchen</span>
+            <span className="text-xs text-elvora-text-muted">Tiefenscan -- alle Seiten + Stadtteile durchsuchen</span>
           </label>
         </div>
 
@@ -469,7 +559,7 @@ export default function ScraperHubPage() {
               </button>
               {progress.total > 0 && (
                 <span className="text-xs text-elvora-text-dim">
-                  {progress.current}/{progress.total} — {progress.label}
+                  {progress.current}/{progress.total} -- {progress.label}
                 </span>
               )}
             </>
@@ -500,18 +590,40 @@ export default function ScraperHubPage() {
         <div className="card rounded-xl p-4">
           <div className="flex justify-between text-xs text-elvora-text-dim mb-2">
             <span>Fortschritt</span>
-            <span>{Math.round((progress.current / progress.total) * 100)}%</span>
+            <div className="flex items-center gap-3">
+              {estimatedTimeLeft !== null && estimatedTimeLeft > 0 && (
+                <span className="text-elvora-text-dim">~{estimatedTimeLeft}s verbleibend</span>
+              )}
+              <span className="font-semibold text-white">{Math.round(progressPct)}%</span>
+            </div>
           </div>
-          <div className="h-2 bg-elvora-bg-alt rounded-full overflow-hidden">
+          <div className="h-3 bg-elvora-bg-alt rounded-full overflow-hidden relative">
             <div
-              className="h-full bg-elvora-purple rounded-full transition-all duration-300"
-              style={{ width: `${(progress.current / progress.total) * 100}%` }}
-            />
+              className="h-full rounded-full transition-all duration-300 relative overflow-hidden"
+              style={{
+                width: `${progressPct}%`,
+                background: 'linear-gradient(90deg, var(--elvora-purple, #8B5CF6), var(--elvora-accent, #F97316))',
+              }}
+            >
+              <div
+                className="absolute inset-0 opacity-30"
+                style={{
+                  background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)',
+                  animation: 'shimmer 1.5s infinite',
+                }}
+              />
+            </div>
           </div>
+          <style jsx>{`
+            @keyframes shimmer {
+              0% { transform: translateX(-100%); }
+              100% { transform: translateX(100%); }
+            }
+          `}</style>
         </div>
       )}
 
-      {/* Live-Konsole */}
+      {/* Live Console */}
       {logs.length > 0 && (
         <div className="card rounded-xl overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-2.5 border-b border-elvora-border bg-elvora-bg-alt/50">
@@ -526,7 +638,13 @@ export default function ScraperHubPage() {
             className="px-4 py-3 max-h-80 overflow-y-auto font-mono text-[11px] leading-[1.7] bg-[#0a0a12]"
           >
             {logs.map((log, i) => (
-              <div key={i} className="flex gap-2">
+              <div
+                key={i}
+                className="flex gap-2"
+                style={{
+                  animation: phase === 'scraping' && i === logs.length - 1 ? 'fadeInLog 0.2s ease-out' : undefined,
+                }}
+              >
                 <span className="text-elvora-text-dim/40 shrink-0">{log.time}</span>
                 <span className={`shrink-0 w-16 ${
                   log.source === 'System' ? 'text-elvora-purple-light' :
@@ -546,19 +664,77 @@ export default function ScraperHubPage() {
               <div className="text-elvora-text-dim animate-pulse">_</div>
             )}
           </div>
+          <style jsx>{`
+            @keyframes fadeInLog {
+              from { opacity: 0; transform: translateY(4px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+          `}</style>
         </div>
       )}
 
-      {/* Quick Links */}
+      {/* Quick Links - Card Style */}
       <div className="card rounded-xl p-5">
         <h3 className="text-white text-sm font-semibold mb-3">Einzelne Scraper</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <a href="/scraper" className="p-3 rounded-lg bg-elvora-bg-alt border border-elvora-border hover:border-elvora-purple/30 transition-colors text-white text-sm font-medium">Maps Scraper</a>
-          <a href="/linkedin-scraper" className="p-3 rounded-lg bg-elvora-bg-alt border border-elvora-border hover:border-elvora-purple/30 transition-colors text-white text-sm font-medium">Entscheider-Finder</a>
-          <a href="/email-finder" className="p-3 rounded-lg bg-elvora-bg-alt border border-elvora-border hover:border-elvora-purple/30 transition-colors text-white text-sm font-medium">Email-Finder</a>
-          <a href="/lead-pool" className="p-3 rounded-lg bg-elvora-bg-alt border border-elvora-border hover:border-elvora-purple/30 transition-colors text-white text-sm font-medium">Lead-Pool</a>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {QUICK_LINKS.map(link => (
+            <a
+              key={link.href}
+              href={link.href}
+              className="group p-4 rounded-lg bg-elvora-bg-alt border border-elvora-border hover:border-elvora-purple/40 hover:bg-elvora-bg-alt/80 transition-all"
+            >
+              <div className="text-elvora-text-dim group-hover:text-elvora-purple-light transition-colors mb-2">
+                {link.icon}
+              </div>
+              <div className="text-white text-sm font-medium mb-0.5">{link.name}</div>
+              <div className="text-[10px] text-elvora-text-dim leading-snug">{link.description}</div>
+            </a>
+          ))}
         </div>
       </div>
+
+      {/* Job History */}
+      {jobHistory.length > 0 && (
+        <div className="card rounded-xl p-5">
+          <h3 className="text-white text-sm font-semibold mb-3">Letzte Scrape-Jobs</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-elvora-text-dim border-b border-elvora-border">
+                  <th className="text-left py-2 pr-3 font-medium">Keyword</th>
+                  <th className="text-left py-2 px-3 font-medium">Stadt</th>
+                  <th className="text-right py-2 px-3 font-medium">Gefunden</th>
+                  <th className="text-right py-2 px-3 font-medium">Importiert</th>
+                  <th className="text-left py-2 px-3 font-medium">Status</th>
+                  <th className="text-right py-2 pl-3 font-medium">Dauer</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobHistory.map((job, i) => (
+                  <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                    <td className="py-2.5 pr-3 text-white font-medium">{job.keyword}</td>
+                    <td className="py-2.5 px-3 text-elvora-text-muted">{job.city}</td>
+                    <td className="py-2.5 px-3 text-right text-elvora-text-muted">{job.found}</td>
+                    <td className="py-2.5 px-3 text-right text-elvora-success font-semibold">{job.imported}</td>
+                    <td className="py-2.5 px-3">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                        job.status === 'completed' ? 'bg-elvora-success/15 text-elvora-success' :
+                        job.status === 'running' ? 'bg-elvora-purple/15 text-elvora-purple-light' :
+                        job.status === 'error' ? 'bg-red-400/15 text-red-400' :
+                        job.status === 'aborted' ? 'bg-elvora-warning/15 text-elvora-warning' :
+                        'bg-white/5 text-elvora-text-dim'
+                      }`}>
+                        {job.status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pl-3 text-right text-elvora-text-dim">{job.duration}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

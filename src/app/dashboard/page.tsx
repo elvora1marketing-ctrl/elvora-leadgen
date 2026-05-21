@@ -112,7 +112,19 @@ export default function DashboardPage() {
 
   const today = new Date();
   const monthNames = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  const weekdayNames = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
   const dayNames = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  const todayFormatted = `${weekdayNames[today.getDay()]}, ${today.getDate()}. ${monthNames[today.getMonth()]}`;
+
+  // Heute Wichtig: compute action items
+  const hotLeadsWithCta = stats?.hotLeads.filter(l => l.cta_clicks > 0) || [];
+  const heuteWichtigItems = {
+    overdue: taskCounts.overdue,
+    followUpsDue: stats?.followUps.dueNow || 0,
+    unreadInbox: stats?.inbox.unread || 0,
+    hotCtaLeads: hotLeadsWithCta.length,
+  };
+  const heuteWichtigTotal = heuteWichtigItems.overdue + heuteWichtigItems.followUpsDue + heuteWichtigItems.unreadInbox + heuteWichtigItems.hotCtaLeads;
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const firstDay = (new Date(today.getFullYear(), today.getMonth(), 1).getDay() + 6) % 7;
 
@@ -140,7 +152,7 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl lg:text-2xl font-semibold text-elvora-text">Dashboard</h1>
-          <p className="text-sm text-elvora-text-dim mt-0.5">Willkommen zurück</p>
+          <p className="text-sm text-elvora-text-dim mt-0.5">Willkommen zurück — Dein Tag auf einen Blick · {todayFormatted}</p>
         </div>
         <button
           onClick={triggerScan}
@@ -165,6 +177,57 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-5">
         {/* LEFT COLUMN */}
         <div className="space-y-5">
+
+          {/* Heute Wichtig */}
+          {stats && heuteWichtigTotal > 0 && (
+            <div className="card rounded-xl p-5 border-t-2 border-t-elvora-primary bg-gradient-to-b from-elvora-primary/5 to-transparent">
+              <div className="flex items-center gap-2 mb-3">
+                <svg className="w-4 h-4 text-elvora-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <h2 className="text-sm font-semibold text-elvora-text">Heute Wichtig</h2>
+                <span className="ml-auto text-[10px] text-elvora-text-dim">{heuteWichtigTotal} {heuteWichtigTotal === 1 ? 'Aktion' : 'Aktionen'}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {heuteWichtigItems.overdue > 0 && (
+                  <Link
+                    href="/tasks"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/25 transition-colors group"
+                  >
+                    <span className="w-5 h-5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold flex items-center justify-center">{heuteWichtigItems.overdue}</span>
+                    <span className="text-xs text-red-400 font-medium group-hover:text-red-300">Überfällige Aufgaben</span>
+                  </Link>
+                )}
+                {heuteWichtigItems.followUpsDue > 0 && (
+                  <Link
+                    href="#follow-ups"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-elvora-warning/15 hover:bg-elvora-warning/25 transition-colors group"
+                  >
+                    <span className="w-5 h-5 rounded-full bg-elvora-warning/20 text-elvora-warning text-[10px] font-bold flex items-center justify-center">{heuteWichtigItems.followUpsDue}</span>
+                    <span className="text-xs text-elvora-warning font-medium group-hover:text-yellow-300">Follow-Ups fällig</span>
+                  </Link>
+                )}
+                {heuteWichtigItems.unreadInbox > 0 && (
+                  <Link
+                    href="/inbox"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-elvora-pink/15 hover:bg-elvora-pink/25 transition-colors group"
+                  >
+                    <span className="w-5 h-5 rounded-full bg-elvora-pink/20 text-elvora-pink text-[10px] font-bold flex items-center justify-center">{heuteWichtigItems.unreadInbox}</span>
+                    <span className="text-xs text-elvora-pink font-medium group-hover:text-pink-300">Ungelesene Nachrichten</span>
+                  </Link>
+                )}
+                {heuteWichtigItems.hotCtaLeads > 0 && (
+                  <Link
+                    href={hotLeadsWithCta.length === 1 ? `/crm/${hotLeadsWithCta[0].id}` : '/akquise?sort=engagement'}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 transition-colors group"
+                  >
+                    <span className="w-5 h-5 rounded-full bg-red-500/15 text-red-400 text-[10px] font-bold flex items-center justify-center">{heuteWichtigItems.hotCtaLeads}</span>
+                    <span className="text-xs text-red-400 font-medium group-hover:text-red-300">Hot Leads mit CTA-Klick</span>
+                  </Link>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Stats Cards Row */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
@@ -468,7 +531,7 @@ export default function DashboardPage() {
 
           {/* Follow-Up Automation */}
           {stats && (stats.followUps.pending > 0 || stats.followUps.sent > 0) && (
-            <div className="card rounded-xl p-5">
+            <div id="follow-ups" className="card rounded-xl p-5 scroll-mt-4">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-elvora-accent/10 flex items-center justify-center">
