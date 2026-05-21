@@ -1,4 +1,5 @@
 import { sendLeadEmail, type SendResult } from './email-sender';
+import getDb from './db';
 
 export interface OutreachJob {
   id: string;
@@ -17,6 +18,10 @@ export interface OutreachJob {
   cancelRequested: boolean;
   pauseRequested: boolean;
   errorMessage: string | null;
+  campaignId?: number;
+  scheduleType: 'immediate' | 'business_hours';
+  subjectVariantB?: string;
+  abSplit: boolean;
 }
 
 const jobs = new Map<string, OutreachJob>();
@@ -34,10 +39,21 @@ function pruneOldJobs() {
   }
 }
 
+function isBusinessHours(): boolean {
+  const now = new Date();
+  const hour = now.getHours();
+  const day = now.getDay();
+  return day >= 1 && day <= 5 && hour >= 9 && hour < 18;
+}
+
 export function createJob(opts: {
   leadIds: number[];
   throttleMs: number;
   preferEntscheider: boolean;
+  campaignId?: number;
+  scheduleType?: 'immediate' | 'business_hours';
+  subjectVariantB?: string;
+  abSplit?: boolean;
 }): OutreachJob {
   const id = `outreach_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
   const job: OutreachJob = {
@@ -57,6 +73,10 @@ export function createJob(opts: {
     cancelRequested: false,
     pauseRequested: false,
     errorMessage: null,
+    campaignId: opts.campaignId,
+    scheduleType: opts.scheduleType || 'immediate',
+    subjectVariantB: opts.subjectVariantB,
+    abSplit: opts.abSplit || false,
   };
   jobs.set(id, job);
   pruneOldJobs();
@@ -92,8 +112,29 @@ export function resumeJob(id: string): boolean {
   if (!job) return false;
   if (job.status !== 'paused') return false;
   job.pauseRequested = false;
-  runJob(id, '').catch(() => { /* errors captured in job state */ });
+  runJob(id, '').catch(() => {});
   return true;
+}
+
+function syncCampaignStats(job: OutreachJob) {
+  if (!job.campaignId) return;
+  try {
+    const db = getDb();
+    db.prepare(`
+      UPDATE outreach_campaigns SET sent = ?, failed = ?, skipped = ?
+      WHERE id = ?
+    `).run(job.sent, job.failed, job.skipped, job.campaignId);
+  } catch { /* silent */ }
+}
+
+function updateCampaignLeadStatus(campaignId: number, leadId: number, status: string, recipient: string | null, recipientType: string | null, error: string | null) {
+  try {
+    const db = getDb();
+    db.prepare(`
+      UPDATE outreach_campaign_leads SET status = ?, recipient = ?, recipient_type = ?, error_message = ?, sent_at = datetime('now')
+      WHERE campaign_id = ? AND lead_id = ?
+    `).run(status, recipient, recipientType, error, campaignId, leadId);
+  } catch { /* silent */ }
 }
 
 export async function runJob(id: string, baseUrl: string): Promise<void> {
@@ -108,14 +149,41 @@ export async function runJob(id: string, baseUrl: string): Promise<void> {
       if (job.cancelRequested) {
         job.status = 'cancelled';
         job.completedAt = new Date().toISOString();
+        syncCampaignStats(job);
+        if (job.campaignId) {
+          try { getDb().prepare("UPDATE outreach_campaigns SET status = 'cancelled', completed_at = datetime('now') WHERE id = ?").run(job.campaignId); } catch {}
+        }
         return;
       }
       if (job.pauseRequested) {
         job.status = 'paused';
+        syncCampaignStats(job);
+        if (job.campaignId) {
+          try { getDb().prepare("UPDATE outreach_campaigns SET status = 'paused' WHERE id = ?").run(job.campaignId); } catch {}
+        }
+        return;
+      }
+
+      if (job.scheduleType === 'business_hours' && !isBusinessHours()) {
+        job.status = 'paused';
+        job.pauseRequested = true;
+        syncCampaignStats(job);
+        if (job.campaignId) {
+          try { getDb().prepare("UPDATE outreach_campaigns SET status = 'paused' WHERE id = ?").run(job.campaignId); } catch {}
+        }
         return;
       }
 
       const leadId = job.leadIds[job.currentIndex];
+
+      const blacklisted = checkBlacklist(leadId);
+      if (blacklisted) {
+        job.skipped++;
+        job.results.push({ leadId, recipient: null, type: null, success: false, error: 'Blacklisted', at: new Date().toISOString() });
+        if (job.campaignId) updateCampaignLeadStatus(job.campaignId, leadId, 'skipped', null, null, 'Blacklisted');
+        continue;
+      }
+
       try {
         const result = await sendLeadEmail({ leadId, preferEntscheider: job.preferEntscheider, baseUrl });
         if (result.success) job.sent++;
@@ -130,19 +198,20 @@ export async function runJob(id: string, baseUrl: string): Promise<void> {
           error: result.error,
           at: new Date().toISOString(),
         });
+
+        if (job.campaignId) {
+          const status = result.success ? 'sent' : (!result.recipient ? 'skipped' : 'failed');
+          updateCampaignLeadStatus(job.campaignId, leadId, status, result.recipient, result.recipientType, result.error || null);
+        }
       } catch (err: unknown) {
         job.failed++;
-        job.results.push({
-          leadId,
-          recipient: null,
-          type: null,
-          success: false,
-          error: err instanceof Error ? err.message : 'Unbekannter Fehler',
-          at: new Date().toISOString(),
-        });
+        const errMsg = err instanceof Error ? err.message : 'Unbekannter Fehler';
+        job.results.push({ leadId, recipient: null, type: null, success: false, error: errMsg, at: new Date().toISOString() });
+        if (job.campaignId) updateCampaignLeadStatus(job.campaignId, leadId, 'failed', null, null, errMsg);
       }
 
-      // Throttle delay (skip after last item)
+      if (job.currentIndex % 10 === 0) syncCampaignStats(job);
+
       if (job.currentIndex < job.leadIds.length - 1) {
         const sleepUntil = Date.now() + job.throttleMs;
         while (Date.now() < sleepUntil) {
@@ -158,9 +227,40 @@ export async function runJob(id: string, baseUrl: string): Promise<void> {
       job.status = 'done';
     }
     job.completedAt = new Date().toISOString();
+    syncCampaignStats(job);
+    if (job.campaignId) {
+      const finalStatus = job.status === 'cancelled' ? 'cancelled' : 'completed';
+      try { getDb().prepare(`UPDATE outreach_campaigns SET status = ?, completed_at = datetime('now') WHERE id = ?`).run(finalStatus, job.campaignId); } catch {}
+    }
   } catch (err: unknown) {
     job.status = 'error';
     job.errorMessage = err instanceof Error ? err.message : 'Unbekannter Fehler';
     job.completedAt = new Date().toISOString();
+    syncCampaignStats(job);
+    if (job.campaignId) {
+      try { getDb().prepare("UPDATE outreach_campaigns SET status = 'cancelled', completed_at = datetime('now') WHERE id = ?").run(job.campaignId); } catch {}
+    }
+  }
+}
+
+function checkBlacklist(leadId: number): boolean {
+  try {
+    const db = getDb();
+    const lead = db.prepare('SELECT email, entscheider_email, all_emails FROM leads WHERE id = ?').get(leadId) as { email: string | null; entscheider_email: string | null; all_emails: string | null } | undefined;
+    if (!lead) return false;
+
+    const emails: string[] = [];
+    if (lead.email) emails.push(lead.email.toLowerCase());
+    if (lead.entscheider_email) emails.push(lead.entscheider_email.toLowerCase());
+    if (lead.all_emails) {
+      try { const arr = JSON.parse(lead.all_emails) as string[]; arr.forEach(e => emails.push(e.toLowerCase())); } catch {}
+    }
+
+    if (emails.length === 0) return false;
+    const placeholders = emails.map(() => '?').join(',');
+    const blocked = db.prepare(`SELECT COUNT(*) as c FROM email_blacklist WHERE email IN (${placeholders})`).get(...emails) as { c: number };
+    return blocked.c === emails.length;
+  } catch {
+    return false;
   }
 }

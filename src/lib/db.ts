@@ -732,6 +732,65 @@ export function getDb(): Database.Database {
       console.error('[DB] Multi-email columns migration error:', e);
     }
 
+    // Migration: Outreach campaigns + blacklist tables
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS outreach_campaigns (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          status TEXT DEFAULT 'draft' CHECK(status IN ('draft','running','paused','completed','cancelled')),
+          filters TEXT DEFAULT '{}',
+          lead_count INTEGER DEFAULT 0,
+          sent INTEGER DEFAULT 0,
+          failed INTEGER DEFAULT 0,
+          skipped INTEGER DEFAULT 0,
+          opened INTEGER DEFAULT 0,
+          replied INTEGER DEFAULT 0,
+          bounced INTEGER DEFAULT 0,
+          clicked INTEGER DEFAULT 0,
+          mails_per_hour INTEGER DEFAULT 60,
+          prefer_entscheider INTEGER DEFAULT 1,
+          schedule_type TEXT DEFAULT 'immediate' CHECK(schedule_type IN ('immediate','business_hours')),
+          subject_variant_b TEXT,
+          ab_split INTEGER DEFAULT 0,
+          job_id TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          started_at TEXT,
+          completed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_campaigns_status ON outreach_campaigns(status);
+
+        CREATE TABLE IF NOT EXISTS outreach_campaign_leads (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          campaign_id INTEGER NOT NULL,
+          lead_id INTEGER NOT NULL,
+          status TEXT DEFAULT 'pending' CHECK(status IN ('pending','sent','failed','skipped','opened','replied','bounced')),
+          recipient TEXT,
+          recipient_type TEXT,
+          variant TEXT CHECK(variant IN ('A','B')),
+          error_message TEXT,
+          sent_at TEXT,
+          opened_at TEXT,
+          replied_at TEXT,
+          FOREIGN KEY (campaign_id) REFERENCES outreach_campaigns(id) ON DELETE CASCADE,
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_campaign_leads_campaign ON outreach_campaign_leads(campaign_id);
+        CREATE INDEX IF NOT EXISTS idx_campaign_leads_lead ON outreach_campaign_leads(lead_id);
+        CREATE INDEX IF NOT EXISTS idx_campaign_leads_status ON outreach_campaign_leads(status);
+
+        CREATE TABLE IF NOT EXISTS email_blacklist (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT UNIQUE NOT NULL,
+          reason TEXT DEFAULT 'manual' CHECK(reason IN ('manual','bounce','unsubscribe','complaint')),
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_blacklist_email ON email_blacklist(email);
+      `);
+    } catch (e) {
+      console.error('[DB] Outreach campaigns migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }

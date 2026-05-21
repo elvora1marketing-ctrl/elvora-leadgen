@@ -37,6 +37,7 @@ interface Stats {
   };
   pendingFollowUps: number;
   mrr: { activeProjects: number; currentMrr: number; annualProjection: number };
+  outreach: { totalCampaigns: number; activeCampaigns: number; totalSent: number; totalOpened: number; totalReplied: number; openRate: number; replyRate: number };
   engagement: {
     distribution: { hot: number; warm: number; cool: number; cold: number };
     topLeads: Array<{
@@ -283,6 +284,37 @@ export default function DashboardPage() {
                 <div>
                   <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider">Kunden</div>
                   <div className="text-xl font-bold text-white mt-0.5">{stats.mrr.activeProjects}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Outreach Performance */}
+          {stats?.outreach && stats.outreach.totalSent > 0 && (
+            <div className="card rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-elvora-text">Outreach Performance</h2>
+                  <p className="text-[11px] text-elvora-text-dim mt-0.5">{stats.outreach.totalCampaigns} Kampagnen · {stats.outreach.activeCampaigns > 0 ? `${stats.outreach.activeCampaigns} aktiv` : 'keine aktiven'}</p>
+                </div>
+                <Link href="/outreach" className="text-[11px] text-elvora-purple-light hover:text-elvora-purple transition-colors">Outreach →</Link>
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <div className="text-xl font-bold text-elvora-text stat-number">{stats.outreach.totalSent}</div>
+                  <div className="text-[9px] text-elvora-text-dim uppercase tracking-wider mt-0.5">Gesendet</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <div className={`text-xl font-bold stat-number ${stats.outreach.openRate > 30 ? 'text-elvora-success' : stats.outreach.openRate > 15 ? 'text-elvora-warning' : 'text-red-400'}`}>{stats.outreach.openRate}%</div>
+                  <div className="text-[9px] text-elvora-text-dim uppercase tracking-wider mt-0.5">Geöffnet</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <div className={`text-xl font-bold stat-number ${stats.outreach.replyRate > 5 ? 'text-elvora-success' : 'text-elvora-text-dim'}`}>{stats.outreach.replyRate}%</div>
+                  <div className="text-[9px] text-elvora-text-dim uppercase tracking-wider mt-0.5">Antworten</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <div className="text-xl font-bold text-elvora-purple-light stat-number">{stats.outreach.totalReplied}</div>
+                  <div className="text-[9px] text-elvora-text-dim uppercase tracking-wider mt-0.5">Replies</div>
                 </div>
               </div>
             </div>

@@ -161,6 +161,29 @@ export async function GET() {
       ? Math.round((emailStats.opened / emailStats.total_sent) * 100)
       : 0;
 
+    // Outreach campaign stats
+    let outreachStats = { totalCampaigns: 0, activeCampaigns: 0, totalSent: 0, totalOpened: 0, totalReplied: 0, openRate: 0, replyRate: 0 };
+    try {
+      const oRow = db.prepare(`
+        SELECT
+          COUNT(*) as total_campaigns,
+          COUNT(CASE WHEN status = 'running' THEN 1 END) as active_campaigns,
+          COALESCE(SUM(sent), 0) as total_sent,
+          COALESCE(SUM(opened), 0) as total_opened,
+          COALESCE(SUM(replied), 0) as total_replied
+        FROM outreach_campaigns
+      `).get() as Record<string, number>;
+      outreachStats = {
+        totalCampaigns: oRow.total_campaigns || 0,
+        activeCampaigns: oRow.active_campaigns || 0,
+        totalSent: oRow.total_sent || 0,
+        totalOpened: oRow.total_opened || 0,
+        totalReplied: oRow.total_replied || 0,
+        openRate: oRow.total_sent > 0 ? Math.round((oRow.total_opened / oRow.total_sent) * 100) : 0,
+        replyRate: oRow.total_sent > 0 ? Math.round((oRow.total_replied / oRow.total_sent) * 100) : 0,
+      };
+    } catch { /* table may not exist yet */ }
+
     // MRR stats
     const mrrStats = db.prepare(`
       SELECT
@@ -220,6 +243,7 @@ export async function GET() {
         currentMrr: mrrStats.mrr || 0,
         annualProjection: (mrrStats.mrr || 0) * 12,
       },
+      outreach: outreachStats,
       engagement: {
         distribution: {
           hot: engagementDist.hot || 0,
