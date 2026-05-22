@@ -63,6 +63,8 @@ export default function DashboardPage() {
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [taskCounts, setTaskCounts] = useState({ overdue: 0, due_today: 0, open: 0 });
+  const [goals, setGoals] = useState<Array<{ type: string; target: number; current: number; percentage: number }>>([]);
+  const [goalsStreak, setGoalsStreak] = useState(0);
 
   useEffect(() => {
     fetch('/api/tasks?completed=0&limit=10')
@@ -70,6 +72,13 @@ export default function DashboardPage() {
       .then(d => {
         setTasks(d.tasks || []);
         if (d.counts) setTaskCounts(d.counts);
+      })
+      .catch(() => {});
+    fetch('/api/goals/progress')
+      .then(r => r.json())
+      .then(d => {
+        setGoals(d.goals || []);
+        setGoalsStreak(d.streak || 0);
       })
       .catch(() => {});
   }, []);
@@ -698,6 +707,64 @@ export default function DashboardPage() {
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Activity Goals Widget */}
+          {goals.length > 0 && (
+            <div className="card rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-elvora-text">Tagesziele</h2>
+                  {goalsStreak > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-elvora-accent/15 text-elvora-accent text-[10px] font-semibold">
+                      {goalsStreak}d Streak
+                    </span>
+                  )}
+                </div>
+                <Link href="/settings" className="text-[11px] text-elvora-purple-light hover:text-elvora-purple transition-colors">Anpassen →</Link>
+              </div>
+              <div className="space-y-3">
+                {goals.map(g => {
+                  const label = g.type === 'emails' ? 'Emails' : g.type === 'calls' ? 'Anrufe' : g.type === 'meetings' ? 'Meetings' : g.type;
+                  const pct = Math.min(100, g.percentage);
+                  const color = pct >= 100 ? 'bg-elvora-success' : pct >= 50 ? 'bg-elvora-warning' : 'bg-elvora-purple';
+                  return (
+                    <div key={g.type}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-elvora-text-muted">{label}</span>
+                        <span className="text-xs text-elvora-text font-medium">{g.current}/{g.target}</span>
+                      </div>
+                      <div className="h-1.5 bg-elvora-bg-alt rounded-full overflow-hidden">
+                        <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Deal Health Overview */}
+          {stats && (stats as Record<string, unknown>).dealHealth && (
+            <div className="card rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-elvora-text">Deal Health</h2>
+                <Link href="/analytics" className="text-[11px] text-elvora-purple-light hover:text-elvora-purple transition-colors">Details →</Link>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                {[
+                  { label: 'Gesund', count: ((stats as Record<string, unknown>).dealHealth as Record<string, number>).healthy || 0, color: 'text-elvora-success', bg: 'bg-elvora-success/10' },
+                  { label: 'Warnung', count: ((stats as Record<string, unknown>).dealHealth as Record<string, number>).warning || 0, color: 'text-elvora-warning', bg: 'bg-elvora-warning/10' },
+                  { label: 'Kritisch', count: ((stats as Record<string, unknown>).dealHealth as Record<string, number>).critical || 0, color: 'text-red-400', bg: 'bg-red-500/10' },
+                  { label: 'Veraltet', count: ((stats as Record<string, unknown>).dealHealth as Record<string, number>).stale || 0, color: 'text-elvora-text-muted', bg: 'bg-white/5' },
+                ].map(item => (
+                  <div key={item.label} className={`${item.bg} rounded-lg p-2.5 text-center`}>
+                    <div className={`text-lg font-semibold ${item.color} stat-number`}>{item.count}</div>
+                    <div className="text-[10px] text-elvora-text-dim mt-0.5">{item.label}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

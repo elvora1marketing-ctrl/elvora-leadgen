@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
       score: 'l.score', name: 'l.name', city: 'l.city',
       created_at: 'l.created_at', updated_at: 'l.updated_at',
       times_found: 'l.times_found', engagement: 'l.engagement_score',
+      health: 'l.deal_health_score',
     };
     const orderCol = validSorts[sortBy] || 'l.score';
 
@@ -90,6 +91,7 @@ export async function GET(request: NextRequest) {
              l.notes, l.followup_date, l.problems, l.seo_issues,
              l.found_via_keywords, l.times_found, l.rating,
              l.engagement_score, l.engagement_signals,
+             l.deal_health_score, l.last_activity_at, l.stage_entered_at,
              l.created_at, l.contacted_at, l.updated_at,
              (SELECT COUNT(*) FROM follow_ups f WHERE f.lead_id = l.id AND f.status = 'pending') as pending_followups,
              (SELECT MAX(open_count) FROM email_tracking et WHERE et.lead_id = l.id) as email_opens

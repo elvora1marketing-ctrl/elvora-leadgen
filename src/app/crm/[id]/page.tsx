@@ -40,6 +40,9 @@ interface Lead {
   best_contact_day: string | null;
   predicted_close_probability: number | null;
   predicted_reasons: string | null;
+  deal_health_score: number | null;
+  deal_insights: string | null;
+  last_activity_at: string | null;
 }
 
 interface Tag {
@@ -225,6 +228,11 @@ export default function CrmDetailPage() {
   const [closeDate, setCloseDate] = useState('');
   const [winProb, setWinProb] = useState(50);
   const [lostReason, setLostReason] = useState('');
+
+  // AI Deal Advisor
+  const [aiAdvisor, setAiAdvisor] = useState<{ recommended_action: string; risk_level: string; pitch_angle: string; reasoning: string } | null>(null);
+  const [aiAdvisorLoading, setAiAdvisorLoading] = useState(false);
+  const [showAiReasoning, setShowAiReasoning] = useState(false);
 
   // Reply
   const [replySubject, setReplySubject] = useState('');
@@ -1227,6 +1235,101 @@ export default function CrmDetailPage() {
             >
               Deal speichern
             </button>
+          </div>
+
+          {/* Deal Health Score */}
+          {lead.deal_health_score != null && (
+            <div className="mt-6 p-4 rounded-xl bg-white/5 border border-white/10">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">Deal Health</h3>
+                <button
+                  onClick={async () => {
+                    try {
+                      await fetch(`/api/leads/${leadId}/health`, { method: 'POST' });
+                      loadAll();
+                    } catch { /* silent */ }
+                  }}
+                  className="text-[10px] text-elvora-purple-light hover:text-elvora-purple transition-colors"
+                >
+                  Aktualisieren
+                </button>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold border-2 ${
+                  lead.deal_health_score >= 80 ? 'border-elvora-success text-elvora-success' :
+                  lead.deal_health_score >= 50 ? 'border-amber-400 text-amber-400' :
+                  'border-red-400 text-red-400'
+                }`}>
+                  {lead.deal_health_score}
+                </div>
+                <div className="flex-1 space-y-1">
+                  {parseJson<string[]>(lead.deal_insights, []).slice(0, 3).map((insight, i) => (
+                    <div key={i} className="text-xs text-elvora-text-muted flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        lead.deal_health_score != null && lead.deal_health_score >= 80 ? 'bg-elvora-success' :
+                        lead.deal_health_score != null && lead.deal_health_score >= 50 ? 'bg-amber-400' : 'bg-red-400'
+                      }`} />
+                      {insight}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* AI Deal Advisor */}
+          <div className="mt-4 p-4 rounded-xl bg-white/5 border border-white/10">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white">KI-Empfehlung</h3>
+              <button
+                onClick={async () => {
+                  setAiAdvisorLoading(true);
+                  try {
+                    const res = await fetch('/api/ai/deal-advisor', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ lead_id: leadId }),
+                    });
+                    if (res.ok) setAiAdvisor(await res.json());
+                  } catch { /* silent */ }
+                  finally { setAiAdvisorLoading(false); }
+                }}
+                disabled={aiAdvisorLoading}
+                className="px-3 py-1 rounded-lg bg-elvora-primary/20 text-elvora-purple-light text-[11px] font-medium hover:bg-elvora-primary/30 transition-colors disabled:opacity-50"
+              >
+                {aiAdvisorLoading ? 'Analysiert...' : aiAdvisor ? 'Neu analysieren' : 'Analysieren'}
+              </button>
+            </div>
+            {aiAdvisor ? (
+              <div className="space-y-2.5">
+                <div className="flex items-start gap-2">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 mt-0.5 ${
+                    aiAdvisor.risk_level === 'niedrig' ? 'bg-elvora-success/15 text-elvora-success' :
+                    aiAdvisor.risk_level === 'mittel' ? 'bg-elvora-warning/15 text-elvora-warning' :
+                    'bg-red-500/15 text-red-400'
+                  }`}>
+                    {aiAdvisor.risk_level === 'niedrig' ? 'Niedrig' : aiAdvisor.risk_level === 'mittel' ? 'Mittel' : 'Hoch'}
+                  </span>
+                  <div className="text-sm text-white font-medium">{aiAdvisor.recommended_action}</div>
+                </div>
+                {aiAdvisor.pitch_angle && (
+                  <div className="text-xs text-elvora-text-muted">
+                    <span className="text-elvora-text-dim">Pitch: </span>{aiAdvisor.pitch_angle}
+                  </div>
+                )}
+                <button
+                  onClick={() => setShowAiReasoning(!showAiReasoning)}
+                  className="text-[11px] text-elvora-purple-light hover:text-elvora-purple transition-colors"
+                >
+                  {showAiReasoning ? 'Begründung ausblenden' : 'Begründung anzeigen'}
+                </button>
+                {showAiReasoning && (
+                  <div className="text-xs text-elvora-text-dim bg-white/5 rounded-lg p-3">{aiAdvisor.reasoning}</div>
+                )}
+              </div>
+            ) : (
+              <div className="text-xs text-elvora-text-dim text-center py-2">Klicke &quot;Analysieren&quot; für eine KI-gestützte Empfehlung</div>
+            )}
           </div>
         </div>
       )}

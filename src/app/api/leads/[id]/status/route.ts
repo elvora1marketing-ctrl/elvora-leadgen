@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import getDb from '@/lib/db';
+import { executeWorkflows } from '@/lib/workflows';
+import { updateDealHealth } from '@/lib/deal-health';
 
 export async function PATCH(
   request: NextRequest,
@@ -111,6 +113,28 @@ export async function PATCH(
         }
       }
     }
+
+    // Track stage entry time and last activity
+    if (body.contact_status) {
+      db.prepare("UPDATE leads SET stage_entered_at = datetime('now'), last_activity_at = datetime('now') WHERE id = ?").run(leadId);
+
+      const fullLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
+      // Log status change as activity
+      db.prepare(
+        "INSERT INTO lead_activities (lead_id, type, content, metadata) VALUES (?, 'status_change', ?, ?)"
+      ).run(leadId, `Status → ${body.contact_status}`, JSON.stringify({ from: '', to: body.contact_status }));
+
+      // Trigger workflows
+      try { executeWorkflows(db, 'status_change', fullLead, { to_status: body.contact_status }); } catch {}
+
+      // Stop active sequence enrollments if won/lost
+      if (['won', 'lost'].includes(body.contact_status)) {
+        try { db.prepare("UPDATE sequence_enrollments SET status = 'completed', completed_at = datetime('now') WHERE lead_id = ? AND status = 'active'").run(leadId); } catch {}
+      }
+    }
+
+    // Recalculate deal health
+    try { updateDealHealth(db, leadId); } catch {}
 
     return NextResponse.json({ success: true, lead_id: leadId });
   } catch (error: unknown) {

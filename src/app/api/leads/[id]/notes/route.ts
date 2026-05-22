@@ -61,6 +61,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       `).run(leadId);
     }
 
+    // Update last_activity_at for deal health tracking
+    db.prepare("UPDATE leads SET last_activity_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(leadId);
+
     return NextResponse.json({
       id: result.lastInsertRowid,
       type,

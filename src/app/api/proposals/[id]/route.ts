@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { executeWorkflows } from '@/lib/workflows';
 
 export async function PATCH(
   request: NextRequest,
@@ -36,7 +37,22 @@ export async function PATCH(
     if (updates.length === 0) return NextResponse.json({ error: 'Keine Änderungen' }, { status: 400 });
     updates.push("updated_at = datetime('now')");
     values.push(pid);
-    getDb().prepare(`UPDATE proposals SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    const db = getDb();
+    db.prepare(`UPDATE proposals SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+
+    // Trigger workflows for proposal events
+    if (body.status && ['viewed', 'accepted', 'rejected'].includes(body.status as string)) {
+      try {
+        const proposal = db.prepare('SELECT lead_id FROM proposals WHERE id = ?').get(pid) as { lead_id: number } | undefined;
+        if (proposal?.lead_id) {
+          const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(proposal.lead_id);
+          if (lead) {
+            executeWorkflows(db, 'proposal_event', lead, { event: body.status, proposal_id: pid });
+          }
+        }
+      } catch { /* silent */ }
+    }
+
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Fehler' }, { status: 500 });

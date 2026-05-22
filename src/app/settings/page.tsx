@@ -5,7 +5,7 @@ import { useState, useEffect, KeyboardEvent, ReactNode } from 'react';
 const inputClass = 'w-full px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors';
 const inputMonoClass = `${inputClass} font-mono`;
 
-type TabKey = 'general' | 'email' | 'outreach' | 'ai' | 'scraper' | 'proposals' | 'integration' | 'security';
+type TabKey = 'general' | 'email' | 'outreach' | 'ai' | 'scraper' | 'proposals' | 'goals' | 'integration' | 'security';
 
 interface FollowUpStep {
   step: number;
@@ -22,6 +22,13 @@ interface Template {
   description: string | null;
   services: string;
   is_default: number;
+}
+
+interface ActivityGoal {
+  id?: number;
+  activity_type: string;
+  period: string;
+  target: number;
 }
 
 const TABS: { key: TabKey; label: string; description: string; icon: ReactNode }[] = [
@@ -50,6 +57,10 @@ const TABS: { key: TabKey; label: string; description: string; icon: ReactNode }
     icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
   },
   {
+    key: 'goals', label: 'Ziele', description: 'Deal-Alterung & Aktivitäts-Ziele',
+    icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
+  },
+  {
     key: 'integration', label: 'Integration', description: 'API-Key & Webhooks',
     icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>,
   },
@@ -65,6 +76,14 @@ const DEFAULT_FOLLOWUP: FollowUpStep[] = [
   { step: 3, days: 14, subject: 'Letzter Hinweis: {score} Punkte für {firmenname}', body: 'letzte Nachricht von mir zu diesem Thema – ich möchte nicht nerven.\n\nIhre Website hat nach wie vor einen Score von {score}/100. Falls Sie in den nächsten Wochen etwas daran ändern möchten, melden Sie sich gerne.\n\nIch wünsche Ihnen alles Gute!' },
 ];
 
+
+const DEAL_ROT_STAGES = [
+  { key: 'deal_rot_days_not_contacted', label: 'Nicht kontaktiert', defaultVal: 5 },
+  { key: 'deal_rot_days_email_sent', label: 'Mail gesendet', defaultVal: 7 },
+  { key: 'deal_rot_days_called', label: 'Angerufen', defaultVal: 5 },
+  { key: 'deal_rot_days_meeting', label: 'Meeting', defaultVal: 10 },
+  { key: 'deal_rot_days_proposal', label: 'Angebot', defaultVal: 14 },
+];
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('general');
 
@@ -133,6 +152,20 @@ export default function SettingsPage() {
   const [tplServices, setTplServices] = useState('');
   const [tplSaving, setTplSaving] = useState(false);
 
+  // Goals & Automation
+  const [dealRotDays, setDealRotDays] = useState<Record<string, number>>({
+    deal_rot_days_not_contacted: 5,
+    deal_rot_days_email_sent: 7,
+    deal_rot_days_called: 5,
+    deal_rot_days_meeting: 10,
+    deal_rot_days_proposal: 14,
+  });
+  const [goalEmails, setGoalEmails] = useState(10);
+  const [goalCalls, setGoalCalls] = useState(5);
+  const [goalMeetings, setGoalMeetings] = useState(2);
+  const [goalsSaving, setGoalsSaving] = useState(false);
+  const [goalsSaved, setGoalsSaved] = useState(false);
+
   // Integration
   const [apiKey, setApiKey] = useState('');
   const [openclawUrl, setOpenclawUrl] = useState('');
@@ -190,6 +223,14 @@ export default function SettingsPage() {
         if (data.outreach_prefer_entscheider) setOutreachPreferEntscheider(data.outreach_prefer_entscheider === 'true');
         if (data.outreach_auto_send_enabled) setOutreachAutoSendEnabled(data.outreach_auto_send_enabled === 'true');
         if (data.outreach_auto_send_max_score) setOutreachAutoSendMaxScore(parseInt(data.outreach_auto_send_max_score));
+        // Deal rot thresholds
+        const rotUpdates: Record<string, number> = {};
+        for (const stage of DEAL_ROT_STAGES) {
+          if (data[stage.key]) rotUpdates[stage.key] = parseInt(data[stage.key]);
+        }
+        if (Object.keys(rotUpdates).length > 0) {
+          setDealRotDays(prev => ({ ...prev, ...rotUpdates }));
+        }
       })
       .catch(() => { /* silent */ });
 
@@ -199,6 +240,22 @@ export default function SettingsPage() {
       .catch(() => { /* silent */ });
 
     loadTemplates();
+
+    // Load activity goals
+    fetch('/api/goals')
+      .then(res => res.json())
+      .then(data => {
+        if (data.goals) {
+          for (const g of data.goals as ActivityGoal[]) {
+            if (g.period === 'daily') {
+              if (g.activity_type === 'email') setGoalEmails(g.target);
+              if (g.activity_type === 'call') setGoalCalls(g.target);
+              if (g.activity_type === 'meeting') setGoalMeetings(g.target);
+            }
+          }
+        }
+      })
+      .catch(() => { /* silent */ });
   }, []);
 
   function loadTemplates() {
@@ -298,6 +355,7 @@ export default function SettingsPage() {
         outreach_prefer_entscheider: outreachPreferEntscheider ? 'true' : 'false',
         outreach_auto_send_enabled: outreachAutoSendEnabled ? 'true' : 'false',
         outreach_auto_send_max_score: outreachAutoSendMaxScore.toString(),
+        ...Object.fromEntries(DEAL_ROT_STAGES.map(s => [s.key, dealRotDays[s.key].toString()])),
       }),
     });
     if (!res.ok) {
@@ -319,6 +377,20 @@ export default function SettingsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function saveActivityGoals() {
+    setGoalsSaving(true);
+    try {
+      await Promise.all([
+        fetch('/api/goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activity_type: 'email', period: 'daily', target: goalEmails }) }),
+        fetch('/api/goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activity_type: 'call', period: 'daily', target: goalCalls }) }),
+        fetch('/api/goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activity_type: 'meeting', period: 'daily', target: goalMeetings }) }),
+      ]);
+      setGoalsSaved(true);
+      setTimeout(() => setGoalsSaved(false), 2000);
+    } catch { /* silent */ }
+    finally { setGoalsSaving(false); }
   }
 
   async function sendTestEmail() {
@@ -812,6 +884,109 @@ export default function SettingsPage() {
             </SectionCard>
           )}
 
+
+          {activeTab === 'goals' && (
+            <>
+              <SectionCard title="Deal-Alterung (Deal Rot)" badge="THRESHOLDS" badgeColor="warning" description="Nach wie vielen Tagen ohne Aktivität ein Deal pro Pipeline-Stage als 'veraltet' gilt. Wird in der Pipeline als Warnung angezeigt.">
+                <div className="space-y-3">
+                  {DEAL_ROT_STAGES.map(stage => (
+                    <div key={stage.key} className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="text-sm text-elvora-text">{stage.label}</div>
+                        <div className="text-[11px] text-elvora-text-dim">Standard: {stage.defaultVal} Tage</div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <input
+                          type="number"
+                          min={1}
+                          max={90}
+                          value={dealRotDays[stage.key]}
+                          onChange={e => setDealRotDays(prev => ({ ...prev, [stage.key]: parseInt(e.target.value) || stage.defaultVal }))}
+                          className="w-20 px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm text-center font-mono focus:outline-none focus:border-elvora-purple/50 transition-colors"
+                        />
+                        <span className="text-xs text-elvora-text-dim">Tage</span>
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-elvora-text-dim pt-2 border-t border-elvora-border">
+                    Diese Schwellwerte werden beim nächsten &quot;Alle Änderungen speichern&quot; mit gespeichert.
+                  </p>
+                </div>
+              </SectionCard>
+
+              <SectionCard title="Tägliche Aktivitäts-Ziele" description="Setze Tagesziele für dein Team. Fortschritt wird im Dashboard angezeigt.">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-sm text-elvora-text">Emails</div>
+                      <div className="text-[11px] text-elvora-text-dim">Ausgehende Emails pro Tag</div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={goalEmails}
+                        onChange={e => setGoalEmails(parseInt(e.target.value) || 1)}
+                        className="w-20 px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm text-center font-mono focus:outline-none focus:border-elvora-purple/50 transition-colors"
+                      />
+                      <span className="text-xs text-elvora-text-dim">/ Tag</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-sm text-elvora-text">Anrufe</div>
+                      <div className="text-[11px] text-elvora-text-dim">Telefonate pro Tag</div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={goalCalls}
+                        onChange={e => setGoalCalls(parseInt(e.target.value) || 1)}
+                        className="w-20 px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm text-center font-mono focus:outline-none focus:border-elvora-purple/50 transition-colors"
+                      />
+                      <span className="text-xs text-elvora-text-dim">/ Tag</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-sm text-elvora-text">Meetings</div>
+                      <div className="text-[11px] text-elvora-text-dim">Termine pro Tag</div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={goalMeetings}
+                        onChange={e => setGoalMeetings(parseInt(e.target.value) || 1)}
+                        className="w-20 px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm text-center font-mono focus:outline-none focus:border-elvora-purple/50 transition-colors"
+                      />
+                      <span className="text-xs text-elvora-text-dim">/ Tag</span>
+                    </div>
+                  </div>
+                  <div className="pt-3 border-t border-elvora-border">
+                    <button
+                      onClick={saveActivityGoals}
+                      disabled={goalsSaving}
+                      className={`px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
+                        goalsSaved
+                          ? 'bg-elvora-success/15 text-elvora-success border border-elvora-success/20'
+                          : 'bg-elvora-purple/10 text-elvora-purple-light hover:bg-elvora-purple/20 border border-elvora-purple/20'
+                      } disabled:opacity-50`}
+                    >
+                      {goalsSaved ? '✓ Ziele gespeichert' : goalsSaving ? 'Speichere...' : 'Aktivitäts-Ziele speichern'}
+                    </button>
+                    <p className="text-[11px] text-elvora-text-dim mt-2">
+                      Aktivitäts-Ziele werden separat gespeichert (nicht über den globalen Speichern-Button).
+                    </p>
+                  </div>
+                </div>
+              </SectionCard>
+            </>
+          )}
           {activeTab === 'integration' && (
             <>
               <SectionCard title="API-Key" badge="ZUGRIFFSKONTROLLE" badgeColor="success" description="Für externe Zugriffe auf das Elvora-System (OpenClaw, Webhooks, etc.)">

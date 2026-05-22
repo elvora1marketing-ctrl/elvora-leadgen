@@ -791,6 +791,289 @@ export function getDb(): Database.Database {
       console.error('[DB] Outreach campaigns migration error:', e);
     }
 
+    // Migration: Deal health + pipeline tracking columns on leads
+    try {
+      const cols = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colNames = cols.map(c => c.name);
+      if (!colNames.includes('deal_health_score')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN deal_health_score INTEGER DEFAULT 50");
+      }
+      if (!colNames.includes('deal_insights')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN deal_insights TEXT DEFAULT '[]'");
+      }
+      if (!colNames.includes('close_date_changes')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN close_date_changes INTEGER DEFAULT 0");
+      }
+      if (!colNames.includes('last_activity_at')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN last_activity_at TEXT");
+      }
+      if (!colNames.includes('stage_entered_at')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN stage_entered_at TEXT");
+      }
+    } catch (e) {
+      console.error('[DB] Deal health columns migration error:', e);
+    }
+
+    // Migration: Workflows + Workflow Logs
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS workflows (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          trigger_type TEXT NOT NULL,
+          trigger_config TEXT DEFAULT '{}',
+          conditions TEXT DEFAULT '[]',
+          actions TEXT DEFAULT '[]',
+          is_active INTEGER DEFAULT 1,
+          run_count INTEGER DEFAULT 0,
+          last_run_at TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS workflow_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workflow_id INTEGER NOT NULL,
+          lead_id INTEGER,
+          trigger_type TEXT,
+          actions_executed TEXT DEFAULT '[]',
+          status TEXT DEFAULT 'success',
+          error TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_workflow_logs_workflow ON workflow_logs(workflow_id);
+      `);
+    } catch (e) {
+      console.error('[DB] Workflows migration error:', e);
+    }
+
+    // Migration: Smart Lists
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS smart_lists (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          icon TEXT DEFAULT 'list',
+          color TEXT DEFAULT '#8b5cf6',
+          rules TEXT NOT NULL DEFAULT '[]',
+          match_type TEXT DEFAULT 'all' CHECK(match_type IN ('all','any')),
+          lead_count INTEGER DEFAULT 0,
+          is_pinned INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+    } catch (e) {
+      console.error('[DB] Smart lists migration error:', e);
+    }
+
+    // Migration: Invoices
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS invoices (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          invoice_number TEXT UNIQUE NOT NULL,
+          token TEXT UNIQUE NOT NULL,
+          lead_id INTEGER,
+          client_id INTEGER,
+          proposal_id INTEGER,
+          recipient_name TEXT NOT NULL,
+          recipient_address TEXT,
+          recipient_email TEXT,
+          items TEXT NOT NULL DEFAULT '[]',
+          subtotal REAL NOT NULL DEFAULT 0,
+          tax_rate REAL DEFAULT 19,
+          tax_amount REAL DEFAULT 0,
+          total REAL NOT NULL DEFAULT 0,
+          currency TEXT DEFAULT 'EUR',
+          status TEXT DEFAULT 'draft' CHECK(status IN ('draft','sent','viewed','paid','overdue','cancelled')),
+          due_date TEXT,
+          paid_at TEXT,
+          paid_amount REAL,
+          payment_method TEXT,
+          notes TEXT,
+          is_recurring INTEGER DEFAULT 0,
+          recurring_interval TEXT CHECK(recurring_interval IN ('monthly','quarterly','yearly')),
+          next_recurring_date TEXT,
+          views INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now')),
+          sent_at TEXT,
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL,
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_invoices_token ON invoices(token);
+        CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
+        CREATE INDEX IF NOT EXISTS idx_invoices_client ON invoices(client_id);
+      `);
+    } catch (e) {
+      console.error('[DB] Invoices migration error:', e);
+    }
+
+    // Migration: Sequences + Sequence Enrollments
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS sequences (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          steps TEXT NOT NULL DEFAULT '[]',
+          is_active INTEGER DEFAULT 1,
+          enrolled_count INTEGER DEFAULT 0,
+          completed_count INTEGER DEFAULT 0,
+          reply_count INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS sequence_enrollments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sequence_id INTEGER NOT NULL,
+          lead_id INTEGER NOT NULL,
+          current_step INTEGER DEFAULT 0,
+          status TEXT DEFAULT 'active' CHECK(status IN ('active','completed','replied','paused','bounced')),
+          next_action_at TEXT,
+          started_at TEXT DEFAULT (datetime('now')),
+          completed_at TEXT,
+          FOREIGN KEY (sequence_id) REFERENCES sequences(id) ON DELETE CASCADE,
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_enrollments_sequence ON sequence_enrollments(sequence_id);
+        CREATE INDEX IF NOT EXISTS idx_enrollments_lead ON sequence_enrollments(lead_id);
+        CREATE INDEX IF NOT EXISTS idx_enrollments_next ON sequence_enrollments(next_action_at, status);
+      `);
+    } catch (e) {
+      console.error('[DB] Sequences migration error:', e);
+    }
+
+    // Migration: Activity Goals
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS activity_goals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          activity_type TEXT NOT NULL,
+          period TEXT DEFAULT 'daily' CHECK(period IN ('daily','weekly','monthly')),
+          target INTEGER NOT NULL,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+    } catch (e) {
+      console.error('[DB] Activity goals migration error:', e);
+    }
+
+    // Migration: Pipeline Snapshots
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS pipeline_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          snapshot_date TEXT NOT NULL,
+          stage TEXT NOT NULL,
+          lead_count INTEGER DEFAULT 0,
+          total_value REAL DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pipeline_snapshots_date ON pipeline_snapshots(snapshot_date);
+      `);
+    } catch (e) {
+      console.error('[DB] Pipeline snapshots migration error:', e);
+    }
+
+    // Migration: Products catalog
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS products (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          description TEXT,
+          price REAL NOT NULL,
+          price_type TEXT DEFAULT 'once' CHECK(price_type IN ('once','monthly','hourly')),
+          category TEXT DEFAULT 'service',
+          tax_rate REAL DEFAULT 19,
+          is_active INTEGER DEFAULT 1,
+          sort_order INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+      const prodCount = instance.prepare('SELECT COUNT(*) as c FROM products').get() as { c: number };
+      if (prodCount.c === 0) {
+        const ins = instance.prepare('INSERT INTO products (name, description, price, price_type, sort_order) VALUES (?, ?, ?, ?, ?)');
+        ins.run('Website Relaunch', 'Moderner, mobiloptimierter Webauftritt', 2500, 'once', 1);
+        ins.run('SEO-Optimierung Basis', 'Monatliche SEO-Betreuung', 500, 'monthly', 2);
+        ins.run('SEO-Optimierung Premium', 'Umfassende SEO-Strategie + Content', 1200, 'monthly', 3);
+        ins.run('Google Ads Management', 'Kampagnen-Setup + monatliche Optimierung', 400, 'monthly', 4);
+        ins.run('Logo & Branding', 'Logodesign + Corporate Design Basics', 800, 'once', 5);
+        ins.run('Content-Erstellung', 'Texte, Bilder, Videos', 150, 'hourly', 6);
+        ins.run('Website-Wartung', 'Updates, Backups, Security', 200, 'monthly', 7);
+      }
+    } catch (e) {
+      console.error('[DB] Products migration error:', e);
+    }
+
+    // Migration: Playbooks
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS playbooks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          stage TEXT NOT NULL,
+          content TEXT NOT NULL DEFAULT '{}',
+          is_active INTEGER DEFAULT 1,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+      const pbCount = instance.prepare('SELECT COUNT(*) as c FROM playbooks').get() as { c: number };
+      if (pbCount.c === 0) {
+        const ins = instance.prepare('INSERT INTO playbooks (name, stage, content) VALUES (?, ?, ?)');
+        ins.run('Erstansprache', 'not_contacted', JSON.stringify({
+          checklist: ['Website analysiert?', 'Score geprüft?', 'Email-Adresse vorhanden?', 'Ansprechpartner identifiziert?'],
+          questions: [],
+          objections: [],
+          materials: ['Audit-Seite erstellen', 'Personalisierte Email vorbereiten'],
+          next_step: 'Personalisierte Erstmail senden'
+        }));
+        ins.run('Qualifikation', 'called', JSON.stringify({
+          checklist: ['Bedarf ermittelt?', 'Budget besprochen?', 'Timeline geklärt?', 'Entscheider identifiziert?'],
+          questions: ['Was ist Ihr Hauptziel mit der neuen Website?', 'Welches Budget haben Sie eingeplant?', 'Bis wann soll das Projekt umgesetzt sein?', 'Wer entscheidet bei Ihnen über solche Projekte?'],
+          objections: [
+            { objection: 'Zu teuer', response: 'Vergleichen Sie den Preis mit dem Umsatz, den Sie durch eine bessere Website gewinnen. Unsere Kunden berichten von 30-50% mehr Anfragen.' },
+            { objection: 'Kein Bedarf', response: 'Ihr Score liegt bei {score}/100. Das bedeutet, dass potenzielle Kunden Ihre Konkurrenz bevorzugen, weil deren Website besser performt.' },
+            { objection: 'Schon einen Anbieter', response: 'Gerne — aber wenn Sie nicht zufrieden sind, können wir unverbindlich zeigen, was wir anders machen.' }
+          ],
+          materials: ['Case Study zeigen', 'Konkurrenz-Vergleich vorbereiten', 'ROI-Rechnung aufstellen'],
+          next_step: 'Meeting vereinbaren und Angebot vorbereiten'
+        }));
+        ins.run('Abschluss', 'proposal', JSON.stringify({
+          checklist: ['Angebot gesendet?', 'Angebot angesehen?', 'Rückfragen beantwortet?', 'Vertragsbedingungen geklärt?'],
+          questions: ['Haben Sie noch Fragen zum Angebot?', 'Passt der Zeitplan für Sie?', 'Gibt es noch andere Entscheider die einbezogen werden müssen?'],
+          objections: [
+            { objection: 'Muss noch überlegen', response: 'Verstehe ich. Das Angebot ist noch X Tage gültig. Soll ich Ihnen die wichtigsten Punkte nochmal zusammenfassen?' },
+            { objection: 'Konkurrenz-Angebot', response: 'Gerne vergleichen — achten Sie auf: Support nach Launch, SEO-Optimierung inklusive, und ob Updates im Preis enthalten sind.' }
+          ],
+          materials: ['Angebot nochmal senden', 'Referenzen/Testimonials', 'Zeitplan-Vorschlag'],
+          next_step: 'Vertrag abschließen und Onboarding starten'
+        }));
+      }
+    } catch (e) {
+      console.error('[DB] Playbooks migration error:', e);
+    }
+
+    // Add new default settings for deal rotting + invoicing
+    const newSettings: Record<string, string> = {
+      deal_rot_days_not_contacted: '5',
+      deal_rot_days_email_sent: '7',
+      deal_rot_days_called: '5',
+      deal_rot_days_meeting: '10',
+      deal_rot_days_proposal: '14',
+      invoice_prefix: 'RE-',
+      invoice_next_number: '1001',
+      invoice_default_due_days: '14',
+      invoice_footer_text: '',
+    };
+    try {
+      for (const [key, value] of Object.entries(newSettings)) {
+        instance.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))").run(key, value);
+      }
+    } catch (e) {
+      console.error('[DB] New settings migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }

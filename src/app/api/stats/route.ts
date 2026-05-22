@@ -192,6 +192,36 @@ export async function GET() {
       FROM clients
     `).get() as { active_projects: number; mrr: number };
 
+    // Deal health overview
+    let dealHealthOverview = { healthy: 0, warning: 0, critical: 0, stale: 0 };
+    try {
+      const healthCounts = db.prepare(`
+        SELECT
+          SUM(CASE WHEN deal_health_score >= 80 THEN 1 ELSE 0 END) as healthy,
+          SUM(CASE WHEN deal_health_score >= 50 AND deal_health_score < 80 THEN 1 ELSE 0 END) as warning,
+          SUM(CASE WHEN deal_health_score < 50 THEN 1 ELSE 0 END) as critical,
+          SUM(CASE WHEN last_activity_at IS NOT NULL AND julianday('now') - julianday(last_activity_at) > 7 THEN 1 ELSE 0 END) as stale
+        FROM leads
+        WHERE status IN ('qualified', 'akquise') AND contact_status NOT IN ('won', 'lost')
+      `).get() as Record<string, number>;
+      dealHealthOverview = {
+        healthy: healthCounts.healthy || 0,
+        warning: healthCounts.warning || 0,
+        critical: healthCounts.critical || 0,
+        stale: healthCounts.stale || 0,
+      };
+    } catch { /* columns may not exist yet */ }
+
+    // Open invoices count
+    let openInvoices = { count: 0, totalAmount: 0 };
+    try {
+      const invStats = db.prepare(`
+        SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as total_amount
+        FROM invoices WHERE status IN ('sent', 'viewed', 'overdue')
+      `).get() as { count: number; total_amount: number };
+      openInvoices = { count: invStats.count || 0, totalAmount: invStats.total_amount || 0 };
+    } catch { /* table may not exist yet */ }
+
     return NextResponse.json({
       leads: {
         total: leadCounts.total || 0,
@@ -256,6 +286,8 @@ export async function GET() {
           engagement_signals: (() => { try { return JSON.parse(l.engagement_signals); } catch { return {}; } })(),
         })),
       },
+      dealHealth: dealHealthOverview,
+      openInvoices,
     });
   } catch (error) {
     console.error('Stats error:', error);

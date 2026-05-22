@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { executeWorkflows } from '@/lib/workflows';
 
 /**
  * Resend Webhook for outbound email events
@@ -82,6 +83,21 @@ export async function POST(request: NextRequest) {
       db.prepare(
         "INSERT INTO lead_activities (lead_id, type, content, metadata) VALUES (?, 'email', ?, ?)"
       ).run(leadId, 'Spam-Beschwerde - Lead als verloren markiert', JSON.stringify({ auto: true }));
+    }
+
+    // Trigger workflows for email events
+    if (leadId) {
+      try {
+        const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
+        if (lead) {
+          executeWorkflows(db, 'email_event', lead, { event_type: eventType });
+
+          // Stop active sequences if lead replied
+          if (eventType === 'replied') {
+            db.prepare("UPDATE sequence_enrollments SET status = 'replied', completed_at = datetime('now') WHERE lead_id = ? AND status = 'active'").run(leadId);
+          }
+        }
+      } catch { /* silent */ }
     }
 
     return NextResponse.json({ received: true, event: eventType, lead_id: leadId });

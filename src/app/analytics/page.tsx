@@ -50,6 +50,24 @@ interface OutreachData {
   }>;
 }
 
+interface PipelineInspection {
+  period: string;
+  added: number;
+  movedForward: number;
+  movedBack: number;
+  won: number;
+  lost: number;
+  stalled: number;
+  valueChange: number;
+  movements: Array<{
+    lead_id: number;
+    lead_name: string;
+    from_stage: string;
+    to_stage: string;
+    date: string;
+  }>;
+}
+
 const stageOrder = ['not_contacted', 'email_sent', 'called', 'meeting', 'proposal', 'won'];
 const stageLabels: Record<string, string> = {
   not_contacted: 'Nicht kontakt.',
@@ -66,6 +84,8 @@ export default function AnalyticsPage() {
   const [mrr, setMrr] = useState<MrrData | null>(null);
   const [outreach, setOutreach] = useState<OutreachData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [inspection, setInspection] = useState<PipelineInspection | null>(null);
+  const [inspectionPeriod, setInspectionPeriod] = useState<'week' | 'month'>('week');
 
   useEffect(() => {
     Promise.all([
@@ -77,6 +97,14 @@ export default function AnalyticsPage() {
       setMrr(mrrData);
       setOutreach(outreachData);
     }).catch(() => {}).finally(() => setLoading(false));
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    fetch(`/api/pipeline/inspection?period=${inspectionPeriod}`)
+      .then(r => r.json())
+      .then(d => setInspection(d))
+      .catch(() => { /* silent */ });
+  }, [inspectionPeriod]);
   }, []);
 
   if (loading) return <div className="p-8 text-center text-elvora-text-dim">Laden...</div>;
@@ -524,6 +552,117 @@ export default function AnalyticsPage() {
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-elvora-success/40" /> MRR: {mrr.annual_projection.toLocaleString('de-DE')}EUR/Jahr</span>
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Pipeline Inspection */}
+      {inspection && (
+        <div className="glass rounded-2xl p-6 border border-white/5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-white">Pipeline-Inspektion</h2>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setInspectionPeriod('week')}
+                className={`px-3 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+                  inspectionPeriod === 'week'
+                    ? 'bg-elvora-purple/15 text-elvora-purple-light border border-elvora-purple/20'
+                    : 'bg-white/5 text-elvora-text-dim hover:text-elvora-text border border-transparent'
+                }`}
+              >Diese Woche</button>
+              <button
+                onClick={() => setInspectionPeriod('month')}
+                className={`px-3 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+                  inspectionPeriod === 'month'
+                    ? 'bg-elvora-purple/15 text-elvora-purple-light border border-elvora-purple/20'
+                    : 'bg-white/5 text-elvora-text-dim hover:text-elvora-text border border-transparent'
+                }`}
+              >Dieser Monat</button>
+            </div>
+          </div>
+
+          {/* Waterfall Summary */}
+          <div className="flex flex-wrap items-center gap-2 mb-6">
+            {(() => {
+              const totalActive = data.funnel.reduce((sum, f) => f.contact_status !== 'won' && f.contact_status !== 'lost' ? sum + f.count : sum, 0);
+              const startBestand = totalActive - inspection.added + inspection.won + inspection.lost;
+              const endBestand = totalActive;
+              const steps = [
+                { label: 'Startbestand', value: startBestand, color: 'text-white', bg: 'bg-white/10' },
+                { label: '+Neue', value: inspection.added, color: 'text-elvora-success', bg: 'bg-elvora-success/10', sign: '+' },
+                { label: '+Vorwärts', value: inspection.movedForward, color: 'text-elvora-success', bg: 'bg-elvora-success/10', sign: '+' },
+                { label: '-Rückwärts', value: inspection.movedBack, color: 'text-red-400', bg: 'bg-red-400/10', sign: '-' },
+                { label: '-Gewonnen', value: inspection.won, color: 'text-elvora-accent', bg: 'bg-elvora-accent/10', sign: '-' },
+                { label: '-Verloren', value: inspection.lost, color: 'text-red-400', bg: 'bg-red-400/10', sign: '-' },
+                { label: 'Endbestand', value: endBestand, color: 'text-white', bg: 'bg-elvora-purple/10' },
+              ];
+              return steps.map((s, i) => (
+                <div key={s.label} className="flex items-center gap-2">
+                  {i > 0 && i < steps.length - 1 && <span className="text-elvora-text-dim text-xs">{s.sign === '+' ? '+' : i === steps.length - 1 ? '=' : '-'}</span>}
+                  {i === steps.length - 1 && <span className="text-elvora-text-dim text-xs">=</span>}
+                  <div className={`${s.bg} rounded-lg px-3 py-2 border border-white/5`}>
+                    <div className="text-[10px] text-elvora-text-dim">{s.label}</div>
+                    <div className={`stat-number text-lg font-bold ${s.color}`}>{s.value}</div>
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+
+          {/* Stalled indicator */}
+          {inspection.stalled > 0 && (
+            <div className="mb-4 rounded-lg bg-amber-500/5 border border-amber-500/20 px-4 py-2 flex items-center gap-2">
+              <svg className="w-4 h-4 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <span className="text-xs text-amber-300"><span className="font-bold">{inspection.stalled}</span> Deals ohne Aktivität in diesem Zeitraum (stalled)</span>
+            </div>
+          )}
+
+          {/* Movements Table */}
+          {inspection.movements.length > 0 && (
+            <div>
+              <div className="text-[10px] text-elvora-text-dim uppercase tracking-wider mb-3">Deal-Bewegungen</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-elvora-text-dim border-b border-white/5">
+                      <th className="text-left py-2 pr-3 font-medium">Deal</th>
+                      <th className="text-left py-2 px-3 font-medium">Von</th>
+                      <th className="text-center py-2 px-1 font-medium"></th>
+                      <th className="text-left py-2 px-3 font-medium">Nach</th>
+                      <th className="text-right py-2 pl-3 font-medium">Datum</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inspection.movements.slice(0, 15).map((m, i) => (
+                      <tr key={`${m.lead_id}-${i}`} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                        <td className="py-2 pr-3 text-white font-medium truncate max-w-[180px]">{m.lead_name}</td>
+                        <td className="py-2 px-3">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-elvora-text-muted">{stageLabels[m.from_stage] || m.from_stage}</span>
+                        </td>
+                        <td className="py-2 px-1 text-center text-elvora-text-dim">→</td>
+                        <td className="py-2 px-3">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            m.to_stage === 'won' ? 'bg-elvora-success/15 text-elvora-success' :
+                            m.to_stage === 'lost' ? 'bg-red-500/15 text-red-400' :
+                            'bg-elvora-purple/10 text-elvora-purple-light'
+                          }`}>{stageLabels[m.to_stage] || m.to_stage}</span>
+                        </td>
+                        <td className="py-2 pl-3 text-right text-elvora-text-dim">
+                          {new Date(m.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {inspection.movements.length > 15 && (
+                <div className="text-center text-[10px] text-elvora-text-dim mt-2">+{inspection.movements.length - 15} weitere Bewegungen</div>
+              )}
+            </div>
+          )}
+
+          {inspection.movements.length === 0 && (
+            <div className="text-center text-sm text-elvora-text-dim py-4">Keine Bewegungen in diesem Zeitraum</div>
           )}
         </div>
       )}

@@ -21,6 +21,8 @@ interface PipelineLead {
   email_opens: number;
   audit_views: number;
   cta_clicks: number;
+  deal_health_score?: number;
+  last_activity_at?: string;
 }
 
 interface Column {
@@ -55,6 +57,25 @@ interface Activity {
 const activityIcons: Record<string, string> = {
   note: '📝', call: '📞', email: '📧', meeting: '🤝', whatsapp: '💬', status_change: '🔄',
 };
+
+const DEAL_ROT_THRESHOLDS: Record<string, number> = {
+  not_contacted: 5,
+  email_sent: 7,
+  called: 5,
+  meeting: 10,
+  proposal: 14,
+};
+
+function getDealRotDays(lead: PipelineLead): number | null {
+  if (!lead.last_activity_at) return null;
+  const threshold = DEAL_ROT_THRESHOLDS[lead.contact_status];
+  if (!threshold) return null;
+  const lastActivity = new Date(lead.last_activity_at);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - lastActivity.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays > threshold) return diffDays;
+  return null;
+}
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<PipelineLead[]>([]);
@@ -318,13 +339,27 @@ export default function LeadsPage() {
                     onDragStart={(e) => handleDragStart(e, lead.id)}
                     className={`glass rounded-xl p-3 card-hover cursor-move ${lead.priority === 'high' ? 'border border-red-500/20' : ''}`}
                   >
-                    <div className="flex items-start justify-between mb-1.5">
-                      <Link href={`/crm/${lead.id}`} className="text-sm font-medium text-white leading-tight pr-2 truncate hover:text-elvora-purple-light transition-colors">{lead.name}</Link>
+                    <div className="flex items-start justify-between mb-1.5 gap-1">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">{lead.deal_health_score != null && (<span className={`w-2 h-2 rounded-full flex-shrink-0 ${lead.deal_health_score >= 80 ? 'bg-elvora-success' : lead.deal_health_score >= 50 ? 'bg-amber-400' : 'bg-red-400'}`} title={`Health: ${lead.deal_health_score}`} />)}<Link href={`/crm/${lead.id}`} className="text-sm font-medium text-white leading-tight truncate hover:text-elvora-purple-light transition-colors">{lead.name}</Link></div>
                       <div className={`${getScoreClass(lead.score)} px-1.5 py-0.5 rounded-lg flex-shrink-0`}>
                         <span className="text-[11px] font-bold text-white">{lead.score}</span>
                       </div>
                     </div>
                     <div className="text-xs text-elvora-text-dim mb-1.5">{lead.city}</div>
+
+                    {/* Deal Rot Warning */}
+                    {(() => {
+                      const rotDays = getDealRotDays(lead);
+                      if (!rotDays) return null;
+                      return (
+                        <div className="flex items-center gap-1 mb-1.5">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/10 text-red-400 border border-red-500/15">
+                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            {rotDays}d
+                          </span>
+                        </div>
+                      );
+                    })()}
 
                     {/* Hot indicators */}
                     {(lead.audit_views > 0 || lead.cta_clicks > 0 || lead.email_opens > 1) && (
