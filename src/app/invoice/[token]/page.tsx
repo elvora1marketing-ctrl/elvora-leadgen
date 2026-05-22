@@ -73,7 +73,7 @@ export default function PublicInvoicePage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`/api/invoices/${token}/public`);
+        const res = await fetch(`/api/invoices/public/${token}`);
         if (!res.ok) {
           const data = await res.json();
           setError(data.error || 'Rechnung nicht gefunden');
