@@ -114,9 +114,12 @@ export async function PATCH(
       }
     }
 
-    // Track stage entry time and last activity
+    // Track stage entry time, last activity, and first contact
     if (body.contact_status) {
       db.prepare("UPDATE leads SET stage_entered_at = datetime('now'), last_activity_at = datetime('now') WHERE id = ?").run(leadId);
+      if (['email_sent', 'called'].includes(body.contact_status)) {
+        db.prepare("UPDATE leads SET first_contacted_at = datetime('now') WHERE id = ? AND first_contacted_at IS NULL").run(leadId);
+      }
 
       const fullLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
       // Log status change as activity

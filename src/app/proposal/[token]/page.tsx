@@ -22,7 +22,7 @@ export default async function ProposalPage({ params }: Props) {
   const proposal = db.prepare('SELECT * FROM proposals WHERE token = ?').get(token) as Record<string, unknown> | undefined;
   if (!proposal) notFound();
 
-  db.prepare('UPDATE proposals SET views = COALESCE(views, 0) + 1 WHERE token = ?').run(token);
+  db.prepare("UPDATE proposals SET views = COALESCE(views, 0) + 1, last_viewed_at = datetime('now'), view_notified = 0 WHERE token = ?").run(token);
 
   if (proposal.status === 'sent' || proposal.status === 'draft') {
     db.prepare("UPDATE proposals SET status = 'viewed', viewed_at = datetime('now'), updated_at = datetime('now') WHERE token = ? AND status IN ('sent', 'draft')").run(token);

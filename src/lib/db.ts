@@ -1074,6 +1074,146 @@ export function getDb(): Database.Database {
       console.error('[DB] New settings migration error:', e);
     }
 
+    // === Feature Wave 2: Revenue-Fokus ===
+
+    // Meeting Bookings
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS booking_slots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          day_of_week INTEGER NOT NULL,
+          start_time TEXT NOT NULL,
+          end_time TEXT NOT NULL,
+          is_active INTEGER DEFAULT 1
+        );
+      `);
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS bookings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lead_id INTEGER,
+          name TEXT NOT NULL,
+          email TEXT,
+          phone TEXT,
+          date TEXT NOT NULL,
+          time_slot TEXT NOT NULL,
+          duration INTEGER DEFAULT 30,
+          message TEXT,
+          status TEXT DEFAULT 'confirmed' CHECK(status IN ('confirmed','cancelled','completed','no_show')),
+          token TEXT UNIQUE,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (lead_id) REFERENCES leads(id)
+        );
+      `);
+      instance.exec("CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date, status)");
+      const slotCount = instance.prepare('SELECT COUNT(*) as c FROM booking_slots').get() as { c: number };
+      if (slotCount.c === 0) {
+        const ins = instance.prepare('INSERT INTO booking_slots (day_of_week, start_time, end_time) VALUES (?, ?, ?)');
+        for (let day = 0; day < 5; day++) {
+          ins.run(day, '09:00', '10:00');
+          ins.run(day, '10:00', '11:00');
+          ins.run(day, '11:00', '12:00');
+          ins.run(day, '14:00', '15:00');
+          ins.run(day, '15:00', '16:00');
+          ins.run(day, '16:00', '17:00');
+        }
+      }
+    } catch (e) {
+      console.error('[DB] Bookings migration error:', e);
+    }
+
+    // Referrals
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS referrals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          referrer_client_id INTEGER,
+          referrer_name TEXT,
+          referred_lead_id INTEGER,
+          referred_name TEXT,
+          status TEXT DEFAULT 'pending' CHECK(status IN ('pending','contacted','won','lost')),
+          deal_value REAL DEFAULT 0,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (referrer_client_id) REFERENCES clients(id),
+          FOREIGN KEY (referred_lead_id) REFERENCES leads(id)
+        );
+      `);
+    } catch (e) {
+      console.error('[DB] Referrals migration error:', e);
+    }
+
+    // A/B Tests
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS ab_tests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          subject_a TEXT NOT NULL,
+          subject_b TEXT NOT NULL,
+          body_a TEXT,
+          body_b TEXT,
+          variant_a_sent INTEGER DEFAULT 0,
+          variant_a_opened INTEGER DEFAULT 0,
+          variant_a_clicked INTEGER DEFAULT 0,
+          variant_a_replied INTEGER DEFAULT 0,
+          variant_b_sent INTEGER DEFAULT 0,
+          variant_b_opened INTEGER DEFAULT 0,
+          variant_b_clicked INTEGER DEFAULT 0,
+          variant_b_replied INTEGER DEFAULT 0,
+          winner TEXT,
+          status TEXT DEFAULT 'draft' CHECK(status IN ('draft','running','completed')),
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+    } catch (e) {
+      console.error('[DB] AB Tests migration error:', e);
+    }
+
+    // Speed-to-lead: first_contacted_at on leads
+    try {
+      const leadCols2 = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      const colNames2 = leadCols2.map(c => c.name);
+      if (!colNames2.includes('first_contacted_at')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN first_contacted_at TEXT");
+      }
+      if (!colNames2.includes('referral_source')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN referral_source TEXT");
+      }
+    } catch (e) {
+      console.error('[DB] Lead columns wave 2 error:', e);
+    }
+
+    // Proposal live tracking: last_viewed_at, view_notified
+    try {
+      const propCols = instance.prepare("PRAGMA table_info(proposals)").all() as { name: string }[];
+      const propColNames = propCols.map(c => c.name);
+      if (!propColNames.includes('last_viewed_at')) {
+        instance.exec("ALTER TABLE proposals ADD COLUMN last_viewed_at TEXT");
+      }
+      if (!propColNames.includes('view_notified')) {
+        instance.exec("ALTER TABLE proposals ADD COLUMN view_notified INTEGER DEFAULT 0");
+      }
+    } catch (e) {
+      console.error('[DB] Proposal columns error:', e);
+    }
+
+    // Booking + revenue settings
+    const wave2Settings: Record<string, string> = {
+      booking_enabled: '1',
+      booking_duration: '30',
+      booking_buffer: '15',
+      booking_advance_days: '14',
+      booking_page_title: 'Termin buchen',
+      booking_page_description: 'Wählen Sie einen passenden Termin für ein unverbindliches Erstgespräch.',
+    };
+    try {
+      for (const [key, value] of Object.entries(wave2Settings)) {
+        instance.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))").run(key, value);
+      }
+    } catch (e) {
+      console.error('[DB] Wave 2 settings error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }
