@@ -7,8 +7,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const projectId = parseInt(id);
+    if (isNaN(projectId)) {
+      return NextResponse.json({ error: 'Ungültige Projekt-ID' }, { status: 400 });
+    }
     const db = getDb();
-    const updates = db.prepare('SELECT * FROM project_updates WHERE project_id = ? ORDER BY created_at DESC').all(parseInt(id));
+    const updates = db.prepare('SELECT * FROM project_updates WHERE project_id = ? ORDER BY created_at DESC').all(projectId);
     return NextResponse.json({ updates });
   } catch (error) {
     console.error('Project updates list error:', error);

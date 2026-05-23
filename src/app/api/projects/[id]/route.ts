@@ -7,12 +7,16 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const projectId = parseInt(id);
+    if (isNaN(projectId)) {
+      return NextResponse.json({ error: 'Ungültige Projekt-ID' }, { status: 400 });
+    }
     const db = getDb();
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(parseInt(id));
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
     if (!project) {
       return NextResponse.json({ error: 'Projekt nicht gefunden' }, { status: 404 });
     }
-    const updates = db.prepare('SELECT * FROM project_updates WHERE project_id = ? ORDER BY created_at DESC').all(parseInt(id));
+    const updates = db.prepare('SELECT * FROM project_updates WHERE project_id = ? ORDER BY created_at DESC').all(projectId);
     return NextResponse.json({ project, updates });
   } catch (error) {
     console.error('Project detail error:', error);
@@ -26,10 +30,14 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+    const projectId = parseInt(id);
+    if (isNaN(projectId)) {
+      return NextResponse.json({ error: 'Ungültige Projekt-ID' }, { status: 400 });
+    }
     const db = getDb();
     const body = await request.json();
 
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(parseInt(id));
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
     if (!project) {
       return NextResponse.json({ error: 'Projekt nicht gefunden' }, { status: 404 });
     }
@@ -59,7 +67,7 @@ export async function PATCH(
     }
 
     updates.push("updated_at = datetime('now')");
-    values.push(parseInt(id));
+    values.push(projectId);
 
     db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
@@ -76,8 +84,12 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const projectId = parseInt(id);
+    if (isNaN(projectId)) {
+      return NextResponse.json({ error: 'Ungültige Projekt-ID' }, { status: 400 });
+    }
     const db = getDb();
-    db.prepare('DELETE FROM projects WHERE id = ?').run(parseInt(id));
+    db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Project delete error:', error);

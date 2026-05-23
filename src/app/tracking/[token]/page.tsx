@@ -108,6 +108,7 @@ export default function TrackingPage() {
 
   const progressPercent = useMemo(() => {
     if (phases.length <= 1) return 100;
+    if (currentPhaseIndex < 0) return 0;
     return Math.round((currentPhaseIndex / (phases.length - 1)) * 100);
   }, [currentPhaseIndex, phases]);
 
@@ -137,7 +138,7 @@ export default function TrackingPage() {
   }
 
   const agencyName = agency.agency_name || 'Elvora';
-  const isCompleted = project.status === 'completed' || project.current_phase === phases[phases.length - 1]?.key;
+  const isCompleted = project.status === 'completed';
 
   return (
     <div className="min-h-screen bg-elvora-bg py-8 px-4">

@@ -116,15 +116,14 @@ export default function ProjectsPage() {
 
   const loadProjects = useCallback(async () => {
     try {
-      const params = filter !== 'all' ? `?status=${filter}` : '';
-      const res = await fetch(`/api/projects${params}`);
+      const res = await fetch('/api/projects');
       if (res.ok) {
         const data = await res.json();
         setProjects(data.projects || []);
       }
     } catch { /* silent */ }
     setLoading(false);
-  }, [filter]);
+  }, []);
 
   const loadClients = useCallback(async () => {
     try {
@@ -253,7 +252,10 @@ export default function ProjectsPage() {
     return Math.round((idx / (phases.length - 1)) * 100);
   };
 
-  const filteredProjects = useMemo(() => projects, [projects]);
+  const filteredProjects = useMemo(() => {
+    if (filter === 'all') return projects;
+    return projects.filter(p => p.status === filter);
+  }, [projects, filter]);
 
   const stats = useMemo(() => {
     return {
