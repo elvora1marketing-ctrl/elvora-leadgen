@@ -1214,6 +1214,52 @@ export function getDb(): Database.Database {
       console.error('[DB] Wave 2 settings error:', e);
     }
 
+    // Migration: Projects (Auftragsverfolgung)
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS projects (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          client_id INTEGER,
+          lead_id INTEGER,
+          token TEXT UNIQUE NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          client_name TEXT NOT NULL,
+          client_email TEXT,
+          client_phone TEXT,
+          status TEXT DEFAULT 'active' CHECK(status IN ('active','paused','completed','cancelled')),
+          current_phase TEXT DEFAULT 'received',
+          phases TEXT NOT NULL DEFAULT '[]',
+          total_value REAL,
+          start_date TEXT,
+          estimated_end_date TEXT,
+          completed_at TEXT,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_projects_token ON projects(token);
+        CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);
+        CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+
+        CREATE TABLE IF NOT EXISTS project_updates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id INTEGER NOT NULL,
+          phase TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          is_public INTEGER DEFAULT 1,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_updates_project ON project_updates(project_id);
+      `);
+    } catch (e) {
+      console.error('[DB] Projects migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }

@@ -17,7 +17,7 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-const PUBLIC_PATHS = ['/audit', '/proposal', '/client', '/invoice', '/roi-rechner', '/booking'];
+const PUBLIC_PATHS = ['/audit', '/proposal', '/client', '/invoice', '/roi-rechner', '/booking', '/tracking'];
 
 function isPublicPath(pathname: string): boolean {
   // Match exact path or path followed by '/' — so '/client' does NOT match '/clients'.
