@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const products = db.prepare(
       'SELECT * FROM products WHERE is_active = 1 ORDER BY sort_order ASC, id ASC'
@@ -17,6 +21,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const body = await request.json() as {
       name: string;

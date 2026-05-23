@@ -5,6 +5,7 @@ import { normalizeWebsite } from '@/lib/utils';
 import { parseImpressum } from '@/lib/impressum-parser';
 import { type ScrapedBusiness } from '@/lib/maps-scraper';
 import { detectCategory } from '@/lib/lead-categories';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,6 +80,9 @@ function importBusinessesToLeads(
 }
 
 export async function POST(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const body = await request.json();
   const { keyword, city, maxPages = 50, autoEnrich = true } = body as {
     keyword: string;

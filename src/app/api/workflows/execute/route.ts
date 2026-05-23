@@ -1,9 +1,13 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { executeWorkflows } from '@/lib/workflows';
+import { requireAuth } from '@/lib/auth';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const body = await request.json();
     const { trigger_type, lead_id, event_data } = body;

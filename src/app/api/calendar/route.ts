@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 /**
  * GET /api/calendar?month=2026-04
@@ -7,6 +8,9 @@ import getDb from '@/lib/db';
  */
 export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { searchParams } = new URL(request.url);
     const month = searchParams.get('month') || new Date().toISOString().slice(0, 7);
     const start = `${month}-01`;

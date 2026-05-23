@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { createJob, listJobs, runJob } from '@/lib/outreach-jobs';
 import { renderLeadEmail } from '@/lib/email-sender';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json() as {
       leadIds?: number[];
       filter?: {
@@ -102,6 +106,9 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 interface SequenceStep {
   type: 'email' | 'task';
@@ -31,6 +32,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const sequenceId = parseInt(id);
     if (isNaN(sequenceId)) {

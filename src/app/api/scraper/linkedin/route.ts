@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,6 +9,9 @@ export const dynamic = 'force-dynamic';
  * GET /api/scraper/linkedin - Fetch LinkedIn scraper job history
  */
 export async function GET(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const db = getDb();
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get('jobId');

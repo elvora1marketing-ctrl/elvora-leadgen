@@ -312,9 +312,12 @@ export async function sendLeadEmail(opts: SendOptions): Promise<SendResult> {
   const trackingId = crypto.randomUUID();
   db.prepare('INSERT INTO email_tracking (lead_id, tracking_id) VALUES (?, ?)').run(leadId, trackingId);
 
-  const trackingPixel = baseUrl
-    ? `<img src="${baseUrl}/api/track/open?t=${trackingId}" width="1" height="1" style="display:none;" alt="" />`
-    : `<img src="/api/track/open?t=${trackingId}" width="1" height="1" style="display:none;" alt="" />`;
+  const emailTrackingEnabled = (db.prepare("SELECT value FROM settings WHERE key = 'email_tracking_enabled'").get() as { value: string } | undefined)?.value !== '0';
+  const trackingPixel = emailTrackingEnabled
+    ? (baseUrl
+      ? `<img src="${baseUrl}/api/track/open?t=${trackingId}" width="1" height="1" style="display:none;" alt="" />`
+      : `<img src="/api/track/open?t=${trackingId}" width="1" height="1" style="display:none;" alt="" />`)
+    : '';
 
   const subject = replacePlaceholders(tpl.tpl_subject, {
     firmenname: lead.name, ansprechpartner, website, stadt: lead.city, score: String(lead.score), absender: fromName,

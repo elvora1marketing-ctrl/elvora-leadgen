@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 interface PersonalizeRequest {
   lead_id?: number;
@@ -35,6 +36,9 @@ function getAiSettings() {
  */
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body: PersonalizeRequest = await request.json();
     const settings = getAiSettings();
 
@@ -201,8 +205,11 @@ Generiere die personalisierten Texte als JSON.`;
 /**
  * GET /api/ai/personalize - Check AI status
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const settings = getAiSettings();
     return NextResponse.json({
       enabled: settings.ai_personalization_enabled === 'true',

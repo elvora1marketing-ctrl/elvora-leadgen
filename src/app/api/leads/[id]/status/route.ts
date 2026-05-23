@@ -3,12 +3,16 @@ import crypto from 'crypto';
 import getDb from '@/lib/db';
 import { executeWorkflows } from '@/lib/workflows';
 import { updateDealHealth } from '@/lib/deal-health';
+import { requireAuth } from '@/lib/auth';
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const leadId = parseInt(id);
     if (isNaN(leadId)) {

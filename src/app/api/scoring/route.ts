@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -131,6 +132,9 @@ function calculateEngagement(data: LeadEngagementData, weights: EngagementWeight
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const weights = getWeights(db);
     const leadIdParam = request.nextUrl.searchParams.get('lead_id');
@@ -228,8 +232,11 @@ export async function POST(request: NextRequest) {
 /**
  * GET /api/scoring - Top engaged leads
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
 
     const topLeads = db.prepare(`

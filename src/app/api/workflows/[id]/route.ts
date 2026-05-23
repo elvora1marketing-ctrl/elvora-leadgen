@@ -1,8 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const workflow = db.prepare('SELECT * FROM workflows WHERE id = ?').get(params.id);
     if (!workflow) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -17,8 +21,11 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const body = await request.json();
     const fields: string[] = [];
@@ -44,8 +51,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     db.prepare('DELETE FROM workflows WHERE id = ?').run(params.id);
     return NextResponse.json({ success: true });

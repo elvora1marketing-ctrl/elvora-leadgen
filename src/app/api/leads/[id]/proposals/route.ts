@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const { id } = await params;
   const leadId = parseInt(id);
   if (isNaN(leadId)) return NextResponse.json({ error: 'Ungültige ID' }, { status: 400 });
@@ -17,6 +19,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const leadId = parseInt(id);
     if (isNaN(leadId)) return NextResponse.json({ error: 'Ungültige ID' }, { status: 400 });

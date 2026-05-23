@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { cancelJob, getJob, pauseJob, resumeJob } from '@/lib/outreach-jobs';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const db = getDb();
     const campaign = db.prepare('SELECT * FROM outreach_campaigns WHERE id = ?').get(Number(id)) as Record<string, unknown> | undefined;
@@ -46,6 +50,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const db = getDb();
     const body = await request.json() as { action?: string };
@@ -74,8 +81,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const db = getDb();
     const campaign = db.prepare('SELECT * FROM outreach_campaigns WHERE id = ?').get(Number(id)) as Record<string, unknown> | undefined;

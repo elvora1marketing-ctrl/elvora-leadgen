@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { lead_ids } = await request.json() as { lead_ids?: number[] };
     const db = getDb();
 

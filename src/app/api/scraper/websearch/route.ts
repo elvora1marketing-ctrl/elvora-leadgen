@@ -5,6 +5,7 @@ import { normalizeWebsite } from '@/lib/utils';
 import { type ScrapedBusiness } from '@/lib/maps-scraper';
 import { getDistricts } from '@/lib/german-districts';
 import { detectCategory } from '@/lib/lead-categories';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -77,6 +78,9 @@ function importBusinessesToLeads(
 }
 
 export async function POST(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const body = await request.json();
   const { keyword, city, maxResults = 100, autoEnrich = true, deepScan = false } = body as {
     keyword: string;

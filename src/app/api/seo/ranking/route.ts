@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkLocalRanking } from '@/lib/seo-analyzer';
+import { requireAuth } from '@/lib/auth';
 
 /**
  * POST /api/seo/ranking - Check local SERP ranking for a keyword + city
@@ -7,6 +8,9 @@ import { checkLocalRanking } from '@/lib/seo-analyzer';
  */
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json() as { keyword?: string; city?: string; website?: string };
 
     if (!body.keyword || !body.city || !body.website) {

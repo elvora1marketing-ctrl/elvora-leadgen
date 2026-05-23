@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const { searchParams } = new URL(request.url);
     const showDismissed = searchParams.get('show_dismissed') === '1';

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { scrapeGoogleMaps, normalizeWebsite, type ScrapedBusiness } from '@/lib/maps-scraper';
+import { requireAuth } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   // Optional: verify cron secret
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;

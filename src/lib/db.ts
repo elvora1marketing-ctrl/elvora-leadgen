@@ -1260,6 +1260,40 @@ export function getDb(): Database.Database {
       console.error('[DB] Projects migration error:', e);
     }
 
+    // Migration: Audit Log + DSGVO
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          action TEXT NOT NULL,
+          entity_type TEXT,
+          entity_id INTEGER,
+          details TEXT DEFAULT '{}',
+          ip_address TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+      `);
+    } catch (e) {
+      console.error('[DB] Audit log migration error:', e);
+    }
+
+    // DSGVO privacy settings
+    const privacySettings: Record<string, string> = {
+      privacy_policy_url: '',
+      impressum_url: '',
+      data_retention_days: '365',
+      email_tracking_enabled: '1',
+    };
+    try {
+      for (const [key, value] of Object.entries(privacySettings)) {
+        instance.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))").run(key, value);
+      }
+    } catch (e) {
+      console.error('[DB] Privacy settings error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }

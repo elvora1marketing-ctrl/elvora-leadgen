@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 const STAGE_ORDER: Record<string, number> = {
   not_contacted: 0,
@@ -12,6 +13,9 @@ const STAGE_ORDER: Record<string, number> = {
 
 export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const period = request.nextUrl.searchParams.get('period') === 'month' ? 'month' : 'week';
     const days = period === 'month' ? 30 : 7;

@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { analyzeWebsite } from '@/lib/website-analyzer';
+import { requireAuth } from '@/lib/auth';
 
 const BATCH_CONCURRENCY = 10;
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json() as {
       leadId?: number;
       batch?: boolean;
@@ -155,6 +159,9 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const { searchParams } = new URL(request.url);
     const filterStatus = searchParams.get('status') || '';

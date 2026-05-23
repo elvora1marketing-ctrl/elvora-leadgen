@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import getDb from '@/lib/db';
 import { hashPassword, verifyPassword } from '@/lib/utils';
+import { logAudit } from '@/lib/audit';
 
 // Cookie is only marked "secure" when the request itself came via HTTPS.
 // On plain HTTP (local dev, IP access, reverse-proxy without TLS termination)
@@ -19,8 +20,11 @@ export async function POST(request: NextRequest) {
     const { password, action } = await request.json() as { password?: string; action?: string };
     const useSecure = isHttps(request);
 
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+
     // Logout
     if (action === 'logout') {
+      logAudit('logout', {}, undefined, undefined, ip);
       const res = NextResponse.json({ ok: true });
       res.cookies.set('elvora_session', '', {
         httpOnly: true,
@@ -68,8 +72,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (!verifyPassword(password, row.value)) {
+      logAudit('login_failed', {}, undefined, undefined, ip);
       return NextResponse.json({ error: 'Falsches Passwort' }, { status: 401 });
     }
+
+    logAudit('login', {}, undefined, undefined, ip);
 
     // Create session
     const token = crypto.randomUUID();

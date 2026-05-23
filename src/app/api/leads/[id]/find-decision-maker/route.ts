@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { parseImpressum } from '@/lib/impressum-parser';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -96,6 +97,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const leadId = parseInt(id);
     if (isNaN(leadId)) return NextResponse.json({ error: 'Ungültige ID' }, { status: 400 });

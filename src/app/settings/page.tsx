@@ -5,7 +5,7 @@ import { useState, useEffect, KeyboardEvent, ReactNode } from 'react';
 const inputClass = 'w-full px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors';
 const inputMonoClass = `${inputClass} font-mono`;
 
-type TabKey = 'general' | 'email' | 'outreach' | 'ai' | 'scraper' | 'proposals' | 'goals' | 'integration' | 'security';
+type TabKey = 'general' | 'email' | 'outreach' | 'ai' | 'scraper' | 'proposals' | 'goals' | 'integration' | 'security' | 'datenschutz';
 
 interface FollowUpStep {
   step: number;
@@ -67,6 +67,10 @@ const TABS: { key: TabKey; label: string; description: string; icon: ReactNode }
   {
     key: 'security', label: 'Sicherheit', description: 'Passwort & Gefahrenzone',
     icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>,
+  },
+  {
+    key: 'datenschutz', label: 'Datenschutz', description: 'DSGVO, Datenaufbewahrung & Löschung',
+    icon: <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>,
   },
 ];
 
@@ -176,6 +180,18 @@ export default function SettingsPage() {
   const [pwChanging, setPwChanging] = useState(false);
   const [pwResult, setPwResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // Datenschutz
+  const [privacyPolicyUrl, setPrivacyPolicyUrl] = useState('');
+  const [impressumUrl, setImpressumUrl] = useState('');
+  const [dataRetentionDays, setDataRetentionDays] = useState(365);
+  const [emailTrackingEnabled, setEmailTrackingEnabled] = useState(true);
+  const [gdprSearchEmail, setGdprSearchEmail] = useState('');
+  const [gdprSearchResult, setGdprSearchResult] = useState<Record<string, unknown> | null>(null);
+  const [gdprSearching, setGdprSearching] = useState(false);
+  const [gdprDeleting, setGdprDeleting] = useState(false);
+  const [gdprDeleteResult, setGdprDeleteResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [auditLog, setAuditLog] = useState<{ action: string; details: string; created_at: string }[]>([]);
+
   // Save state
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -223,6 +239,10 @@ export default function SettingsPage() {
         if (data.outreach_prefer_entscheider) setOutreachPreferEntscheider(data.outreach_prefer_entscheider === 'true');
         if (data.outreach_auto_send_enabled) setOutreachAutoSendEnabled(data.outreach_auto_send_enabled === 'true');
         if (data.outreach_auto_send_max_score) setOutreachAutoSendMaxScore(parseInt(data.outreach_auto_send_max_score));
+        if (data.privacy_policy_url) setPrivacyPolicyUrl(data.privacy_policy_url);
+        if (data.impressum_url) setImpressumUrl(data.impressum_url);
+        if (data.data_retention_days) setDataRetentionDays(parseInt(data.data_retention_days));
+        if (data.email_tracking_enabled !== undefined) setEmailTrackingEnabled(data.email_tracking_enabled !== '0');
         // Deal rot thresholds
         const rotUpdates: Record<string, number> = {};
         for (const stage of DEAL_ROT_STAGES) {
@@ -356,6 +376,10 @@ export default function SettingsPage() {
         outreach_auto_send_enabled: outreachAutoSendEnabled ? 'true' : 'false',
         outreach_auto_send_max_score: outreachAutoSendMaxScore.toString(),
         ...Object.fromEntries(DEAL_ROT_STAGES.map(s => [s.key, dealRotDays[s.key].toString()])),
+        privacy_policy_url: privacyPolicyUrl,
+        impressum_url: impressumUrl,
+        data_retention_days: dataRetentionDays.toString(),
+        email_tracking_enabled: emailTrackingEnabled ? '1' : '0',
       }),
     });
     if (!res.ok) {
@@ -1046,6 +1070,173 @@ export default function SettingsPage() {
                   <button className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors">Datenbank zurücksetzen</button>
                 </div>
               </div>
+            </>
+          )}
+
+          {activeTab === 'datenschutz' && (
+            <>
+              <SectionCard title="Datenschutz-Links" description="Links für Impressum und Datenschutzerklärung auf öffentlichen Seiten">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Datenschutzerklärung URL" hint="Wird im Footer aller öffentlichen Seiten angezeigt">
+                    <input value={privacyPolicyUrl} onChange={e => setPrivacyPolicyUrl(e.target.value)} placeholder="https://deine-website.de/datenschutz" className={inputClass} />
+                  </Field>
+                  <Field label="Impressum URL">
+                    <input value={impressumUrl} onChange={e => setImpressumUrl(e.target.value)} placeholder="https://deine-website.de/impressum" className={inputClass} />
+                  </Field>
+                </div>
+              </SectionCard>
+
+              <SectionCard title="E-Mail-Tracking" description="Tracking-Pixel in ausgehenden E-Mails">
+                <ToggleRow
+                  label="E-Mail-Tracking aktiviert"
+                  description="Wenn deaktiviert, werden keine Tracking-Pixel in ausgehende E-Mails eingebettet"
+                  enabled={emailTrackingEnabled}
+                  onToggle={() => setEmailTrackingEnabled(!emailTrackingEnabled)}
+                />
+              </SectionCard>
+
+              <SectionCard title="Datenaufbewahrung" description="Automatische Löschung alter Daten">
+                <Field label="Aufbewahrungsdauer (Tage)" hint="Abgelehnte/archivierte Leads älter als diese Anzahl Tage werden bei manueller Bereinigung gelöscht">
+                  <input type="number" value={dataRetentionDays} onChange={e => setDataRetentionDays(parseInt(e.target.value) || 365)} min={30} className={inputClass} />
+                </Field>
+              </SectionCard>
+
+              <SectionCard title="Personendaten-Suche (DSGVO Art. 15 & 17)" description="Alle gespeicherten Daten einer Person finden, exportieren oder löschen">
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <input value={gdprSearchEmail} onChange={e => setGdprSearchEmail(e.target.value)} placeholder="E-Mail-Adresse oder Lead-ID eingeben" className={`${inputClass} flex-1`} />
+                    <button
+                      onClick={async () => {
+                        if (!gdprSearchEmail.trim()) return;
+                        setGdprSearching(true);
+                        setGdprSearchResult(null);
+                        setGdprDeleteResult(null);
+                        try {
+                          const isId = /^\d+$/.test(gdprSearchEmail.trim());
+                          const q = isId ? `type=lead&id=${gdprSearchEmail.trim()}` : `type=lead&id=0`;
+                          const res = await fetch(`/api/gdpr/export?${q}`);
+                          if (res.ok) {
+                            const data = await res.json();
+                            setGdprSearchResult(data);
+                          } else {
+                            setGdprSearchResult(null);
+                            setGdprDeleteResult({ ok: false, message: 'Keine Daten gefunden' });
+                          }
+                        } catch {
+                          setGdprDeleteResult({ ok: false, message: 'Fehler bei der Suche' });
+                        } finally {
+                          setGdprSearching(false);
+                        }
+                      }}
+                      disabled={gdprSearching || !gdprSearchEmail.trim()}
+                      className="px-4 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-xs font-medium hover:bg-white/5 disabled:opacity-50"
+                    >
+                      {gdprSearching ? 'Suche...' : 'Suchen'}
+                    </button>
+                  </div>
+                  {gdprSearchResult && (
+                    <div className="space-y-2">
+                      <div className="text-xs text-elvora-success font-medium">Daten gefunden</div>
+                      <div className="max-h-48 overflow-auto rounded-lg bg-elvora-bg-alt p-3 text-xs text-elvora-text-dim font-mono">
+                        {JSON.stringify(gdprSearchResult.person || gdprSearchResult, null, 2).slice(0, 500)}...
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const blob = new Blob([JSON.stringify(gdprSearchResult, null, 2)], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `dsgvo-export-${Date.now()}.json`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                          className="px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-xs font-medium hover:bg-white/5"
+                        >
+                          JSON exportieren
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('ACHTUNG: Alle Daten dieser Person werden unwiderruflich gelöscht. Fortfahren?')) return;
+                            setGdprDeleting(true);
+                            try {
+                              const id = (gdprSearchResult as Record<string, unknown>).person ? ((gdprSearchResult as Record<string, Record<string, unknown>>).person.id as number) : parseInt(gdprSearchEmail);
+                              const res = await fetch('/api/gdpr/delete', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ type: 'lead', id }),
+                              });
+                              const data = await res.json();
+                              if (res.ok) {
+                                setGdprDeleteResult({ ok: true, message: 'Alle Daten wurden gelöscht.' });
+                                setGdprSearchResult(null);
+                              } else {
+                                setGdprDeleteResult({ ok: false, message: data.error || 'Fehler beim Löschen' });
+                              }
+                            } catch {
+                              setGdprDeleteResult({ ok: false, message: 'Netzwerkfehler' });
+                            } finally {
+                              setGdprDeleting(false);
+                            }
+                          }}
+                          disabled={gdprDeleting}
+                          className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 text-xs font-medium hover:bg-red-500/20 disabled:opacity-50"
+                        >
+                          {gdprDeleting ? 'Lösche...' : 'Alle Daten löschen'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {gdprDeleteResult && (
+                    <div className={`text-xs font-medium ${gdprDeleteResult.ok ? 'text-elvora-success' : 'text-red-400'}`}>
+                      {gdprDeleteResult.message}
+                    </div>
+                  )}
+                </div>
+              </SectionCard>
+
+              <SectionCard
+                title="Audit-Protokoll"
+                description="Letzte sicherheitsrelevante Aktionen"
+                rightAction={
+                  <button
+                    onClick={() => {
+                      fetch('/api/gdpr/audit-log?limit=50')
+                        .then(r => r.json())
+                        .then(data => setAuditLog(data.entries || []))
+                        .catch(() => {});
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-xs hover:bg-white/5"
+                  >
+                    Laden
+                  </button>
+                }
+              >
+                {auditLog.length === 0 ? (
+                  <p className="text-xs text-elvora-text-dim">Klicke &quot;Laden&quot; um das Audit-Protokoll anzuzeigen.</p>
+                ) : (
+                  <div className="max-h-64 overflow-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-elvora-text-dim border-b border-elvora-border">
+                          <th className="text-left py-1.5 pr-3">Datum</th>
+                          <th className="text-left py-1.5 pr-3">Aktion</th>
+                          <th className="text-left py-1.5">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditLog.map((entry, i) => (
+                          <tr key={i} className="border-b border-elvora-border/50">
+                            <td className="py-1.5 pr-3 text-elvora-text-dim whitespace-nowrap">{new Date(entry.created_at).toLocaleString('de-DE')}</td>
+                            <td className="py-1.5 pr-3 text-elvora-text font-medium">{entry.action}</td>
+                            <td className="py-1.5 text-elvora-text-dim truncate max-w-[200px]">{entry.details}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </SectionCard>
             </>
           )}
         </div>

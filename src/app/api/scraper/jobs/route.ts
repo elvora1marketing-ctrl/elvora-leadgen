@@ -1,8 +1,13 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { jobRunner } from '@/lib/scraper-job-runner';
+import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const running = jobRunner.getAllRunning();
   return Response.json({
     jobs: running.map(j => ({

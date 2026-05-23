@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { quickCheck } from '@/lib/website-analyzer';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ leadId: string }> }
-) {
+export async function GET(request: NextRequest,
+  { params }: { params: Promise<{ leadId: string }> }) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const { leadId } = await params;
   const id = parseInt(leadId);
   if (isNaN(id)) return NextResponse.json({ error: 'Ungültige ID' }, { status: 400 });
@@ -34,6 +36,9 @@ export async function POST(
   { params }: { params: Promise<{ leadId: string }> }
 ) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { leadId } = await params;
     const id = parseInt(leadId);
     if (isNaN(id)) return NextResponse.json({ error: 'Ungültige ID' }, { status: 400 });

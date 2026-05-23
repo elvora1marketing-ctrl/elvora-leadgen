@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 /**
  * PATCH /api/leads/bulk - Bulk update lead status
@@ -8,6 +9,9 @@ import getDb from '@/lib/db';
  */
 export async function PATCH(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json() as {
       ids: number[];
       status?: string;
@@ -65,6 +69,9 @@ export async function PATCH(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json() as { ids: number[] };
 
     if (!body.ids?.length) {

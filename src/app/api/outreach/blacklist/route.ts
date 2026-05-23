@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const entries = db.prepare('SELECT * FROM email_blacklist ORDER BY created_at DESC').all();
     const count = (db.prepare('SELECT COUNT(*) as c FROM email_blacklist').get() as { c: number }).c;
@@ -16,6 +20,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const body = await request.json() as { email?: string; emails?: string[]; reason?: string };
 
@@ -44,6 +51,9 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const body = await request.json() as { id?: number; email?: string };
 

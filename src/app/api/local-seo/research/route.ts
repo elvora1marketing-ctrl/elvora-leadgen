@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runLocalSeoResearch } from '@/lib/dataforseo';
+import { requireAuth } from '@/lib/auth';
 
 /**
  * POST /api/local-seo/research
@@ -8,6 +9,9 @@ import { runLocalSeoResearch } from '@/lib/dataforseo';
  */
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json() as { branche?: string; stadt?: string };
 
     if (!body.branche?.trim() || !body.stadt?.trim()) {

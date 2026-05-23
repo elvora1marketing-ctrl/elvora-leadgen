@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 interface FollowUpSequenceStep {
   step: number;
@@ -101,6 +102,9 @@ function buildFollowUpHtml(
 }
 
 export async function POST(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   // Optional: verify cron secret
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
@@ -287,8 +291,11 @@ export async function POST(request: NextRequest) {
 /**
  * GET /api/followups/process - Get follow-up statistics
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
 
     const stats = db.prepare(`

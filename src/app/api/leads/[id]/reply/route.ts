@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 /**
  * POST /api/leads/[id]/reply
@@ -11,6 +12,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const leadId = parseInt(id);
     if (isNaN(leadId)) {

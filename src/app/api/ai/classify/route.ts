@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 type Classification = 'interested' | 'not_interested' | 'question' | 'out_of_office' | 'bounce' | 'unsubscribe' | 'unclear';
 
@@ -45,6 +46,9 @@ function getAiSettings() {
  */
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body: ClassifyRequest = await request.json();
     const settings = getAiSettings();
 
@@ -197,6 +201,9 @@ ${body.body.substring(0, 1000)}`;
 /**
  * GET /api/ai/classify - Return classification labels
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   return NextResponse.json({ labels: CLASSIFICATION_LABELS });
 }

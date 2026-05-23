@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 /**
  * WhatsApp-Nachricht senden via OpenClaw Gateway
@@ -12,6 +13,9 @@ import getDb from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const body = await request.json() as {
       lead_id?: number;

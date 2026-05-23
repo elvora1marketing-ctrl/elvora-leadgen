@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -15,6 +16,9 @@ interface LeadStat {
  */
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { lead_id } = await request.json() as { lead_id: number };
     if (!lead_id) return NextResponse.json({ error: 'lead_id erforderlich' }, { status: 400 });
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { analyzeWebsite } from '@/lib/website-analyzer';
+import { requireAuth } from '@/lib/auth';
 
 /**
  * POST /api/cron/analyze - Nightly batch website analysis
@@ -12,6 +13,9 @@ import { analyzeWebsite } from '@/lib/website-analyzer';
  *   0 2 * * * curl -X POST http://localhost:3000/api/cron/analyze -H "Authorization: Bearer YOUR_CRON_SECRET"
  */
 export async function POST(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   // Optional: verify cron secret
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;

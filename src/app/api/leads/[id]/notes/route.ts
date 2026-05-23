@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 interface RouteParams {
   params: { id: string };
 }
 
 // GET /api/leads/[id]/notes – Activities für einen Lead
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const leadId = parseInt(params.id);
 
@@ -28,6 +32,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 // POST /api/leads/[id]/notes – Neue Aktivität erstellen
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const leadId = parseInt(params.id);
     const { type, content, metadata } = await request.json() as {

@@ -1,8 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
-export async function POST(_: Request, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const wf = db.prepare('SELECT is_active FROM workflows WHERE id = ?').get(params.id) as any;
     if (!wf) return NextResponse.json({ error: 'Not found' }, { status: 404 });

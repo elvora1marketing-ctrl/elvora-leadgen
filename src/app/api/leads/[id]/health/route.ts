@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { updateDealHealth, calculateDealHealth } from '@/lib/deal-health';
+import { requireAuth } from '@/lib/auth';
 
-export async function POST(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function POST(request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const leadId = parseInt(id);
     if (isNaN(leadId)) {

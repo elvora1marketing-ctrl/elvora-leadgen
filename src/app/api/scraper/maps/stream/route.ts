@@ -7,6 +7,7 @@ import { findCitiesInRadius } from '@/lib/umkreis';
 
 import { parseImpressum } from '@/lib/impressum-parser';
 import { detectCategory } from '@/lib/lead-categories';
+import { requireAuth } from '@/lib/auth';
 
 const EMAIL_FETCH_TIMEOUT = 5000;
 const EMAIL_CONCURRENCY = 5;
@@ -90,6 +91,9 @@ export const maxDuration = 600;
  * Returns a Server-Sent Events stream with progress updates.
  */
 export async function POST(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const body = await request.json();
   const { keywords, cities, maxPages = 3, deepScan = false, radiusSearch = false, radiusKm = 0 } = body as {
     keywords: string[];

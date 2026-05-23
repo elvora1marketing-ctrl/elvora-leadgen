@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { buildWhereClause } from '../../route';
+import { requireAuth } from '@/lib/auth';
 
 interface SmartListRule {
   field: string;
@@ -20,6 +21,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const listId = parseInt(id);
     if (isNaN(listId)) {

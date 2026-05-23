@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { executeWorkflows } from '@/lib/workflows';
+import { requireAuth } from '@/lib/auth';
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const pid = parseInt(id);
     if (isNaN(pid)) return NextResponse.json({ error: 'Ungültige ID' }, { status: 400 });
@@ -59,10 +63,11 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const { id } = await params;
   const pid = parseInt(id);
   if (isNaN(pid)) return NextResponse.json({ error: 'Ungültige ID' }, { status: 400 });

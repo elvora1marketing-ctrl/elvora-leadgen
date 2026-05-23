@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
 
     const tests = db.prepare('SELECT * FROM ab_tests ORDER BY created_at DESC').all() as Record<string, unknown>[];
@@ -50,6 +54,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json();
     const { name, subject_a, subject_b, body_a, body_b } = body;
 

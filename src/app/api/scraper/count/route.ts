@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import getDb from '@/lib/db';
 import { getDistricts } from '@/lib/german-districts';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -213,6 +214,9 @@ async function countMaps(keyword: string, city: string, apiKey: string): Promise
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   let body: { keyword?: string; cities?: string[]; sources?: string[]; deepScan?: boolean };
   try {
     body = await request.json();

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import crypto from 'crypto';
+import { requireAuth } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
@@ -45,6 +49,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const body = await request.json() as {
       recipient_name: string;

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const sequenceId = parseInt(id);
     if (isNaN(sequenceId)) {
@@ -39,6 +41,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const sequenceId = parseInt(id);
     if (isNaN(sequenceId)) {
@@ -98,11 +103,12 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id } = await params;
     const sequenceId = parseInt(id);
     if (isNaN(sequenceId)) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runSeoAudit } from '@/lib/seo-analyzer';
+import { requireAuth } from '@/lib/auth';
 
 /**
  * POST /api/seo/audit - Run deep SEO audit on a URL
@@ -7,6 +8,9 @@ import { runSeoAudit } from '@/lib/seo-analyzer';
  */
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json() as { url?: string };
 
     if (!body.url) {

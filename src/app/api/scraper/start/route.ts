@@ -8,6 +8,7 @@ import { searchBusinesses, enrichSearchResults } from '@/lib/google-search-scrap
 import { scrapeGelbeSeiten, scrape11880 } from '@/lib/branchenportal-scraper';
 import { parseImpressum } from '@/lib/impressum-parser';
 import { getDistricts } from '@/lib/german-districts';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -445,6 +446,9 @@ async function scrapeWebSearch(
 }
 
 export async function POST(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const body = await request.json();
   const { keywords, cities, sources, autoEnrich = true, deepScan = false } = body as {
     keywords: string[];

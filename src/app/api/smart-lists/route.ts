@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 interface SmartListRule {
   field: string;
@@ -107,8 +108,11 @@ function countLeads(db: ReturnType<typeof getDb>, rules: SmartListRule[], matchT
   return result.count;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
 
     const smartLists = db.prepare('SELECT * FROM smart_lists ORDER BY is_pinned DESC, created_at DESC').all() as SmartListRow[];
@@ -132,6 +136,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const body = await request.json() as {
       name: string;

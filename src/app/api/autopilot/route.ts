@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 /**
  * Autopilot Engine – läuft als Cronjob oder manuell
@@ -22,6 +23,9 @@ interface AutopilotResult {
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const result: AutopilotResult = {
       qualified: 0,
@@ -203,8 +207,11 @@ export async function POST(request: NextRequest) {
 }
 
 // GET: Autopilot status
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
 
     const enabledRow = db.prepare("SELECT value FROM settings WHERE key = 'autopilot_enabled'").get() as { value: string } | undefined;

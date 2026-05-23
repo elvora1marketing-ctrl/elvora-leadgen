@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
+import CookieBanner from '@/components/CookieBanner';
+import LegalFooter from '@/components/LegalFooter';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -22,6 +24,8 @@ export default function AuditLayout({
   return (
     <div className={`min-h-screen bg-elvora-bg ${inter.className}`}>
       {children}
+      <LegalFooter />
+      <CookieBanner />
     </div>
   );
 }

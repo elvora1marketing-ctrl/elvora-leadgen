@@ -55,3 +55,7 @@ export function validateApiKey(request: NextRequest): NextResponse | null {
 
   return null;
 }
+
+export function requireAuth(request: NextRequest): NextResponse | null {
+  return validateApiKey(request);
+}

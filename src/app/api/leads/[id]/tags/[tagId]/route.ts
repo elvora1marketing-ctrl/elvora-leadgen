@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string; tagId: string }> }
-) {
+export async function DELETE(request: NextRequest,
+  { params }: { params: Promise<{ id: string; tagId: string }> }) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const { id, tagId } = await params;
     const leadId = parseInt(id);
     const tId = parseInt(tagId);

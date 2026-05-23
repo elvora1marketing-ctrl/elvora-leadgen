@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { quickCheck } from '@/lib/website-analyzer';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -32,6 +33,9 @@ interface SnapshotRow {
  */
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json().catch(() => ({}));
     const { limit = 100, lead_id, only_active = true } = body as {
       limit?: number;

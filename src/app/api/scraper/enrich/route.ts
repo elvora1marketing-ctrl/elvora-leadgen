@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { parseImpressum, type ImpressumData } from '@/lib/impressum-parser';
 import { extractEmails } from '@/lib/website-analyzer';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -124,6 +125,9 @@ async function enrichLead(leadId: number, db: ReturnType<typeof getDb>): Promise
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body = await request.json();
     const { lead_id, lead_ids, url, bulk } = body;
 
@@ -193,8 +197,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
     const stats = db.prepare(`
       SELECT

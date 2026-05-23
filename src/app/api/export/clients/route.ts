@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 function csvEscape(val: any): string {
   if (val === null || val === undefined) return '';
@@ -28,8 +29,11 @@ const CLIENT_STATUS_LABELS: Record<string, string> = {
   churned: 'Abgewandert',
 };
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
 
     const rows = db.prepare(`SELECT company_name, contact_name, contact_email, project_type, project_value, monthly_value, status, progress_phase, created_at FROM clients ORDER BY created_at DESC`).all() as any[];

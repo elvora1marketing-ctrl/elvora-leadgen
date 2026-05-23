@@ -1,10 +1,14 @@
 import { NextRequest } from 'next/server';
 import { GERMAN_CITIES, ALL_STATES, findCitiesInRadius } from '@/lib/german-cities';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get('mode');
 

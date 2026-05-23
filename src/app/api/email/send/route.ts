@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 export interface EmailPayload {
   lead_id?: number;
@@ -222,6 +223,9 @@ Elvora – Digitale Lösungen für Handwerksbetriebe`;
 
 export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const body: EmailPayload = await request.json();
 
     if (!body.lead_email) {

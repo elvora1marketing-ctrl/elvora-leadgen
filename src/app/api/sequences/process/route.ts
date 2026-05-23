@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 interface SequenceStep {
   type: 'email' | 'task';
@@ -27,8 +28,11 @@ interface SequenceRow {
   is_active: number;
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
 
     const dueEnrollments = db.prepare(`

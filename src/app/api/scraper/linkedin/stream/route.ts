@@ -8,6 +8,7 @@ import {
   scrapeLinkedInKeyword,
   type FreeLinkedInPerson,
 } from '@/lib/linkedin-scraper-free';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,9 @@ export const dynamic = 'force-dynamic';
  * Body: { keywords: string[], location: string, maxResults: number, onlyWithEmail: boolean, smtpVerification: boolean }
  */
 export async function POST(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const body = await request.json();
   const {
     keywords,

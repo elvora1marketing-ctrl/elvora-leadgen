@@ -1,10 +1,14 @@
 import { NextRequest } from 'next/server';
 import { jobRunner } from '@/lib/scraper-job-runner';
+import { requireAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const { id: idStr } = await params;
   const jobId = Number(idStr);
   const job = jobRunner.getJob(jobId);

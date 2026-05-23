@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 interface Goal {
   id: number;
@@ -72,8 +73,11 @@ function calculateStreak(db: ReturnType<typeof getDb>): number {
   return streak;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const authError = requireAuth(request);
+    if (authError) return authError;
+
     const db = getDb();
 
     const goals = db.prepare('SELECT * FROM activity_goals ORDER BY activity_type, period').all() as Goal[];
