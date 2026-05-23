@@ -50,7 +50,13 @@ export async function PATCH(
     if (body.client_name !== undefined) { updates.push('client_name = ?'); values.push(body.client_name); }
     if (body.client_email !== undefined) { updates.push('client_email = ?'); values.push(body.client_email); }
     if (body.client_phone !== undefined) { updates.push('client_phone = ?'); values.push(body.client_phone); }
-    if (body.status !== undefined) { updates.push('status = ?'); values.push(body.status); }
+    if (body.status !== undefined) {
+      const validStatuses = ['active', 'paused', 'completed', 'cancelled'];
+      if (!validStatuses.includes(body.status)) {
+        return NextResponse.json({ error: `Ungültiger Status. Erlaubt: ${validStatuses.join(', ')}` }, { status: 400 });
+      }
+      updates.push('status = ?'); values.push(body.status);
+    }
     if (body.current_phase !== undefined) { updates.push('current_phase = ?'); values.push(body.current_phase); }
     if (body.phases !== undefined) { updates.push('phases = ?'); values.push(JSON.stringify(body.phases)); }
     if (body.total_value !== undefined) { updates.push('total_value = ?'); values.push(body.total_value); }
