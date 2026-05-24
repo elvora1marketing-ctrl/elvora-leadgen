@@ -1294,6 +1294,23 @@ export function getDb(): Database.Database {
       console.error('[DB] Privacy settings error:', e);
     }
 
+    // Migration: Trusted Devices (Geräte-Whitelist)
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS trusted_devices (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          device_token TEXT UNIQUE NOT NULL,
+          device_name TEXT,
+          ip_address TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          last_used_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+      instance.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))").run('device_whitelist_enabled', '0');
+    } catch (e) {
+      console.error('[DB] Trusted devices migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }

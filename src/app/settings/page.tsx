@@ -179,6 +179,9 @@ export default function SettingsPage() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [pwChanging, setPwChanging] = useState(false);
   const [pwResult, setPwResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [deviceWhitelistEnabled, setDeviceWhitelistEnabled] = useState(false);
+  const [trustedDevices, setTrustedDevices] = useState<{ id: number; device_name: string; ip_address: string; created_at: string; last_used_at: string }[]>([]);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
 
   // Datenschutz
   const [privacyPolicyUrl, setPrivacyPolicyUrl] = useState('');
@@ -243,6 +246,7 @@ export default function SettingsPage() {
         if (data.impressum_url) setImpressumUrl(data.impressum_url);
         if (data.data_retention_days) setDataRetentionDays(parseInt(data.data_retention_days));
         if (data.email_tracking_enabled !== undefined) setEmailTrackingEnabled(data.email_tracking_enabled !== '0');
+        if (data.device_whitelist_enabled !== undefined) setDeviceWhitelistEnabled(data.device_whitelist_enabled === '1');
         // Deal rot thresholds
         const rotUpdates: Record<string, number> = {};
         for (const stage of DEAL_ROT_STAGES) {
@@ -380,6 +384,7 @@ export default function SettingsPage() {
         impressum_url: impressumUrl,
         data_retention_days: dataRetentionDays.toString(),
         email_tracking_enabled: emailTrackingEnabled ? '1' : '0',
+        device_whitelist_enabled: deviceWhitelistEnabled ? '1' : '0',
       }),
     });
     if (!res.ok) {
@@ -1056,6 +1061,59 @@ export default function SettingsPage() {
                   <button onClick={changePassword} disabled={pwChanging || !newPassword || !confirmNewPassword} className="px-4 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-xs font-medium hover:bg-white/5 disabled:opacity-50">
                     {pwChanging ? 'Ändere...' : 'Passwort ändern'}
                   </button>
+                </div>
+              </SectionCard>
+
+              <SectionCard title="Geräte-Whitelist" description="Nur vertrauenswürdige Geräte können sich einloggen">
+                <div className="space-y-4">
+                  <ToggleRow
+                    label="Geräte-Whitelist aktivieren"
+                    description="Wenn aktiv, können nur hier aufgelistete Geräte sich einloggen"
+                    enabled={deviceWhitelistEnabled}
+                    onToggle={() => setDeviceWhitelistEnabled(!deviceWhitelistEnabled)}
+                  />
+                  {!devicesLoaded ? (
+                    <button
+                      onClick={() => {
+                        fetch('/api/devices')
+                          .then(r => r.json())
+                          .then(data => { setTrustedDevices(data.devices || []); setDevicesLoaded(true); })
+                          .catch(() => {});
+                      }}
+                      className="px-3 py-2 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-xs hover:bg-white/5"
+                    >
+                      Vertrauenswürdige Geräte laden
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-xs text-elvora-text-dim font-medium">{trustedDevices.length} Gerät(e) vertraut</div>
+                      {trustedDevices.map(device => (
+                        <div key={device.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-elvora-bg-alt">
+                          <div className="min-w-0">
+                            <div className="text-sm text-elvora-text">{device.device_name || 'Unbekannt'}</div>
+                            <div className="text-[11px] text-elvora-text-dim">
+                              IP: {device.ip_address} &middot; Zuletzt: {new Date(device.last_used_at).toLocaleString('de-DE')}
+                            </div>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Gerät "${device.device_name}" entfernen?`)) return;
+                              const res = await fetch('/api/devices', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: device.id }) });
+                              if (res.ok) {
+                                setTrustedDevices(prev => prev.filter(d => d.id !== device.id));
+                              } else {
+                                const data = await res.json();
+                                alert(data.error || 'Fehler');
+                              }
+                            }}
+                            className="px-2 py-1 rounded text-xs text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0"
+                          >
+                            Entfernen
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </SectionCard>
 
