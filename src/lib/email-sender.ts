@@ -7,6 +7,7 @@ export interface SendResult {
   recipientType: 'entscheider' | 'main' | 'fallback' | null;
   error?: string;
   trackingId?: string;
+  inboxId?: number;
 }
 
 export interface SendOptions {
@@ -15,6 +16,7 @@ export interface SendOptions {
   usePersonalization?: boolean;
   baseUrl?: string;
   isFollowup?: boolean;
+  campaignDomainIds?: number[];
 }
 
 interface LeadRow {
@@ -290,9 +292,23 @@ export async function sendLeadEmail(opts: SendOptions): Promise<SendResult> {
   const settings = loadSettings();
   if (!settings.resend_api_key) return { success: false, recipient, recipientType, error: 'Resend API-Key nicht konfiguriert' };
 
-  const fromName = settings.email_from_name || 'Luan von Elvora';
-  const fromEmail = settings.email_from_email || 'luan@elvora.me';
+  const defaultFromName = settings.email_from_name || 'Luan von Elvora';
+  const defaultFromEmail = settings.email_from_email || 'luan@elvora.me';
   const calendlyUrl = settings.calendly_url || '';
+
+  let fromName = defaultFromName;
+  let fromEmail = defaultFromEmail;
+  let usedInboxId: number | null = null;
+
+  try {
+    const { pickSendingInbox } = require('./outbound');
+    const inbox = pickSendingInbox(db, opts.campaignDomainIds);
+    if (inbox) {
+      fromEmail = inbox.email;
+      if (inbox.displayName) fromName = inbox.displayName;
+      usedInboxId = inbox.inboxId;
+    }
+  } catch { /* no outbound domains — use default */ }
 
   const tpl = {
     tpl_subject: settings.tpl_subject || DEFAULTS.tpl_subject,
@@ -354,7 +370,14 @@ export async function sendLeadEmail(opts: SendOptions): Promise<SendResult> {
       for (const s of sequence) ins.run(leadId, s.step, String(s.days));
     }
 
-    return { success: true, recipient, recipientType, trackingId };
+    if (usedInboxId) {
+      try {
+        const { incrementInboxCounters } = require('./outbound');
+        incrementInboxCounters(db, usedInboxId);
+      } catch { /* silent */ }
+    }
+
+    return { success: true, recipient, recipientType, trackingId, inboxId: usedInboxId ?? undefined };
   } catch (err: unknown) {
     return {
       success: false,

@@ -145,6 +145,14 @@ export async function runJob(id: string, baseUrl: string): Promise<void> {
   job.status = 'running';
 
   try {
+    let campaignDomainIds: number[] | undefined;
+    if (job.campaignId) {
+      const campRow = getDb().prepare('SELECT sending_domain_ids FROM outreach_campaigns WHERE id = ?').get(job.campaignId) as { sending_domain_ids: string | null } | undefined;
+      if (campRow?.sending_domain_ids) {
+        try { campaignDomainIds = JSON.parse(campRow.sending_domain_ids); } catch {}
+      }
+    }
+
     for (; job.currentIndex < job.leadIds.length; job.currentIndex++) {
       if (job.cancelRequested) {
         job.status = 'cancelled';
@@ -185,7 +193,7 @@ export async function runJob(id: string, baseUrl: string): Promise<void> {
       }
 
       try {
-        const result = await sendLeadEmail({ leadId, preferEntscheider: job.preferEntscheider, baseUrl });
+        const result = await sendLeadEmail({ leadId, preferEntscheider: job.preferEntscheider, baseUrl, campaignDomainIds });
         if (result.success) job.sent++;
         else if (!result.recipient) job.skipped++;
         else job.failed++;
@@ -202,6 +210,9 @@ export async function runJob(id: string, baseUrl: string): Promise<void> {
         if (job.campaignId) {
           const status = result.success ? 'sent' : (!result.recipient ? 'skipped' : 'failed');
           updateCampaignLeadStatus(job.campaignId, leadId, status, result.recipient, result.recipientType, result.error || null);
+          if (result.inboxId) {
+            try { getDb().prepare('UPDATE outreach_campaign_leads SET inbox_id = ? WHERE campaign_id = ? AND lead_id = ?').run(result.inboxId, job.campaignId, leadId); } catch {}
+          }
         }
       } catch (err: unknown) {
         job.failed++;

@@ -85,6 +85,23 @@ export async function POST(request: NextRequest) {
       ).run(leadId, 'Spam-Beschwerde - Lead als verloren markiert', JSON.stringify({ auto: true }));
     }
 
+    // Update sending domain health on bounces/complaints
+    if (eventType === 'bounced' || eventType === 'complained') {
+      try {
+        const fromAddr = body.data.from;
+        if (fromAddr) {
+          const domainPart = fromAddr.split('@')[1];
+          if (domainPart) {
+            const { updateDomainHealth } = require('@/lib/outbound');
+            const domainRow = db.prepare('SELECT id FROM sending_domains WHERE domain = ?').get(domainPart) as { id: number } | undefined;
+            if (domainRow) {
+              updateDomainHealth(db, domainRow.id, eventType === 'bounced' ? 'bounce' : 'complaint');
+            }
+          }
+        }
+      } catch { /* outbound module not configured */ }
+    }
+
     // Trigger workflows for email events
     if (leadId) {
       try {

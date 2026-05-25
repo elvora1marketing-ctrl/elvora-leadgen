@@ -1311,6 +1311,68 @@ export function getDb(): Database.Database {
       console.error('[DB] Trusted devices migration error:', e);
     }
 
+    // Migration: Outbound Infrastructure (Multi-Domain Cold Email)
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS sending_domains (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          domain TEXT UNIQUE NOT NULL,
+          status TEXT DEFAULT 'warming' CHECK(status IN ('warming','active','paused','burned')),
+          daily_limit INTEGER DEFAULT 50,
+          sent_today INTEGER DEFAULT 0,
+          sent_total INTEGER DEFAULT 0,
+          dns_status TEXT DEFAULT '{"spf":false,"dkim":false,"dmarc":false}',
+          health_score INTEGER DEFAULT 100,
+          bounce_count INTEGER DEFAULT 0,
+          complaint_count INTEGER DEFAULT 0,
+          warm_start_date TEXT,
+          warm_current_day INTEGER DEFAULT 0,
+          resend_domain_id TEXT,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_sending_domains_status ON sending_domains(status);
+
+        CREATE TABLE IF NOT EXISTS sending_inboxes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          domain_id INTEGER NOT NULL,
+          email TEXT UNIQUE NOT NULL,
+          display_name TEXT,
+          status TEXT DEFAULT 'active' CHECK(status IN ('active','paused','burned')),
+          sent_today INTEGER DEFAULT 0,
+          daily_limit INTEGER DEFAULT 50,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (domain_id) REFERENCES sending_domains(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_sending_inboxes_domain ON sending_inboxes(domain_id);
+        CREATE INDEX IF NOT EXISTS idx_sending_inboxes_status ON sending_inboxes(status);
+      `);
+      instance.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))").run('outbound_last_reset_date', '');
+    } catch (e) {
+      console.error('[DB] Outbound infrastructure migration error:', e);
+    }
+
+    // Migration: Add sending_domain_ids to outreach_campaigns
+    try {
+      const cols = instance.prepare("PRAGMA table_info(outreach_campaigns)").all() as { name: string }[];
+      if (!cols.find(c => c.name === 'sending_domain_ids')) {
+        instance.exec("ALTER TABLE outreach_campaigns ADD COLUMN sending_domain_ids TEXT");
+      }
+    } catch (e) {
+      console.error('[DB] Campaign domain IDs migration error:', e);
+    }
+
+    // Migration: Add inbox_id to outreach_campaign_leads
+    try {
+      const cols = instance.prepare("PRAGMA table_info(outreach_campaign_leads)").all() as { name: string }[];
+      if (!cols.find(c => c.name === 'inbox_id')) {
+        instance.exec("ALTER TABLE outreach_campaign_leads ADD COLUMN inbox_id INTEGER");
+      }
+    } catch (e) {
+      console.error('[DB] Campaign leads inbox migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }
