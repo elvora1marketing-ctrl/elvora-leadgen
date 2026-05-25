@@ -378,6 +378,71 @@ async function searchBing(
 }
 
 /**
+ * Search via SearXNG instance for LinkedIn profiles.
+ * Self-hosted — no rate limits, no CAPTCHAs.
+ */
+async function searchSearXNG(
+  keyword: string,
+  location: string,
+  maxResults: number,
+  searxngUrl: string,
+  onProgress?: (msg: string, count: number) => void,
+): Promise<SearchResult[]> {
+  const results: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+
+  const query = location
+    ? `site:linkedin.com/in ${keyword} ${location}`
+    : `site:linkedin.com/in ${keyword}`;
+
+  let pageNum = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    pageNum++;
+    onProgress?.(`SearXNG Seite ${pageNum}...`, results.length);
+
+    try {
+      const url = `${searxngUrl}/search?q=${encodeURIComponent(query)}&format=json&pageno=${pageNum}&categories=general&language=de`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+
+      if (!res.ok) {
+        onProgress?.(`SearXNG Fehler: ${res.status}`, results.length);
+        break;
+      }
+
+      const data = await res.json();
+      const searchResults = (data.results || []) as { url?: string; title?: string }[];
+      let foundOnPage = 0;
+
+      for (const item of searchResults) {
+        const profileUrl = cleanLinkedInUrl(item.url || '');
+        if (!profileUrl) continue;
+        const norm = normalizeLinkedInUrl(profileUrl);
+        if (seenUrls.has(norm)) continue;
+        seenUrls.add(norm);
+        const parsed = parseSearchTitle(item.title || '');
+        results.push({ profileUrl, snippetName: parsed.name, snippetHeadline: parsed.headline });
+        foundOnPage++;
+        if (maxResults > 0 && results.length >= maxResults) break;
+      }
+
+      onProgress?.(`SearXNG Seite ${pageNum}: ${foundOnPage} neue Profile (gesamt: ${results.length})`, results.length);
+
+      if (foundOnPage === 0 || searchResults.length === 0) hasMore = false;
+      else if (maxResults > 0 && results.length >= maxResults) hasMore = false;
+      if (hasMore) await randomDelay(500, 1000);
+      if (pageNum >= 50) hasMore = false;
+    } catch (err) {
+      onProgress?.(`SearXNG Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, results.length);
+      hasMore = false;
+    }
+  }
+
+  return results;
+}
+
+/**
  * Main search function: tries DuckDuckGo first, falls back to Bing.
  * maxResults: 0 = unlimited
  */
@@ -488,36 +553,59 @@ export async function searchProfiles(
   location: string,
   maxResults: number,
   onProgress?: (msg: string, count: number) => void,
+  searxngUrl?: string,
 ): Promise<SearchResult[]> {
-  // Try DuckDuckGo first
-  onProgress?.('Starte Suche via DuckDuckGo...', 0);
-  const ddgResults = await searchDuckDuckGo(keyword, location, maxResults, onProgress);
+  const seenUrls = new Set<string>();
+  const allResults: SearchResult[] = [];
 
-  if (ddgResults.length > 0) {
-    onProgress?.(`DuckDuckGo: ${ddgResults.length} Profile gefunden`, ddgResults.length);
-    return ddgResults;
+  onProgress?.('Starte parallele Suche über alle Suchmaschinen...', 0);
+
+  const searches: Promise<{ engine: string; results: SearchResult[] }>[] = [
+    searchDuckDuckGo(keyword, location, maxResults, (msg) => {
+      onProgress?.(`[DDG] ${msg}`, allResults.length);
+    }).then(results => ({ engine: 'DuckDuckGo', results })),
+    searchBing(keyword, location, maxResults, (msg) => {
+      onProgress?.(`[Bing] ${msg}`, allResults.length);
+    }).then(results => ({ engine: 'Bing', results })),
+    searchGoogle(keyword, location, maxResults, (msg) => {
+      onProgress?.(`[Google] ${msg}`, allResults.length);
+    }).then(results => ({ engine: 'Google', results })),
+  ];
+
+  if (searxngUrl) {
+    searches.push(
+      searchSearXNG(keyword, location, maxResults, searxngUrl, (msg) => {
+        onProgress?.(`[SearXNG] ${msg}`, allResults.length);
+      }).then(results => ({ engine: 'SearXNG', results }))
+    );
   }
 
-  // Fallback to Google
-  onProgress?.('DuckDuckGo lieferte keine Ergebnisse - versuche Google...', 0);
-  const googleResults = await searchGoogle(keyword, location, maxResults, onProgress);
+  const settled = await Promise.allSettled(searches);
+  const engineStats: string[] = [];
 
-  if (googleResults.length > 0) {
-    onProgress?.(`Google: ${googleResults.length} Profile gefunden`, googleResults.length);
-    return googleResults;
+  for (const result of settled) {
+    if (result.status === 'fulfilled') {
+      const { engine, results } = result.value;
+      let added = 0;
+      for (const r of results) {
+        const norm = normalizeLinkedInUrl(r.profileUrl);
+        if (!seenUrls.has(norm)) {
+          seenUrls.add(norm);
+          allResults.push(r);
+          added++;
+        }
+      }
+      engineStats.push(`${engine}: ${results.length} (${added} neu)`);
+    }
   }
 
-  // Fallback to Bing
-  onProgress?.('Google lieferte keine Ergebnisse - versuche Bing...', 0);
-  const bingResults = await searchBing(keyword, location, maxResults, onProgress);
+  onProgress?.(`Alle Engines fertig: ${allResults.length} einzigartige Profile [${engineStats.join(', ')}]`, allResults.length);
 
-  if (bingResults.length > 0) {
-    onProgress?.(`Bing: ${bingResults.length} Profile gefunden`, bingResults.length);
-    return bingResults;
+  if (maxResults > 0 && allResults.length > maxResults) {
+    return allResults.slice(0, maxResults);
   }
 
-  onProgress?.('Keine Profile gefunden. Versuche einen anderen Suchbegriff.', 0);
-  return [];
+  return allResults;
 }
 
 // ---------------------------------------------------------------------------
@@ -926,6 +1014,7 @@ export async function scrapeLinkedInKeyword(
   maxResults: number,
   smtpVerification: boolean,
   onProgress?: (progress: LinkedInScrapeProgress) => void,
+  searxngUrl?: string,
 ): Promise<FreeLinkedInPerson[]> {
   const people: FreeLinkedInPerson[] = [];
 
@@ -938,7 +1027,7 @@ export async function scrapeLinkedInKeyword(
 
   const searchResults = await searchProfiles(keyword, location, maxResults, (msg, count) => {
     onProgress?.({ type: 'search_progress', keyword, error: msg, profilesFound: count });
-  });
+  }, searxngUrl);
 
   onProgress?.({
     type: 'search_results',
@@ -963,6 +1052,21 @@ export async function scrapeLinkedInKeyword(
       });
     },
   );
+
+  // Sort: decision-makers first
+  const entscheiderKeywords = [
+    'geschäftsführ', 'inhaber', 'ceo', 'founder', 'gründer', 'eigentümer',
+    'managing director', 'geschäftsleitung', 'vorstand', 'partner',
+    'director', 'head of', 'vp ', 'vice president', 'chief',
+    'leiter', 'owner',
+  ];
+  profiles.sort((a, b) => {
+    const aText = `${a.headline} ${a.title}`.toLowerCase();
+    const bText = `${b.headline} ${b.title}`.toLowerCase();
+    const aIsE = entscheiderKeywords.some(kw => aText.includes(kw)) ? 0 : 1;
+    const bIsE = entscheiderKeywords.some(kw => bText.includes(kw)) ? 0 : 1;
+    return aIsE - bIsE;
+  });
 
   // Step 3 & 4: Email generation + verification + Impressum fallback
   for (let i = 0; i < profiles.length; i++) {

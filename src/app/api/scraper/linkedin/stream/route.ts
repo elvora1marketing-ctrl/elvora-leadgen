@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
       let totalSkipped = 0;
       const allErrors: string[] = [];
       const startTime = Date.now();
+      const searxngUrl = (db.prepare("SELECT value FROM settings WHERE key = 'searxng_url'").get() as { value: string } | undefined)?.value || '';
 
       // Create job entry
       const jobLabel = `LinkedIn: ${keywords.join(', ')}${location ? ` @ ${location}` : ''}`;
@@ -109,7 +110,6 @@ export async function POST(request: NextRequest) {
             maxResults,
             smtpVerification,
             (progress) => {
-              // Forward progress events with batch counters
               send({
                 ...progress,
                 currentKeyword: keywordIndex,
@@ -120,6 +120,7 @@ export async function POST(request: NextRequest) {
                 totalNoEmail,
               });
             },
+            searxngUrl || undefined,
           );
 
           // Import results

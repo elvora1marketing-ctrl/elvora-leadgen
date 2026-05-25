@@ -100,6 +100,8 @@ export default function LinkedInScraperPage() {
   const [completedSearches, setCompletedSearches] = useState<CompletedSearch[]>([]);
   const [finalResult, setFinalResult] = useState<LiveProgress | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [kombiBranchen, setKombiBranchen] = useState('Sanitär\nElektro\nDachdecker\nMaler\nSchreiner');
+  const [kombiRollen, setKombiRollen] = useState('Geschäftsführer\nInhaber\nCEO');
 
   const entscheiderPresets = [
     'Geschäftsführer',
@@ -121,6 +123,17 @@ export default function LinkedInScraperPage() {
     'Inhaber Schreinerei',
     'Geschäftsführer Restaurant',
     'Inhaber Friseursalon',
+    'Geschäftsführer Autowerkstatt',
+    'Inhaber Zahnarztpraxis',
+    'Geschäftsführer IT-Dienstleister',
+    'Inhaber Immobilienmakler',
+    'Geschäftsführer Bauunternehmen',
+    'Inhaber Physiotherapie',
+    'Geschäftsführer Steuerberater',
+    'Geschäftsführer Maschinenbau',
+    'Geschäftsführer Marketing Agentur',
+    'CEO SaaS',
+    'Founder Startup',
   ];
 
   const loadJobs = useCallback(async () => {
@@ -523,6 +536,48 @@ export default function LinkedInScraperPage() {
                 ))}
               </div>
             </div>
+
+            {/* Kombinator */}
+            <div className="bg-white/[0.02] rounded-xl p-4 border border-white/5">
+              <label className="block text-xs font-medium text-elvora-text-dim mb-3">Kombinator — Branche × Rolle automatisch generieren</label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] text-elvora-text-dim mb-1.5">Branchen (eine pro Zeile)</label>
+                  <textarea
+                    value={kombiBranchen}
+                    onChange={e => setKombiBranchen(e.target.value)}
+                    placeholder={"Sanitär\nElektro\nDachdecker\nMaler"}
+                    rows={4}
+                    className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-elvora-text-dim mb-1.5">Rollen (eine pro Zeile)</label>
+                  <textarea
+                    value={kombiRollen}
+                    onChange={e => setKombiRollen(e.target.value)}
+                    placeholder={"Geschäftsführer\nInhaber\nCEO"}
+                    rows={4}
+                    className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim text-xs"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  const branchen = kombiBranchen.split('\n').map(b => b.trim()).filter(Boolean);
+                  const rollen = kombiRollen.split('\n').map(r => r.trim()).filter(Boolean);
+                  const combos = branchen.flatMap(b => rollen.map(r => `${r} ${b}`));
+                  if (combos.length > 0) setKeyword(combos.join(', '));
+                }}
+                className="mt-3 px-4 py-2 rounded-lg bg-elvora-purple/20 text-elvora-purple-light text-xs font-medium hover:bg-elvora-purple/30 transition-colors w-full"
+              >
+                {(() => {
+                  const b = kombiBranchen.split('\n').filter(x => x.trim()).length;
+                  const r = kombiRollen.split('\n').filter(x => x.trim()).length;
+                  return `${b} Branchen × ${r} Rollen = ${b * r} Keywords generieren`;
+                })()}
+              </button>
+            </div>
           </>
         ) : (
           <>
@@ -545,18 +600,45 @@ export default function LinkedInScraperPage() {
           </>
         )}
 
-        {/* Location Input */}
+        {/* Land / Region */}
         <div>
           <label className="block text-sm font-medium text-elvora-text-muted mb-2">
-            Standort / Region
+            Land / Region
           </label>
-          <input
-            type="text"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="z.B. Deutschland, NRW, Nordrhein-Westfalen..."
-            className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <select
+              value={['Deutschland', 'Österreich', 'Schweiz', 'Deutschland OR Österreich OR Schweiz', 'Nordrhein-Westfalen', 'Bayern', 'Baden-Württemberg', 'Hessen', 'Niedersachsen', 'Berlin', 'Hamburg', 'München', 'Frankfurt', 'Köln', 'Düsseldorf', ''].includes(location) ? location : '__custom__'}
+              onChange={(e) => { if (e.target.value !== '__custom__') setLocation(e.target.value); }}
+              className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+            >
+              <option value="">Weltweit</option>
+              <option value="Deutschland">Deutschland</option>
+              <option value="Österreich">Österreich</option>
+              <option value="Schweiz">Schweiz</option>
+              <option value="Deutschland OR Österreich OR Schweiz">DACH</option>
+              <option value="Nordrhein-Westfalen">NRW</option>
+              <option value="Bayern">Bayern</option>
+              <option value="Baden-Württemberg">Baden-Württemberg</option>
+              <option value="Hessen">Hessen</option>
+              <option value="Niedersachsen">Niedersachsen</option>
+              <option value="Berlin">Berlin</option>
+              <option value="Hamburg">Hamburg</option>
+              <option value="München">München</option>
+              <option value="Frankfurt">Frankfurt</option>
+              <option value="Köln">Köln</option>
+              <option value="Düsseldorf">Düsseldorf</option>
+              {!['Deutschland', 'Österreich', 'Schweiz', 'Deutschland OR Österreich OR Schweiz', 'Nordrhein-Westfalen', 'Bayern', 'Baden-Württemberg', 'Hessen', 'Niedersachsen', 'Berlin', 'Hamburg', 'München', 'Frankfurt', 'Köln', 'Düsseldorf', ''].includes(location) && (
+                <option value="__custom__">{location}</option>
+              )}
+            </select>
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Oder eigene Region..."
+              className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+            />
+          </div>
         </div>
 
         {/* Max Results */}
