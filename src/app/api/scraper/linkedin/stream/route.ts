@@ -74,6 +74,11 @@ export async function POST(request: NextRequest) {
       const jobId = Number(jobResult.lastInsertRowid);
 
       send({
+        type: 'log',
+        message: `Server bereit. SearXNG: ${searxngUrl ? 'Konfiguriert (' + searxngUrl + ')' : 'Nicht konfiguriert — nur DDG/Google/Bing'}`,
+      });
+
+      send({
         type: 'batch_start',
         jobId,
         totalKeywords: keywords.length,

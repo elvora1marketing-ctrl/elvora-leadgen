@@ -15,6 +15,7 @@ interface LinkedInResult {
 interface LiveProgress {
   type: string;
   keyword?: string;
+  message?: string;
   profileName?: string;
   profileCompany?: string;
   profileEmail?: string | null;
@@ -39,6 +40,12 @@ interface LiveProgress {
   error?: string;
   errors?: string[];
   jobId?: number;
+}
+
+interface ConsoleLog {
+  time: string;
+  msg: string;
+  level: 'info' | 'warn' | 'error' | 'success';
 }
 
 interface CompletedSearch {
@@ -100,6 +107,8 @@ export default function LinkedInScraperPage() {
   const [completedSearches, setCompletedSearches] = useState<CompletedSearch[]>([]);
   const [finalResult, setFinalResult] = useState<LiveProgress | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [consoleLogs, setConsoleLogs] = useState<ConsoleLog[]>([]);
+  const consoleEndRef = useRef<HTMLDivElement | null>(null);
   const [kombiBranchen, setKombiBranchen] = useState('Sanitär\nElektro\nDachdecker\nMaler\nSchreiner');
   const [kombiRollen, setKombiRollen] = useState('Geschäftsführer\nInhaber\nCEO');
 
@@ -135,6 +144,65 @@ export default function LinkedInScraperPage() {
     'CEO SaaS',
     'Founder Startup',
   ];
+
+  const addLog = useCallback((msg: string, level: ConsoleLog['level'] = 'info') => {
+    const time = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setConsoleLogs(prev => [...prev.slice(-200), { time, msg, level }]);
+  }, []);
+
+  useEffect(() => {
+    consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [consoleLogs]);
+
+  const sseToLog = useCallback((data: LiveProgress) => {
+    switch (data.type) {
+      case 'log':
+        addLog(data.message || '', 'info');
+        break;
+      case 'batch_start':
+        addLog(`Scraping gestartet — ${data.totalKeywords} Keyword(s)`, 'info');
+        break;
+      case 'search_start':
+        addLog(`Keyword ${data.currentKeyword}/${data.totalKeywords}: "${data.keyword}"`, 'info');
+        addLog('Starte parallele Suche (DuckDuckGo + Google + Bing)...', 'info');
+        break;
+      case 'search_progress':
+        if (data.message) {
+          const isWarn = data.message.includes('WARNUNG') || data.message.includes('0 Ergebnisse') || data.message.includes('blockiert') || data.message.includes('CAPTCHA');
+          addLog(data.message, isWarn ? 'warn' : 'info');
+        }
+        break;
+      case 'search_empty':
+        addLog(data.message || 'Keine Profile gefunden', 'error');
+        break;
+      case 'search_results':
+        if ((data.profilesFound || 0) > 0) {
+          addLog(`${data.profilesFound} LinkedIn-Profile gefunden — starte Profil-Analyse...`, 'success');
+        } else {
+          addLog('0 Profile gefunden — Suchmaschinen blockieren die Server-IP', 'error');
+        }
+        break;
+      case 'profile_fetch':
+        addLog(`Profil laden: ${data.profileName || 'Unbekannt'}${data.profileCompany ? ` @ ${data.profileCompany}` : ''} (${data.currentProfile}/${data.totalProfiles})`, 'info');
+        break;
+      case 'profile_complete':
+        if (data.hasEmail) {
+          addLog(`${data.profileName} — E-Mail gefunden [${data.importStatus}]`, 'success');
+        } else {
+          addLog(`${data.profileName} — keine E-Mail [${data.importStatus}]`, 'info');
+        }
+        break;
+      case 'search_complete':
+        addLog(`Keyword "${data.keyword}" fertig: ${data.searchFound} gefunden, ${data.searchImported} importiert, ${data.searchDuplicates} Duplikate (${((data.searchDuration || 0) / 1000).toFixed(1)}s)`, 'success');
+        break;
+      case 'batch_complete':
+        addLog(`FERTIG — ${data.totalFound} Profile, ${data.totalImported} importiert, ${data.totalDuplicates} Duplikate (${((data.duration || 0) / 1000).toFixed(1)}s)`, 'success');
+        break;
+      case 'error':
+        addLog(`FEHLER: ${data.error || 'Unbekannt'}`, 'error');
+        break;
+    }
+  }, [addLog]);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -223,6 +291,8 @@ export default function LinkedInScraperPage() {
     setError(null);
     setLiveProgress(null);
     setCompletedSearches([]);
+    setConsoleLogs([]);
+    addLog('Verbinde mit Server...', 'info');
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -244,13 +314,17 @@ export default function LinkedInScraperPage() {
       if (!res.ok) {
         const data = await res.json();
         setError(data.error || 'Scraping fehlgeschlagen');
+        addLog(`Server-Fehler: ${data.error || res.status}`, 'error');
         setScraping(false);
         return;
       }
 
+      addLog('Stream verbunden — warte auf Daten...', 'success');
+
       const reader = res.body?.getReader();
       if (!reader) {
         setError('Stream nicht verfügbar');
+        addLog('Stream konnte nicht geöffnet werden', 'error');
         setScraping(false);
         return;
       }
@@ -270,6 +344,7 @@ export default function LinkedInScraperPage() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6)) as LiveProgress;
+              sseToLog(data);
 
               if (data.type === 'search_complete') {
                 setCompletedSearches(prev => [...prev, {
@@ -296,13 +371,15 @@ export default function LinkedInScraperPage() {
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        // User cancelled
+        addLog('Scraping abgebrochen', 'warn');
       } else {
         setError('Netzwerkfehler - Server nicht erreichbar');
+        addLog(`Netzwerkfehler: ${err instanceof Error ? err.message : 'Server nicht erreichbar'}`, 'error');
       }
     } finally {
       setScraping(false);
       abortRef.current = null;
+      addLog('Stream geschlossen', 'info');
       loadJobs();
     }
   };
@@ -783,6 +860,51 @@ export default function LinkedInScraperPage() {
             <div>
               <span className="text-red-300 text-sm">{error}</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live Console */}
+      {(scraping || consoleLogs.length > 0) && (
+        <div className="card-glass overflow-hidden border border-white/10">
+          <div className="px-4 py-2.5 border-b border-white/5 flex items-center justify-between bg-black/20">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-green-400">{'>'}_</span>
+              <span className="text-xs font-semibold text-white">Live-Konsole</span>
+              {scraping && (
+                <span className="relative flex h-2 w-2 ml-1">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+              )}
+            </div>
+            {!scraping && consoleLogs.length > 0 && (
+              <button
+                onClick={() => setConsoleLogs([])}
+                className="text-[10px] text-elvora-text-dim hover:text-white transition-colors"
+              >
+                Leeren
+              </button>
+            )}
+          </div>
+          <div className="bg-black/30 p-3 max-h-64 overflow-y-auto font-mono text-[11px] leading-relaxed space-y-0.5">
+            {consoleLogs.map((log, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-elvora-text-dim flex-shrink-0">{log.time}</span>
+                <span className={
+                  log.level === 'error' ? 'text-red-400' :
+                  log.level === 'warn' ? 'text-amber-400' :
+                  log.level === 'success' ? 'text-emerald-400' :
+                  'text-elvora-text-muted'
+                }>
+                  {log.msg}
+                </span>
+              </div>
+            ))}
+            {scraping && consoleLogs.length === 0 && (
+              <div className="text-elvora-text-dim animate-pulse">Warte auf Server-Antwort...</div>
+            )}
+            <div ref={consoleEndRef} />
           </div>
         </div>
       )}

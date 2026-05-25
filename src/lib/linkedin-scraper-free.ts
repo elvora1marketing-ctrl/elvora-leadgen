@@ -23,6 +23,7 @@ import { parseImpressum } from './impressum-parser';
 export interface LinkedInScrapeProgress {
   type: string;
   keyword?: string;
+  message?: string;
   profileName?: string;
   profileCompany?: string;
   profileEmail?: string | null;
@@ -596,10 +597,21 @@ export async function searchProfiles(
         }
       }
       engineStats.push(`${engine}: ${results.length} (${added} neu)`);
+      if (results.length === 0) {
+        onProgress?.(`[${engine}] 0 Ergebnisse — wahrscheinlich blockiert (CAPTCHA/IP-Block)`, 0);
+      }
+    } else {
+      const reason = result.reason instanceof Error ? result.reason.message : 'Unbekannter Fehler';
+      engineStats.push(`FEHLER: ${reason}`);
+      onProgress?.(`[Engine] Fehlgeschlagen: ${reason}`, allResults.length);
     }
   }
 
   onProgress?.(`Alle Engines fertig: ${allResults.length} einzigartige Profile [${engineStats.join(', ')}]`, allResults.length);
+
+  if (allResults.length === 0) {
+    onProgress?.('WARNUNG: Keine Ergebnisse von allen Suchmaschinen. Server-IP wird vermutlich blockiert. SearXNG-Instanz empfohlen!', 0);
+  }
 
   if (maxResults > 0 && allResults.length > maxResults) {
     return allResults.slice(0, maxResults);
@@ -1026,7 +1038,7 @@ export async function scrapeLinkedInKeyword(
   });
 
   const searchResults = await searchProfiles(keyword, location, maxResults, (msg, count) => {
-    onProgress?.({ type: 'search_progress', keyword, error: msg, profilesFound: count });
+    onProgress?.({ type: 'search_progress', keyword, message: msg, profilesFound: count });
   }, searxngUrl);
 
   onProgress?.({
@@ -1035,7 +1047,15 @@ export async function scrapeLinkedInKeyword(
     profilesFound: searchResults.length,
   });
 
-  if (searchResults.length === 0) return people;
+  if (searchResults.length === 0) {
+    onProgress?.({
+      type: 'search_empty',
+      keyword,
+      message: 'Keine LinkedIn-Profile gefunden. Suchmaschinen blockieren vermutlich die Server-IP. Richte eine SearXNG-Instanz ein fuer bessere Ergebnisse.',
+      profilesFound: 0,
+    });
+    return people;
+  }
 
   // Step 2: Fetch profiles (concurrent)
   const profiles = await fetchProfilesBatch(
