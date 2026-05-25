@@ -381,6 +381,7 @@ async function searchBing(
 /**
  * Search via SearXNG instance for LinkedIn profiles.
  * Self-hosted — no rate limits, no CAPTCHAs.
+ * Uses multiple query strategies since `site:` operator doesn't work with all engines.
  */
 async function searchSearXNG(
   keyword: string,
@@ -392,51 +393,79 @@ async function searchSearXNG(
   const results: SearchResult[] = [];
   const seenUrls = new Set<string>();
 
-  const query = location
-    ? `site:linkedin.com/in ${keyword} ${location}`
-    : `site:linkedin.com/in ${keyword}`;
+  // Try multiple query formats — different engines support different operators
+  const queries = [
+    location
+      ? `"linkedin.com/in" ${keyword} ${location}`
+      : `"linkedin.com/in" ${keyword}`,
+    location
+      ? `linkedin ${keyword} ${location} Profil`
+      : `linkedin ${keyword} Profil`,
+    location
+      ? `site:linkedin.com/in ${keyword} ${location}`
+      : `site:linkedin.com/in ${keyword}`,
+  ];
 
-  let pageNum = 0;
-  let hasMore = true;
+  for (let qi = 0; qi < queries.length; qi++) {
+    const query = queries[qi];
+    let pageNum = 0;
+    let hasMore = true;
+    const strategyLabel = qi === 0 ? 'Strategie A' : qi === 1 ? 'Strategie B' : 'Strategie C';
 
-  while (hasMore) {
-    pageNum++;
-    onProgress?.(`SearXNG Seite ${pageNum}...`, results.length);
+    if (qi > 0 && results.length >= 5) break; // Already have results, skip remaining strategies
 
-    try {
-      const url = `${searxngUrl}/search?q=${encodeURIComponent(query)}&format=json&pageno=${pageNum}&categories=general&language=de`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    while (hasMore) {
+      pageNum++;
+      onProgress?.(`SearXNG ${strategyLabel} Seite ${pageNum}...`, results.length);
 
-      if (!res.ok) {
-        onProgress?.(`SearXNG Fehler: ${res.status}`, results.length);
-        break;
+      try {
+        const url = `${searxngUrl}/search?q=${encodeURIComponent(query)}&format=json&pageno=${pageNum}&language=de`;
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (!res.ok) {
+          onProgress?.(`SearXNG Fehler: ${res.status}`, results.length);
+          break;
+        }
+
+        const data = await res.json();
+        const searchResults = (data.results || []) as { url?: string; title?: string; content?: string }[];
+        let foundOnPage = 0;
+
+        onProgress?.(`SearXNG ${strategyLabel} Seite ${pageNum}: ${searchResults.length} Ergebnisse von Server`, results.length);
+
+        for (const item of searchResults) {
+          const itemUrl = item.url || '';
+          const profileUrl = cleanLinkedInUrl(itemUrl);
+          if (!profileUrl) continue;
+          const norm = normalizeLinkedInUrl(profileUrl);
+          if (seenUrls.has(norm)) continue;
+          seenUrls.add(norm);
+          const parsed = parseSearchTitle(item.title || '');
+          results.push({ profileUrl, snippetName: parsed.name, snippetHeadline: parsed.headline || (item.content || '').slice(0, 100) });
+          foundOnPage++;
+          if (maxResults > 0 && results.length >= maxResults) break;
+        }
+
+        onProgress?.(`SearXNG ${strategyLabel} Seite ${pageNum}: ${foundOnPage} LinkedIn-Profile gefiltert (gesamt: ${results.length})`, results.length);
+
+        if (foundOnPage === 0 && pageNum >= 2) hasMore = false;
+        else if (searchResults.length === 0) hasMore = false;
+        else if (maxResults > 0 && results.length >= maxResults) hasMore = false;
+        else if (pageNum >= 10) hasMore = false;
+
+        if (hasMore) await randomDelay(300, 700);
+      } catch (err) {
+        onProgress?.(`SearXNG Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, results.length);
+        hasMore = false;
       }
+    }
 
-      const data = await res.json();
-      const searchResults = (data.results || []) as { url?: string; title?: string }[];
-      let foundOnPage = 0;
-
-      for (const item of searchResults) {
-        const profileUrl = cleanLinkedInUrl(item.url || '');
-        if (!profileUrl) continue;
-        const norm = normalizeLinkedInUrl(profileUrl);
-        if (seenUrls.has(norm)) continue;
-        seenUrls.add(norm);
-        const parsed = parseSearchTitle(item.title || '');
-        results.push({ profileUrl, snippetName: parsed.name, snippetHeadline: parsed.headline });
-        foundOnPage++;
-        if (maxResults > 0 && results.length >= maxResults) break;
-      }
-
-      onProgress?.(`SearXNG Seite ${pageNum}: ${foundOnPage} neue Profile (gesamt: ${results.length})`, results.length);
-
-      if (foundOnPage === 0 || searchResults.length === 0) hasMore = false;
-      else if (maxResults > 0 && results.length >= maxResults) hasMore = false;
-      if (hasMore) await randomDelay(500, 1000);
-      if (pageNum >= 50) hasMore = false;
-    } catch (err) {
-      onProgress?.(`SearXNG Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, results.length);
-      hasMore = false;
+    // Short delay between strategies
+    if (qi < queries.length - 1 && results.length < 5) {
+      await randomDelay(200, 500);
     }
   }
 
