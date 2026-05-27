@@ -35,10 +35,15 @@ function setCookieOpts(secure: boolean, maxAge: number) {
   return { httpOnly: true, secure, sameSite: 'lax' as const, path: '/', maxAge };
 }
 
+const USERS: Record<string, string> = {
+  luan: 'Luan Qerkini',
+  elton: 'Elton Osmani',
+};
+
 // POST /api/auth – Login
 export async function POST(request: NextRequest) {
   try {
-    const { password, action } = await request.json() as { password?: string; action?: string };
+    const { password, username, action } = await request.json() as { password?: string; username?: string; action?: string };
     const useSecure = isHttps(request);
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
 
@@ -75,8 +80,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Login
-    if (!password) {
-      return NextResponse.json({ error: 'Passwort fehlt' }, { status: 400 });
+    if (!password || !username) {
+      return NextResponse.json({ error: 'Username und Passwort erforderlich' }, { status: 400 });
+    }
+
+    const usernameLower = username.toLowerCase().trim();
+    const fullName = USERS[usernameLower];
+    if (!fullName) {
+      logAudit('login_failed', { username: usernameLower }, undefined, undefined, ip);
+      return NextResponse.json({ error: 'Ungültiger Benutzer' }, { status: 401 });
     }
 
     const db = getDb();
@@ -87,7 +99,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!verifyPassword(password, row.value)) {
-      logAudit('login_failed', {}, undefined, undefined, ip);
+      logAudit('login_failed', { username: usernameLower }, undefined, undefined, ip);
       return NextResponse.json({ error: 'Falsches Passwort' }, { status: 401 });
     }
 
@@ -108,13 +120,14 @@ export async function POST(request: NextRequest) {
       db.prepare("UPDATE trusted_devices SET last_used_at = datetime('now'), ip_address = ? WHERE id = ?").run(ip, trusted.id);
     }
 
-    logAudit('login', {}, undefined, undefined, ip);
+    logAudit('login', { username: usernameLower }, undefined, undefined, ip);
 
     // Create session
     const token = crypto.randomUUID();
     db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('session_token', ?, datetime('now'))").run(token);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('session_user', ?, datetime('now'))").run(usernameLower);
 
-    const res = NextResponse.json({ ok: true });
+    const res = NextResponse.json({ ok: true, username: usernameLower, fullName });
     res.cookies.set('elvora_session', token, setCookieOpts(useSecure, 60 * 60 * 24 * 30));
 
     // If device not yet trusted (whitelist off or new login), trust it
@@ -169,7 +182,15 @@ export async function GET(request: NextRequest) {
       result |= a.charCodeAt(i) ^ b.charCodeAt(i);
     }
 
-    return NextResponse.json({ authenticated: result === 0 });
+    if (result !== 0) {
+      return NextResponse.json({ authenticated: false });
+    }
+
+    const userRow = db.prepare("SELECT value FROM settings WHERE key = 'session_user'").get() as { value: string } | undefined;
+    const username = userRow?.value || '';
+    const fullName = USERS[username] || '';
+
+    return NextResponse.json({ authenticated: true, username, fullName });
   } catch {
     return NextResponse.json({ authenticated: false });
   }

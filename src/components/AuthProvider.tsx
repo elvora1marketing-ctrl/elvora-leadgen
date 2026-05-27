@@ -6,12 +6,16 @@ import { usePathname } from 'next/navigation';
 interface AuthContextType {
   authenticated: boolean;
   loading: boolean;
+  username: string;
+  fullName: string;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   authenticated: false,
   loading: true,
+  username: '',
+  fullName: '',
   logout: async () => {},
 });
 
@@ -20,7 +24,6 @@ export const useAuth = () => useContext(AuthContext);
 const PUBLIC_PATHS = ['/audit', '/proposal', '/client', '/invoice', '/roi-rechner', '/booking', '/tracking', '/account-portal'];
 
 function isPublicPath(pathname: string): boolean {
-  // Match exact path or path followed by '/' — so '/client' does NOT match '/clients'.
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
@@ -29,11 +32,18 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [username, setUsername] = useState('');
+  const [fullName, setFullName] = useState('');
 
+  const [loginUsername, setLoginUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Welcome animation
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomeName, setWelcomeName] = useState('');
 
   const checkAuth = useCallback(async () => {
     try {
@@ -41,6 +51,10 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       setAuthenticated(data.authenticated);
       setNeedsSetup(data.needsSetup || false);
+      if (data.authenticated) {
+        setUsername(data.username || '');
+        setFullName(data.fullName || '');
+      }
     } catch {
       setAuthenticated(false);
     } finally {
@@ -59,6 +73,8 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ action: 'logout' }),
     });
     setAuthenticated(false);
+    setUsername('');
+    setFullName('');
   }, []);
 
   async function handleLogin(e: React.FormEvent) {
@@ -70,13 +86,21 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username: loginUsername, password }),
       });
       const data = await res.json();
 
       if (res.ok) {
-        setAuthenticated(true);
+        setUsername(data.username || '');
+        setFullName(data.fullName || '');
+        setWelcomeName(data.fullName || data.username || '');
+        setShowWelcome(true);
         setPassword('');
+        setLoginUsername('');
+        setTimeout(() => {
+          setShowWelcome(false);
+          setAuthenticated(true);
+        }, 2500);
       } else if (data.needsSetup) {
         setNeedsSetup(true);
       } else {
@@ -141,9 +165,58 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  // Welcome animation after login
+  if (showWelcome) {
+    return (
+      <div className="min-h-screen bg-elvora-bg flex items-center justify-center p-4">
+        <div className="flex flex-col items-center animate-fade-in">
+          <div className="animate-logo-pulse mb-8">
+            <img src="/elvora-icon.svg" alt="Elvora" width={72} height={72} />
+          </div>
+          <div className="overflow-hidden">
+            <h1 className="text-2xl font-light text-white animate-slide-up">
+              Willkommen,
+            </h1>
+          </div>
+          <div className="overflow-hidden mt-1">
+            <p className="text-3xl font-bold text-white animate-slide-up-delay">
+              {welcomeName}
+            </p>
+          </div>
+          <div className="mt-6 w-12 h-0.5 bg-elvora-purple rounded-full animate-width-expand" />
+        </div>
+
+        <style>{`
+          @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+          }
+          @keyframes logoPulse {
+            0% { transform: scale(0.5); opacity: 0; }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+          }
+          @keyframes widthExpand {
+            from { width: 0; }
+            to { width: 3rem; }
+          }
+          .animate-fade-in { animation: fadeIn 0.6s ease-out; }
+          .animate-slide-up { animation: slideUp 0.6s ease-out 0.3s both; }
+          .animate-slide-up-delay { animation: slideUp 0.6s ease-out 0.5s both; }
+          .animate-logo-pulse { animation: logoPulse 0.8s ease-out; }
+          .animate-width-expand { animation: widthExpand 0.8s ease-out 0.8s both; }
+        `}</style>
+      </div>
+    );
+  }
+
   if (authenticated) {
     return (
-      <AuthContext.Provider value={{ authenticated, loading, logout }}>
+      <AuthContext.Provider value={{ authenticated, loading, username, fullName, logout }}>
         {children}
       </AuthContext.Provider>
     );
@@ -206,15 +279,29 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  // Login screen
   return (
     <div className="min-h-screen bg-elvora-bg flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <img src="/elvora-logo.svg" alt="Elvora" className="h-10 mb-3" />
+          <img src="/elvora-icon.svg" alt="Elvora" width={56} height={56} className="mb-4" />
+          <img src="/elvora-logo.svg" alt="Elvora" className="h-8 mb-2" />
           <p className="text-sm text-elvora-text-dim">Melde dich an, um fortzufahren.</p>
         </div>
 
         <form onSubmit={handleLogin} className="card rounded-xl p-5 space-y-4">
+          <div>
+            <label className="block text-xs text-elvora-text-dim mb-1.5">Benutzername</label>
+            <input
+              type="text"
+              value={loginUsername}
+              onChange={(e) => setLoginUsername(e.target.value)}
+              placeholder="Benutzername"
+              className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors"
+              autoFocus
+              autoComplete="username"
+            />
+          </div>
           <div>
             <label className="block text-xs text-elvora-text-dim mb-1.5">Passwort</label>
             <input
@@ -223,7 +310,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Dein Passwort"
               className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors"
-              autoFocus
+              autoComplete="current-password"
             />
           </div>
           {error && (
@@ -233,10 +320,15 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
           )}
           <button
             type="submit"
-            disabled={submitting}
-            className="w-full px-5 py-2.5 rounded-lg bg-elvora-primary text-white text-sm font-medium hover:bg-elvora-primary-dark transition-colors disabled:opacity-50"
+            disabled={submitting || !loginUsername.trim() || !password}
+            className="w-full px-5 py-2.5 rounded-lg bg-elvora-gradient text-white text-sm font-semibold hover:shadow-lg hover:shadow-elvora-purple/20 transition-all disabled:opacity-50"
           >
-            {submitting ? 'Anmelden...' : 'Anmelden'}
+            {submitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Anmelden...
+              </span>
+            ) : 'Anmelden'}
           </button>
         </form>
       </div>
