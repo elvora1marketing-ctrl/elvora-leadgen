@@ -248,11 +248,21 @@ async function searchGoogleViaProxy(
           'Accept-Language': 'de-DE,de;q=0.9,en;q=0.3',
         });
 
-        // Debug on first page
+        // Debug on first page — show what Google actually returns
         if (pageNum === 1) {
           const rawMatches = (res.body.match(/linkedin\.com\/in\/[\w%-]+/gi) || []).length;
           const encodedMatches = (res.body.match(/linkedin\.com%2Fin%2F[\w%-]+/gi) || []).length;
-          onProgress?.(`[${label}] Status ${res.status}, ${res.body.length} bytes, ${rawMatches} direkte + ${encodedMatches} encoded LinkedIn-URLs`, results.length);
+          const allLinkedIn = (res.body.match(/linkedin/gi) || []).length;
+          const hasConsent = res.body.includes('consent.google') || res.body.includes('CONSENT');
+          const bodySnippet = res.body.substring(0, 500).replace(/\s+/g, ' ').trim();
+          onProgress?.(`[DEBUG] ${res.body.length}B, ${rawMatches} direkt, ${encodedMatches} encoded, ${allLinkedIn}x "linkedin", consent=${hasConsent}`, results.length);
+          onProgress?.(`[DEBUG HTML] ${bodySnippet}`, results.length);
+          // Find any linkedin mention with context
+          const liIdx = res.body.indexOf('linkedin');
+          if (liIdx >= 0) {
+            const ctx = res.body.substring(Math.max(0, liIdx - 50), liIdx + 100).replace(/\s+/g, ' ');
+            onProgress?.(`[DEBUG LINKEDIN] ...${ctx}...`, results.length);
+          }
         }
 
         if (res.status === 429 || res.status === 503) {
