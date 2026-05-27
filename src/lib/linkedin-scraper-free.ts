@@ -248,11 +248,11 @@ async function searchGoogleViaProxy(
           'Accept-Language': 'de-DE,de;q=0.9,en;q=0.3',
         });
 
-        // Debug: show response info on first page
+        // Debug on first page
         if (pageNum === 1) {
-          const preview = res.body.substring(0, 300).replace(/\s+/g, ' ').trim();
-          const hasLinkedIn = res.body.includes('linkedin.com/in');
-          onProgress?.(`[${label}] Status ${res.status}, ${res.body.length} bytes, LinkedIn-URLs: ${hasLinkedIn ? 'JA' : 'NEIN'} — ${preview.substring(0, 150)}...`, results.length);
+          const rawMatches = (res.body.match(/linkedin\.com\/in\/[\w%-]+/gi) || []).length;
+          const encodedMatches = (res.body.match(/linkedin\.com%2Fin%2F[\w%-]+/gi) || []).length;
+          onProgress?.(`[${label}] Status ${res.status}, ${res.body.length} bytes, ${rawMatches} direkte + ${encodedMatches} encoded LinkedIn-URLs`, results.length);
         }
 
         if (res.status === 429 || res.status === 503) {
@@ -278,40 +278,34 @@ async function searchGoogleViaProxy(
         const html = res.body;
         let foundOnPage = 0;
 
-        const linkRegex = /<a[^>]+href="(https?:\/\/[^"]*linkedin\.com\/in\/[^"&]+)"[^>]*>/gi;
-        let match;
-        while ((match = linkRegex.exec(html)) !== null) {
-          const profileUrl = cleanLinkedInUrl(match[1]);
-          if (!profileUrl) continue;
+        // Broad extraction: find ALL LinkedIn profile URLs anywhere in the HTML
+        // Handles: direct links, de.linkedin.com, URL-encoded, data attributes, etc.
+        const urlPatterns = [
+          /https?:\/\/(?:[a-z]{2}\.)?linkedin\.com\/in\/[\w%-]+/gi,
+          /https?%3A%2F%2F(?:[a-z]{2}\.)?linkedin\.com%2Fin%2F[\w%-]+/gi,
+        ];
+
+        const foundUrls = new Set<string>();
+        for (const pattern of urlPatterns) {
+          let match;
+          while ((match = pattern.exec(html)) !== null) {
+            let rawUrl = match[0];
+            if (rawUrl.includes('%3A%2F%2F')) rawUrl = decodeURIComponent(rawUrl);
+            const profileUrl = cleanLinkedInUrl(rawUrl);
+            if (profileUrl) foundUrls.add(profileUrl);
+          }
+        }
+
+        for (const profileUrl of foundUrls) {
           const norm = normalizeLinkedInUrl(profileUrl);
           if (seenUrls.has(norm)) continue;
           seenUrls.add(norm);
 
           const username = profileUrl.split('/in/')[1] || '';
-          const escapedUsername = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const titleRegex = new RegExp(`<h3[^>]*>([^<]*${escapedUsername}[^<]*)<\\/h3>`, 'i');
-          const titleMatch = html.match(titleRegex);
-          const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-          const parsed = parseSearchTitle(title || username);
-
+          const parsed = parseSearchTitle(username);
           results.push({ profileUrl, snippetName: parsed.name, snippetHeadline: parsed.headline });
           foundOnPage++;
           if (maxResults > 0 && results.length >= maxResults) break;
-        }
-
-        if (foundOnPage === 0) {
-          const altRegex = /href="\/url\?q=(https?%3A%2F%2F[^"]*linkedin\.com%2Fin%2F[^"&]+)/gi;
-          while ((match = altRegex.exec(html)) !== null) {
-            const decoded = decodeURIComponent(match[1]);
-            const profileUrl = cleanLinkedInUrl(decoded);
-            if (!profileUrl) continue;
-            const norm = normalizeLinkedInUrl(profileUrl);
-            if (seenUrls.has(norm)) continue;
-            seenUrls.add(norm);
-            results.push({ profileUrl, snippetName: '', snippetHeadline: '' });
-            foundOnPage++;
-            if (maxResults > 0 && results.length >= maxResults) break;
-          }
         }
 
         onProgress?.(`[${label}] Seite ${pageNum}: ${foundOnPage} Profile (gesamt: ${results.length})`, results.length);
