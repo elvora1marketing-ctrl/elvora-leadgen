@@ -1545,43 +1545,43 @@ export async function scrapeLinkedInKeyword(
     return aIsE - bIsE;
   });
 
-  // Step 3: Email pattern generation (instant, no network)
+  // Step 3: Domain ermitteln
   for (const person of profiles) {
     const companyDomains = guessCompanyDomain(person.company);
     person.companyDomain = companyDomains[0] || null;
-
-    if (companyDomains.length > 0) {
-      const candidates = generateCandidateEmails(person.fullName, companyDomains);
-      if (candidates.length > 0) {
-        if (smtpVerification) {
-          const result = await findVerifiedEmail(candidates);
-          if (result) {
-            person.email = result.email;
-            person.emailConfidence = result.confidence;
-          }
-        } else {
-          person.email = candidates[0];
-          person.emailConfidence = 'low';
-        }
-      }
-    }
   }
 
-  // Step 4: Impressum fallback — batch 10 at a time for profiles without email
-  const needImpressum = profiles.filter(p => !p.email && p.companyDomain);
+  // Step 4: Echte Emails finden — Impressum/Kontaktseite crawlen (batch 10)
+  const needImpressum = profiles.filter(p => p.companyDomain);
   for (let i = 0; i < needImpressum.length; i += 10) {
     const batch = needImpressum.slice(i, i + 10);
-    const results = await Promise.allSettled(
+    await Promise.allSettled(
       batch.map(async (person) => {
         try {
           const impressum = await parseImpressum(`https://${person.companyDomain}`);
           if (impressum.emails.length > 0) {
             person.email = impressum.emails[0];
-            person.emailConfidence = 'medium';
+            person.emailConfidence = 'high';
           }
         } catch { /* silent */ }
       })
     );
+  }
+
+  // Step 5: SMTP-Verifikation für Profile ohne Impressum-Email (nur wenn aktiviert)
+  if (smtpVerification) {
+    const needSmtp = profiles.filter(p => !p.email && p.companyDomain);
+    for (const person of needSmtp) {
+      const companyDomains = guessCompanyDomain(person.company);
+      const candidates = generateCandidateEmails(person.fullName, companyDomains);
+      if (candidates.length > 0) {
+        const result = await findVerifiedEmail(candidates);
+        if (result) {
+          person.email = result.email;
+          person.emailConfidence = result.confidence;
+        }
+      }
+    }
   }
 
   // Report all profiles
