@@ -15,6 +15,8 @@
 import { normalizeLinkedInUrl, type LinkedInPerson } from './linkedin-scraper';
 import { delay, randomDelay } from './utils';
 import { parseImpressum } from './impressum-parser';
+import * as http from 'http';
+import * as tls from 'tls';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,28 +125,75 @@ async function fetchViaProxy(
   proxy: ProxyEntry,
   headers: Record<string, string> = {},
   timeout = 15000,
+  redirectsLeft = 3,
 ): Promise<{ status: number; body: string }> {
-  const proxyUrl = `http://${encodeURIComponent(proxy.user)}:${encodeURIComponent(proxy.pass)}@${proxy.host}:${proxy.port}`;
+  const target = new URL(targetUrl);
+  const auth = Buffer.from(`${proxy.user}:${proxy.pass}`).toString('base64');
 
-  // undici ships with Node.js 18+ — handles chunked encoding, redirects, TLS properly
-  const undici = require('undici');
-  const agent = new undici.ProxyAgent(proxyUrl);
+  // Step 1: CONNECT tunnel through proxy
+  const tunnelSocket: any = await new Promise((resolve, reject) => {
+    const req = http.request({
+      host: proxy.host,
+      port: proxy.port,
+      method: 'CONNECT',
+      path: `${target.hostname}:443`,
+      headers: { 'Proxy-Authorization': `Basic ${auth}` },
+      timeout,
+    });
+    req.on('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        reject(new Error(`CONNECT ${res.statusCode}`));
+        return;
+      }
+      resolve(socket);
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('CONNECT timeout')); });
+    req.end();
+  });
 
-  try {
-    const res = await undici.fetch(targetUrl, {
-      dispatcher: agent,
+  // Step 2: TLS handshake over tunnel
+  const tlsSocket = tls.connect({ socket: tunnelSocket, servername: target.hostname });
+  await new Promise<void>((resolve, reject) => {
+    tlsSocket.once('secureConnect', resolve);
+    tlsSocket.once('error', reject);
+    setTimeout(() => { tlsSocket.destroy(); reject(new Error('TLS timeout')); }, timeout);
+  });
+
+  // Step 3: HTTP request via Node's http parser (handles chunked encoding properly)
+  return new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const timer = setTimeout(() => { tlsSocket.destroy(); reject(new Error('Request timeout')); }, timeout);
+
+    const req = http.request({
+      createConnection: () => tlsSocket as any,
+      hostname: target.hostname,
+      path: target.pathname + target.search,
+      method: 'GET',
       headers: {
         ...headers,
+        'Host': target.hostname,
         'Cookie': GOOGLE_CONSENT_COOKIES,
+        'Connection': 'close',
+        'Accept-Encoding': 'identity',
       },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(timeout),
+    }, (res) => {
+      if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307) && res.headers.location && redirectsLeft > 0) {
+        clearTimeout(timer);
+        tlsSocket.destroy();
+        fetchViaProxy(res.headers.location!, proxy, headers, timeout, redirectsLeft - 1).then(resolve).catch(reject);
+        return;
+      }
+
+      let body = '';
+      res.on('data', (chunk: any) => { body += chunk.toString(); });
+      res.on('end', () => { clearTimeout(timer); tlsSocket.destroy(); resolve({ status: res.statusCode || 0, body }); });
+      res.on('error', (e) => { clearTimeout(timer); tlsSocket.destroy(); reject(e); });
     });
-    const body = await res.text();
-    return { status: res.status, body };
-  } finally {
-    agent.close();
-  }
+
+    req.on('error', (e) => { clearTimeout(timer); tlsSocket.destroy(); reject(e); });
+    req.end();
+  });
 }
 
 async function searchGoogleViaProxy(
