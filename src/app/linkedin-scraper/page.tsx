@@ -121,12 +121,18 @@ export default function LinkedInScraperPage() {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedRollen, setSelectedRollen] = useState<string[]>(['Geschäftsführer', 'Inhaber', 'CEO']);
 
+  // Proxies
+  const [proxyList, setProxyList] = useState('');
+  const [showProxyField, setShowProxyField] = useState(false);
+
   // Engine diagnostics
   const [engineResults, setEngineResults] = useState<{ engine: string; status: string; results: number; error?: string; latency?: number }[] | null>(null);
   const [testingEngines, setTestingEngines] = useState(false);
   const [showEngineConfig, setShowEngineConfig] = useState(false);
   const [engineSettings, setEngineSettings] = useState({ searxng_url: '' });
   const [savingSettings, setSavingSettings] = useState(false);
+
+  const proxyCount = proxyList.trim() ? proxyList.trim().split('\n').filter(l => l.trim().split(':').length >= 4).length : 0;
 
   const entscheiderPresets = [
     'Geschäftsführer',
@@ -363,6 +369,7 @@ export default function LinkedInScraperPage() {
           maxResults,
           onlyWithEmail,
           smtpVerification,
+          proxies: proxyList.trim() || undefined,
         }),
         signal: abortController.signal,
       });
@@ -1168,6 +1175,44 @@ export default function LinkedInScraperPage() {
             </div>
           </div>
         )}
+
+        {/* Proxy-Liste */}
+        <div className="bg-white/[0.03] rounded-xl border border-white/5 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowProxyField(!showProxyField)}
+            className="w-full flex items-center justify-between p-4 text-left hover:bg-white/[0.02] transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-elvora-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <span className="text-sm font-medium text-white">Proxies</span>
+              {proxyCount > 0 && (
+                <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
+                  {proxyCount.toLocaleString('de-DE')} geladen
+                </span>
+              )}
+            </div>
+            <svg className={`w-4 h-4 text-elvora-text-dim transition-transform ${showProxyField ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {showProxyField && (
+            <div className="px-4 pb-4 space-y-2">
+              <p className="text-xs text-elvora-text-dim">
+                Residential Proxies verhindern IP-Blocks. Eine Proxy pro Zeile: <code className="text-elvora-purple-light">ip:port:user:pass</code>
+              </p>
+              <textarea
+                value={proxyList}
+                onChange={(e) => setProxyList(e.target.value)}
+                placeholder={"1.2.3.4:8080:username:password\n5.6.7.8:8080:username:password\n..."}
+                rows={4}
+                className="w-full bg-black/30 text-white text-xs font-mono rounded-lg border border-white/10 px-3 py-2 focus:outline-none focus:border-elvora-purple/50 placeholder-white/20 resize-y"
+              />
+            </div>
+          )}
+        </div>
 
         {/* SMTP Verification Toggle */}
         <div className="flex items-center justify-between bg-white/[0.03] rounded-xl p-4 border border-white/5">

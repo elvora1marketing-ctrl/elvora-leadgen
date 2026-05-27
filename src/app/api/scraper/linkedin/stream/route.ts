@@ -10,9 +10,57 @@ import {
   type SearchEngineConfig,
 } from '@/lib/linkedin-scraper-free';
 import { requireAuth } from '@/lib/auth';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { execSync } from 'child_process';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const SEARXNG_SETTINGS_PATH = '/opt/searxng/settings.yml';
+const SEARXNG_CONTAINER = 'elvora-searxng';
+
+function configureSearXNGProxies(proxyListRaw: string): { count: number; error?: string } {
+  const lines = proxyListRaw.trim().split('\n').map(l => l.trim()).filter(l => l);
+  const proxyUrls: string[] = [];
+
+  for (const line of lines) {
+    const parts = line.split(':');
+    if (parts.length >= 4) {
+      const ip = parts[0];
+      const port = parts[1];
+      const user = parts[2];
+      const pass = parts.slice(3).join(':');
+      proxyUrls.push(`http://${user}:${pass}@${ip}:${port}`);
+    }
+  }
+
+  if (proxyUrls.length === 0) return { count: 0, error: 'Keine gültigen Proxies gefunden' };
+
+  if (!existsSync(SEARXNG_SETTINGS_PATH)) {
+    return { count: 0, error: `SearXNG settings.yml nicht gefunden: ${SEARXNG_SETTINGS_PATH}` };
+  }
+
+  try {
+    let yml = readFileSync(SEARXNG_SETTINGS_PATH, 'utf-8');
+
+    const proxyBlock = proxyUrls.map(u => `    - ${u}`).join('\n');
+    const newOutgoing = `outgoing:\n  request_timeout: 8.0\n  pool_connections: 100\n  pool_maxsize: 20\n  proxies:\n${proxyBlock}`;
+
+    yml = yml.replace(/outgoing:[\s\S]*?(?=\n\w|\n$|$)/, newOutgoing);
+
+    writeFileSync(SEARXNG_SETTINGS_PATH, yml, 'utf-8');
+
+    try {
+      execSync(`docker restart ${SEARXNG_CONTAINER}`, { timeout: 30000 });
+    } catch {
+      return { count: proxyUrls.length, error: 'Proxies geschrieben, aber Docker-Restart fehlgeschlagen' };
+    }
+
+    return { count: proxyUrls.length };
+  } catch (e) {
+    return { count: 0, error: `Fehler: ${e instanceof Error ? e.message : 'Unbekannt'}` };
+  }
+}
 
 /**
  * POST /api/scraper/linkedin/stream - Start or resume LinkedIn scraping with SSE
@@ -31,6 +79,7 @@ export async function POST(request: NextRequest) {
     onlyWithEmail: rawOnlyWithEmail,
     smtpVerification: rawSmtpVerification,
     resumeJobId,
+    proxies: rawProxies,
   } = body as {
     keywords?: string[];
     location?: string;
@@ -38,6 +87,7 @@ export async function POST(request: NextRequest) {
     onlyWithEmail?: boolean;
     smtpVerification?: boolean;
     resumeJobId?: number;
+    proxies?: string;
   };
 
   const db = getDb();
@@ -48,6 +98,7 @@ export async function POST(request: NextRequest) {
   let maxResults: number;
   let onlyWithEmail: boolean;
   let smtpVerification: boolean;
+  let proxies: string | undefined = rawProxies;
   let jobId: number;
   let completedKeywords: string[];
   let isResume = false;
@@ -72,6 +123,7 @@ export async function POST(request: NextRequest) {
     maxResults = config.maxResults || 0;
     onlyWithEmail = config.onlyWithEmail || false;
     smtpVerification = config.smtpVerification || false;
+    if (!proxies && config.proxies) proxies = config.proxies;
     completedKeywords = JSON.parse(job.completed_keywords || '[]');
     jobId = job.id;
     isResume = true;
@@ -95,7 +147,7 @@ export async function POST(request: NextRequest) {
 
     // Create job entry with config
     const jobLabel = `LinkedIn: ${keywords.join(', ')}${location ? ` @ ${location}` : ''}`;
-    const jobConfig = JSON.stringify({ keywords, location, maxResults, onlyWithEmail, smtpVerification });
+    const jobConfig = JSON.stringify({ keywords, location, maxResults, onlyWithEmail, smtpVerification, proxies: rawProxies || undefined });
     const jobResult = db.prepare(
       "INSERT INTO scraper_jobs (keyword, max_pages, status, started_at, config, completed_keywords) VALUES (?, ?, 'running', datetime('now'), ?, '[]')"
     ).run(jobLabel, maxResults, jobConfig);
@@ -136,6 +188,20 @@ export async function POST(request: NextRequest) {
           type: 'log',
           message: `Fortsetzen: ${completedKeywords.length} Keywords bereits erledigt, ${remainingKeywords.length} verbleibend`,
         });
+      }
+
+      // Configure proxies in SearXNG if provided
+      if (proxies && proxies.trim()) {
+        send({ type: 'log', message: 'Proxies werden in SearXNG konfiguriert...' });
+        const proxyResult = configureSearXNGProxies(proxies);
+        if (proxyResult.error) {
+          send({ type: 'log', message: `Proxy-Warnung: ${proxyResult.error}` });
+        }
+        if (proxyResult.count > 0) {
+          send({ type: 'log', message: `${proxyResult.count.toLocaleString()} Proxies in SearXNG konfiguriert — SearXNG wird neugestartet...` });
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          send({ type: 'log', message: 'SearXNG bereit mit Proxy-Rotation' });
+        }
       }
 
       send({
