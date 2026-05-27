@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
 
       const engineConfig: SearchEngineConfig = {
         searxngUrl: searxngUrl || undefined,
+        totalKeywords: keywords.length,
       };
 
       // Create job entry
@@ -78,10 +79,11 @@ export async function POST(request: NextRequest) {
       ).run(jobLabel, maxResults);
       const jobId = Number(jobResult.lastInsertRowid);
 
+      const massMode = keywords.length > 5;
       send({
         type: 'log',
         message: searxngUrl
-          ? `SearXNG aktiv (${searxngUrl}) — Massen-Scraping bereit`
+          ? `SearXNG aktiv (${searxngUrl}) — ${keywords.length} Keywords${massMode ? ' (Massen-Modus: 2 Strategien + längere Pausen)' : ' (Tiefen-Modus: 4 Strategien)'}`
           : 'WARNUNG: Kein SearXNG konfiguriert! Scraping wird vermutlich fehlschlagen. Setup: bash scripts/setup-searxng.sh',
       });
 
@@ -222,7 +224,9 @@ export async function POST(request: NextRequest) {
         }
 
         if (keywordIndex < keywords.length) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // More delay with more keywords to avoid upstream engine rate-limiting
+          const kwDelay = keywords.length > 20 ? 3000 : keywords.length > 5 ? 1500 : 500;
+          await new Promise(resolve => setTimeout(resolve, kwDelay));
         }
       }
 

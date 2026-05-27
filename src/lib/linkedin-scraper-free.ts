@@ -380,12 +380,15 @@ async function searchBing(
 
 /**
  * Search via SearXNG instance for LinkedIn profiles.
- * Self-hosted — no rate limits, no CAPTCHAs, unlimited pagination.
- * Designed for mass scraping (10k+ profiles).
+ * Self-hosted — no rate limits from SearXNG itself, but upstream engines
+ * (Google, Bing, DDG) WILL rate-limit if hammered.
  *
- * Strategy: Runs ALL query formats and paginates deeply (up to 50 pages each).
- * Different SearXNG engines respond to different query formats, so running
- * all strategies maximizes coverage.
+ * Strategy: Uses 1-2 query formats with pagination. Respects upstream engine
+ * rate limits by adding delays between requests. When called for many keywords
+ * in succession, uses only the most effective strategy (site:) to reduce load.
+ *
+ * @param lightweight - When true, uses only the primary strategy (site:) and
+ *   shorter pagination. Use for mass-keyword scraping (10+ keywords).
  */
 async function searchSearXNG(
   keyword: string,
@@ -393,11 +396,14 @@ async function searchSearXNG(
   maxResults: number,
   searxngUrl: string,
   onProgress?: (msg: string, count: number) => void,
+  lightweight: boolean = false,
 ): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   const seenUrls = new Set<string>();
 
-  const queries = [
+  // In lightweight mode (many keywords), use only the best strategy
+  // In full mode (few keywords), use all 4 for maximum coverage
+  const allQueries = [
     {
       label: 'site:',
       q: location
@@ -424,8 +430,13 @@ async function searchSearXNG(
     },
   ];
 
-  const maxPagesPerStrategy = maxResults === 0 ? 50 : Math.max(5, Math.ceil(maxResults / 10));
+  const queries = lightweight ? [allQueries[0], allQueries[3]] : allQueries;
+  const maxPagesPerStrategy = lightweight
+    ? (maxResults === 0 ? 10 : Math.max(3, Math.ceil(maxResults / 10)))
+    : (maxResults === 0 ? 50 : Math.max(5, Math.ceil(maxResults / 10)));
+
   let emptyStrategies = 0;
+  let totalApiResults = 0;
 
   for (let qi = 0; qi < queries.length; qi++) {
     const { label, q } = queries[qi];
@@ -433,6 +444,7 @@ async function searchSearXNG(
     let hasMore = true;
     let strategyFound = 0;
     let consecutiveEmpty = 0;
+    let retries = 0;
 
     while (hasMore) {
       pageNum++;
@@ -456,8 +468,13 @@ async function searchSearXNG(
         });
 
         if (res.status === 429) {
-          onProgress?.(`[${label}] Rate-Limit — warte 3s`, results.length);
-          await delay(3000);
+          onProgress?.(`[${label}] Rate-Limit — warte 5s`, results.length);
+          await delay(5000);
+          retries++;
+          if (retries >= 3) {
+            onProgress?.(`[${label}] Zu viele Rate-Limits — ueberspringe`, results.length);
+            break;
+          }
           continue;
         }
         if (!res.ok) {
@@ -467,6 +484,7 @@ async function searchSearXNG(
 
         const data = await res.json();
         const items = (data.results || []) as { url?: string; title?: string; content?: string }[];
+        totalApiResults += items.length;
         let foundOnPage = 0;
 
         for (const item of items) {
@@ -486,19 +504,35 @@ async function searchSearXNG(
           if (maxResults > 0 && results.length >= maxResults) break;
         }
 
-        if (foundOnPage === 0) {
+        if (foundOnPage === 0 && items.length === 0) {
+          // SearXNG returned nothing — upstream engines may be rate-limiting
           consecutiveEmpty++;
+          if (consecutiveEmpty === 1 && retries < 2) {
+            // First empty page: wait and retry once
+            onProgress?.(`[${label}] 0 Ergebnisse — warte 3s und versuche erneut`, results.length);
+            await delay(3000);
+            retries++;
+            continue;
+          }
+        } else if (foundOnPage === 0 && items.length > 0) {
+          // SearXNG returned results, but none were LinkedIn profiles
+          consecutiveEmpty++;
+          onProgress?.(`[${label}] ${items.length} Ergebnisse, aber keine LinkedIn-Profile`, results.length);
         } else {
           consecutiveEmpty = 0;
         }
 
         // Stop conditions for this strategy
         if (consecutiveEmpty >= 3) hasMore = false;
-        else if (items.length === 0) hasMore = false;
+        else if (items.length === 0 && consecutiveEmpty >= 2) hasMore = false;
         else if (maxResults > 0 && results.length >= maxResults) hasMore = false;
         else if (pageNum >= maxPagesPerStrategy) hasMore = false;
 
-        if (hasMore) await randomDelay(150, 400);
+        // Delay between pages — longer to avoid upstream rate-limiting
+        if (hasMore) {
+          const pageDelay = lightweight ? [800, 1500] : [400, 800];
+          await randomDelay(pageDelay[0], pageDelay[1]);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unbekannt';
         if (msg.includes('timeout') || msg.includes('abort')) {
@@ -517,12 +551,19 @@ async function searchSearXNG(
     if (strategyFound === 0) emptyStrategies++;
     if (maxResults > 0 && results.length >= maxResults) break;
 
-    // Short delay between strategies
-    if (qi < queries.length - 1) await randomDelay(200, 500);
+    // Delay between strategies — longer to let upstream engines cool down
+    if (qi < queries.length - 1) {
+      const stratDelay = lightweight ? [2000, 4000] : [1000, 2000];
+      await randomDelay(stratDelay[0], stratDelay[1]);
+    }
   }
 
   if (emptyStrategies === queries.length) {
-    onProgress?.('SearXNG: 0 Ergebnisse bei allen Strategien — SearXNG laeuft, aber findet keine LinkedIn-Profile. Pruefe ob Engines in SearXNG aktiviert sind (google, bing, duckduckgo).', 0);
+    if (totalApiResults === 0) {
+      onProgress?.('SearXNG: 0 Ergebnisse — Upstream-Suchmaschinen antworten nicht. Vermutlich Rate-Limit. Warte einige Minuten und versuche erneut.', 0);
+    } else {
+      onProgress?.(`SearXNG: ${totalApiResults} Ergebnisse insgesamt, aber 0 LinkedIn-Profile. Pruefe ob die Suchbegriffe LinkedIn-Profile liefern (site:linkedin.com/in).`, 0);
+    }
   }
 
   return results;
@@ -636,6 +677,7 @@ async function searchGoogle(
 
 export interface SearchEngineConfig {
   searxngUrl?: string;
+  totalKeywords?: number;
 }
 
 /**
@@ -643,8 +685,7 @@ export interface SearchEngineConfig {
  *
  * Priority:
  * 1. SearXNG (self-hosted, kostenlos, unbegrenzt) — runs solo when configured
- * 2. Google CSE API (100 free queries/day) — runs as supplement
- * 3. DDG/Bing/Google scraping — only when nothing else is configured, and they
+ * 2. DDG/Bing/Google scraping — only when nothing else is configured, and they
  *    almost never work from cloud IPs
  */
 export async function searchProfiles(
@@ -663,12 +704,13 @@ export async function searchProfiles(
   const hasReliableEngine = hasSearXNG;
 
   if (hasSearXNG) {
-    onProgress?.(`SearXNG aktiv — Massen-Suche gestartet`, 0);
+    const lightweight = (config.totalKeywords || 1) > 5;
+    onProgress?.(`SearXNG aktiv — ${lightweight ? 'Massen-Modus (schnell)' : 'Tiefen-Suche'} gestartet`, 0);
 
     try {
       const r = await searchSearXNG(keyword, location, maxResults, config.searxngUrl!, (msg) => {
         onProgress?.(msg, allResults.length);
-      });
+      }, lightweight);
       for (const item of r) {
         const norm = normalizeLinkedInUrl(item.profileUrl);
         if (!seenUrls.has(norm)) {
