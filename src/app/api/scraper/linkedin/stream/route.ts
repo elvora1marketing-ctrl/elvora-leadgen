@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
       });
 
       let keywordIndex = 0;
+      let consecutiveEmptyKeywords = 0;
 
       for (const kw of keywords) {
         keywordIndex++;
@@ -209,6 +210,29 @@ export async function POST(request: NextRequest) {
             totalDuplicates,
             totalNoEmail,
           });
+
+          // Track consecutive empty keywords — abort if engines are blocked
+          if (people.length === 0) {
+            consecutiveEmptyKeywords++;
+          } else {
+            consecutiveEmptyKeywords = 0;
+          }
+
+          if (consecutiveEmptyKeywords >= 3 && keywordIndex < keywords.length) {
+            send({
+              type: 'log',
+              message: `ABBRUCH: ${consecutiveEmptyKeywords} Keywords in Folge ohne Ergebnisse — Suchmaschinen blockieren. Warte einige Minuten und versuche erneut.`,
+            });
+            send({
+              type: 'error',
+              error: `Automatisch gestoppt nach ${consecutiveEmptyKeywords} leeren Keywords. Upstream-Engines blockieren die IP.`,
+              totalFound: allPeople.length,
+              totalImported,
+              totalDuplicates,
+              totalNoEmail,
+            });
+            break;
+          }
         } catch (err) {
           const errMsg = `${kw}: ${err instanceof Error ? err.message : 'Unbekannter Fehler'}`;
           allErrors.push(errMsg);

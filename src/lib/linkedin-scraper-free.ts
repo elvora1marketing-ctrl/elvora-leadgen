@@ -551,6 +551,12 @@ async function searchSearXNG(
     if (strategyFound === 0) emptyStrategies++;
     if (maxResults > 0 && results.length >= maxResults) break;
 
+    // If the first strategy returned 0 API results at all, engines are blocked — skip rest
+    if (qi === 0 && totalApiResults === 0) {
+      onProgress?.('Engines blockiert — ueberspringe restliche Strategien', results.length);
+      break;
+    }
+
     // Delay between strategies — longer to let upstream engines cool down
     if (qi < queries.length - 1) {
       const stratDelay = lightweight ? [2000, 4000] : [1000, 2000];
@@ -560,9 +566,9 @@ async function searchSearXNG(
 
   if (emptyStrategies === queries.length) {
     if (totalApiResults === 0) {
-      onProgress?.('SearXNG: 0 Ergebnisse — Upstream-Suchmaschinen antworten nicht. Vermutlich Rate-Limit. Warte einige Minuten und versuche erneut.', 0);
+      onProgress?.('SearXNG: 0 Ergebnisse — Upstream-Suchmaschinen antworten nicht. IP blockiert oder Rate-Limit.', 0);
     } else {
-      onProgress?.(`SearXNG: ${totalApiResults} Ergebnisse insgesamt, aber 0 LinkedIn-Profile. Pruefe ob die Suchbegriffe LinkedIn-Profile liefern (site:linkedin.com/in).`, 0);
+      onProgress?.(`SearXNG: ${totalApiResults} Ergebnisse insgesamt, aber 0 LinkedIn-Profile darunter.`, 0);
     }
   }
 
