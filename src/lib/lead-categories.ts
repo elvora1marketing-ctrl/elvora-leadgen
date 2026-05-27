@@ -331,6 +331,35 @@ export const CATEGORIES: CategoryMapping[] = [
   },
 ];
 
+export const ENTSCHEIDER_ROLLEN = [
+  'Geschäftsführer',
+  'Inhaber',
+  'CEO',
+  'Gründer',
+  'Eigentümer',
+  'Geschäftsleitung',
+];
+
+export function generateEntscheiderKeywords(
+  categoryIds: string[],
+  rollen?: string[],
+): string[] {
+  const roles = rollen && rollen.length > 0 ? rollen : ENTSCHEIDER_ROLLEN.slice(0, 3);
+  const keywords: string[] = [];
+
+  for (const catId of categoryIds) {
+    const cat = CATEGORIES.find(c => c.id === catId);
+    if (!cat) continue;
+    for (const role of roles) {
+      for (const kw of cat.scrapeKeywords) {
+        keywords.push(`${role} ${kw}`);
+      }
+    }
+  }
+
+  return keywords;
+}
+
 export function detectCategory(keyword: string): string | null {
   const kw = keyword.toLowerCase().trim();
 

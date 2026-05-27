@@ -1483,6 +1483,19 @@ export function getDb(): Database.Database {
       console.error('[DB] Inbox signature migration error:', e);
     }
 
+    // Migration: Add lead_type column (entscheider vs business)
+    try {
+      const cols = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];
+      if (!cols.find(c => c.name === 'lead_type')) {
+        instance.exec("ALTER TABLE leads ADD COLUMN lead_type TEXT DEFAULT 'business'");
+        instance.exec("CREATE INDEX IF NOT EXISTS idx_leads_lead_type ON leads(lead_type)");
+        instance.exec("UPDATE leads SET lead_type = 'entscheider' WHERE website_normalized LIKE 'linkedin:%'");
+        console.log('[DB] Migration: added lead_type column');
+      }
+    } catch (e) {
+      console.error('[DB] Lead type migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }

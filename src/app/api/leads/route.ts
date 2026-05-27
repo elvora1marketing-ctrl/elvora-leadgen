@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     const hasPhone = url.searchParams.get('has_phone');
     const hasEmail = url.searchParams.get('has_email');
     const keyword = url.searchParams.get('keyword');
+    const leadType = url.searchParams.get('lead_type');
     const includeMeta = url.searchParams.get('include_meta') === '1';
     const sortBy = url.searchParams.get('sort') || 'score';
     const sortDir = url.searchParams.get('dir') === 'asc' ? 'ASC' : 'DESC';
@@ -73,10 +74,12 @@ export async function GET(request: NextRequest) {
       values.push(parseInt(scoreMax));
     }
     if (keyword) {
-      // Smart keyword filter: matches partial keywords too
-      // "Pflegedienst" matches "Pflegedienst Düsseldorf", "Pflegedienst Köln", etc.
       conditions.push("l.found_via_keywords LIKE '%' || ? || '%'");
       values.push(keyword);
+    }
+    if (leadType) {
+      conditions.push('l.lead_type = ?');
+      values.push(leadType);
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -96,6 +99,7 @@ export async function GET(request: NextRequest) {
              l.found_via_keywords, l.times_found, l.rating,
              l.engagement_score, l.engagement_signals,
              l.deal_health_score, l.last_activity_at, l.stage_entered_at,
+             l.lead_type,
              l.created_at, l.contacted_at, l.updated_at,
              (SELECT COUNT(*) FROM follow_ups f WHERE f.lead_id = l.id AND f.status = 'pending') as pending_followups,
              (SELECT MAX(open_count) FROM email_tracking et WHERE et.lead_id = l.id) as email_opens

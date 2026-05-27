@@ -800,7 +800,7 @@ export async function fetchPublicProfile(
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 4000);
 
     const res = await fetch(profileUrl, {
       headers: {
@@ -919,7 +919,7 @@ function extractCompanyFromHeadline(person: FreeLinkedInPerson): void {
  */
 export async function fetchProfilesBatch(
   searchResults: SearchResult[],
-  concurrency: number = 5,
+  concurrency: number = 15,
   onProfile?: (person: FreeLinkedInPerson, index: number, total: number) => void,
 ): Promise<FreeLinkedInPerson[]> {
   const people: FreeLinkedInPerson[] = [];
@@ -939,9 +939,8 @@ export async function fetchProfilesBatch(
       }
     }
 
-    // Short delay between batches
     if (i + concurrency < searchResults.length) {
-      await randomDelay(300, 800);
+      await randomDelay(50, 150);
     }
   }
 
@@ -1071,7 +1070,7 @@ async function smtpVerify(email: string, mxHost: string): Promise<boolean> {
       try { socket.destroy(); } catch { /* ignore */ }
     };
 
-    const timer = setTimeout(cleanup, 7000);
+    const timer = setTimeout(cleanup, 4000);
 
     socket.connect(25, mxHost, () => {
       // Connected, wait for greeting
@@ -1107,7 +1106,7 @@ async function smtpVerify(email: string, mxHost: string): Promise<boolean> {
 
     socket.on('error', cleanup);
     socket.on('timeout', cleanup);
-    socket.setTimeout(7000);
+    socket.setTimeout(4000);
   });
 }
 
@@ -1214,7 +1213,7 @@ export async function scrapeLinkedInKeyword(
   // Step 2: Fetch profiles (concurrent)
   const profiles = await fetchProfilesBatch(
     searchResults,
-    5,
+    15,
     (person, index, total) => {
       onProgress?.({
         type: 'profile_fetch',
@@ -1242,16 +1241,13 @@ export async function scrapeLinkedInKeyword(
     return aIsE - bIsE;
   });
 
-  // Step 3 & 4: Email generation + verification + Impressum fallback
-  for (let i = 0; i < profiles.length; i++) {
-    const person = profiles[i];
-
+  // Step 3: Email pattern generation (instant, no network)
+  for (const person of profiles) {
     const companyDomains = guessCompanyDomain(person.company);
     person.companyDomain = companyDomains[0] || null;
 
     if (companyDomains.length > 0) {
       const candidates = generateCandidateEmails(person.fullName, companyDomains);
-
       if (candidates.length > 0) {
         if (smtpVerification) {
           const result = await findVerifiedEmail(candidates);
@@ -1265,18 +1261,28 @@ export async function scrapeLinkedInKeyword(
         }
       }
     }
+  }
 
-    // Step 5: Impressum fallback - if no email found, try the company website
-    if (!person.email && person.companyDomain) {
-      try {
-        const impressum = await parseImpressum(`https://${person.companyDomain}`);
-        if (impressum.emails.length > 0) {
-          person.email = impressum.emails[0];
-          person.emailConfidence = 'medium';
-        }
-      } catch { /* silent */ }
-    }
+  // Step 4: Impressum fallback — batch 10 at a time for profiles without email
+  const needImpressum = profiles.filter(p => !p.email && p.companyDomain);
+  for (let i = 0; i < needImpressum.length; i += 10) {
+    const batch = needImpressum.slice(i, i + 10);
+    const results = await Promise.allSettled(
+      batch.map(async (person) => {
+        try {
+          const impressum = await parseImpressum(`https://${person.companyDomain}`);
+          if (impressum.emails.length > 0) {
+            person.email = impressum.emails[0];
+            person.emailConfidence = 'medium';
+          }
+        } catch { /* silent */ }
+      })
+    );
+  }
 
+  // Report all profiles
+  for (let i = 0; i < profiles.length; i++) {
+    const person = profiles[i];
     people.push(person);
 
     onProgress?.({

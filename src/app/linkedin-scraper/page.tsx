@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { CATEGORIES, ENTSCHEIDER_ROLLEN, generateEntscheiderKeywords } from '@/lib/lead-categories';
 
 interface LinkedInResult {
   name: string;
@@ -86,7 +87,7 @@ export default function LinkedInScraperPage() {
   const [location, setLocation] = useState('Deutschland');
   const [maxResults, setMaxResults] = useState(0);
   const [onlyWithEmail, setOnlyWithEmail] = useState(false);
-  const [smtpVerification, setSmtpVerification] = useState(true);
+  const [smtpVerification, setSmtpVerification] = useState(false);
   const [scraping, setScraping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ScraperJob[]>([]);
@@ -111,6 +112,11 @@ export default function LinkedInScraperPage() {
   const consoleEndRef = useRef<HTMLDivElement | null>(null);
   const [kombiBranchen, setKombiBranchen] = useState('Sanitär\nElektro\nDachdecker\nMaler\nSchreiner');
   const [kombiRollen, setKombiRollen] = useState('Geschäftsführer\nInhaber\nCEO');
+
+  // Category mode
+  const [keywordMode, setKeywordMode] = useState<'manual' | 'category'>('manual');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedRollen, setSelectedRollen] = useState<string[]>(['Geschäftsführer', 'Inhaber', 'CEO']);
 
   // Engine diagnostics
   const [engineResults, setEngineResults] = useState<{ engine: string; status: string; results: number; error?: string; latency?: number }[] | null>(null);
@@ -696,116 +702,237 @@ export default function LinkedInScraperPage() {
       <div className="card-glass p-6 space-y-5">
         {mode === 'keyword' ? (
           <>
-            {/* Keyword Input */}
-            <div>
-              <label className="block text-sm font-medium text-elvora-text-muted mb-2">
-                Suchbegriffe <span className="text-elvora-text-dim font-normal">(mehrere mit Komma trennen)</span>
-              </label>
-              <input
-                type="text"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                placeholder="z.B. Geschäftsführer Handwerk, Inhaber SHK..."
-                className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-elvora-purple/50 focus:border-elvora-purple/50 transition-all"
-                onKeyDown={(e) => e.key === 'Enter' && !scraping && startScraping()}
-              />
-            </div>
-
-            {/* Entscheider Presets */}
-            <div>
-              <label className="block text-xs font-medium text-elvora-text-dim mb-2">Entscheider-Rollen</label>
-              <div className="flex flex-wrap gap-2">
-                {entscheiderPresets.map(preset => (
-                  <button
-                    key={preset}
-                    onClick={() => {
-                      const current = keyword.split(/,/).map(k => k.trim()).filter(Boolean);
-                      if (current.includes(preset)) {
-                        setKeyword(current.filter(k => k !== preset).join(', '));
-                      } else {
-                        setKeyword(current.length > 0 ? `${keyword}, ${preset}` : preset);
-                      }
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      keyword.includes(preset)
-                        ? 'bg-elvora-purple/30 text-elvora-purple-light border border-elvora-purple/40'
-                        : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
-                    }`}
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Branche + Rolle Presets */}
-            <div>
-              <label className="block text-xs font-medium text-elvora-text-dim mb-2">Branche + Entscheider</label>
-              <div className="flex flex-wrap gap-2">
-                {branchenPresets.map(preset => (
-                  <button
-                    key={preset}
-                    onClick={() => {
-                      const current = keyword.split(/,/).map(k => k.trim()).filter(Boolean);
-                      if (current.includes(preset)) {
-                        setKeyword(current.filter(k => k !== preset).join(', '));
-                      } else {
-                        setKeyword(current.length > 0 ? `${keyword}, ${preset}` : preset);
-                      }
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      keyword.includes(preset)
-                        ? 'bg-elvora-pink/30 text-elvora-pink border border-elvora-pink/40'
-                        : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
-                    }`}
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Kombinator */}
-            <div className="bg-white/[0.02] rounded-xl p-4 border border-white/5">
-              <label className="block text-xs font-medium text-elvora-text-dim mb-3">Kombinator — Branche × Rolle automatisch generieren</label>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] text-elvora-text-dim mb-1.5">Branchen (eine pro Zeile)</label>
-                  <textarea
-                    value={kombiBranchen}
-                    onChange={e => setKombiBranchen(e.target.value)}
-                    placeholder={"Sanitär\nElektro\nDachdecker\nMaler"}
-                    rows={4}
-                    className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-elvora-text-dim mb-1.5">Rollen (eine pro Zeile)</label>
-                  <textarea
-                    value={kombiRollen}
-                    onChange={e => setKombiRollen(e.target.value)}
-                    placeholder={"Geschäftsführer\nInhaber\nCEO"}
-                    rows={4}
-                    className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim text-xs"
-                  />
-                </div>
-              </div>
+            {/* Manual / Category Toggle */}
+            <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">
               <button
-                onClick={() => {
-                  const branchen = kombiBranchen.split('\n').map(b => b.trim()).filter(Boolean);
-                  const rollen = kombiRollen.split('\n').map(r => r.trim()).filter(Boolean);
-                  const combos = branchen.flatMap(b => rollen.map(r => `${r} ${b}`));
-                  if (combos.length > 0) setKeyword(combos.join(', '));
-                }}
-                className="mt-3 px-4 py-2 rounded-lg bg-elvora-purple/20 text-elvora-purple-light text-xs font-medium hover:bg-elvora-purple/30 transition-colors w-full"
+                onClick={() => setKeywordMode('category')}
+                className={`flex-1 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+                  keywordMode === 'category' ? 'bg-elvora-purple text-white shadow' : 'text-elvora-text-muted hover:text-white'
+                }`}
               >
-                {(() => {
-                  const b = kombiBranchen.split('\n').filter(x => x.trim()).length;
-                  const r = kombiRollen.split('\n').filter(x => x.trim()).length;
-                  return `${b} Branchen × ${r} Rollen = ${b * r} Keywords generieren`;
-                })()}
+                Kategorien
+              </button>
+              <button
+                onClick={() => setKeywordMode('manual')}
+                className={`flex-1 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+                  keywordMode === 'manual' ? 'bg-elvora-purple text-white shadow' : 'text-elvora-text-muted hover:text-white'
+                }`}
+              >
+                Manuell
               </button>
             </div>
+
+            {keywordMode === 'category' ? (
+              <>
+                {/* Category Grid */}
+                <div>
+                  <label className="block text-xs font-medium text-elvora-text-dim mb-2">Branchen auswählen</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                    {CATEGORIES.map(cat => {
+                      const isSelected = selectedCategories.includes(cat.id);
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => {
+                            setSelectedCategories(prev =>
+                              isSelected ? prev.filter(c => c !== cat.id) : [...prev, cat.id]
+                            );
+                          }}
+                          className={`p-3 rounded-xl text-left transition-all border ${
+                            isSelected
+                              ? 'bg-elvora-purple/20 border-elvora-purple/40 ring-1 ring-elvora-purple/30'
+                              : 'bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10'
+                          }`}
+                        >
+                          <div className={`text-sm font-semibold ${isSelected ? 'text-elvora-purple-light' : 'text-white'}`}>
+                            {cat.name}
+                          </div>
+                          <div className="text-[10px] text-elvora-text-dim mt-1">
+                            {cat.scrapeKeywords.length} Keywords
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedCategories.length > 0 && (
+                    <button
+                      onClick={() => setSelectedCategories(CATEGORIES.map(c => c.id))}
+                      className="mt-2 text-[10px] text-elvora-text-dim hover:text-white transition-colors"
+                    >
+                      {selectedCategories.length === CATEGORIES.length ? 'Alle abwählen' : 'Alle auswählen'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Rollen Selection */}
+                <div>
+                  <label className="block text-xs font-medium text-elvora-text-dim mb-2">Entscheider-Rollen</label>
+                  <div className="flex flex-wrap gap-2">
+                    {ENTSCHEIDER_ROLLEN.map(rolle => {
+                      const isSelected = selectedRollen.includes(rolle);
+                      return (
+                        <button
+                          key={rolle}
+                          onClick={() => {
+                            setSelectedRollen(prev =>
+                              isSelected ? prev.filter(r => r !== rolle) : [...prev, rolle]
+                            );
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            isSelected
+                              ? 'bg-elvora-purple/30 text-elvora-purple-light border border-elvora-purple/40'
+                              : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
+                          }`}
+                        >
+                          {rolle}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Category Preview + Generate */}
+                {selectedCategories.length > 0 && selectedRollen.length > 0 && (
+                  <div className="bg-elvora-purple/5 border border-elvora-purple/20 rounded-xl px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-elvora-text-muted">
+                        <span className="text-white font-semibold">{selectedRollen.length}</span> Rollen
+                        {' × '}
+                        <span className="text-white font-semibold">
+                          {selectedCategories.reduce((sum, id) => sum + (CATEGORIES.find(c => c.id === id)?.scrapeKeywords.length || 0), 0)}
+                        </span> Keywords
+                        {' = '}
+                        <span className="text-elvora-purple-light font-bold">
+                          {generateEntscheiderKeywords(selectedCategories, selectedRollen).length}
+                        </span> Suchbegriffe
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const kws = generateEntscheiderKeywords(selectedCategories, selectedRollen);
+                        if (kws.length > 0) setKeyword(kws.join(', '));
+                      }}
+                      className="mt-3 px-4 py-2.5 rounded-lg bg-elvora-purple/20 text-elvora-purple-light text-xs font-medium hover:bg-elvora-purple/30 transition-colors w-full"
+                    >
+                      Keywords generieren und übernehmen
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Manual Keyword Input */}
+                <div>
+                  <label className="block text-sm font-medium text-elvora-text-muted mb-2">
+                    Suchbegriffe <span className="text-elvora-text-dim font-normal">(mehrere mit Komma trennen)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={keyword}
+                    onChange={(e) => setKeyword(e.target.value)}
+                    placeholder="z.B. Geschäftsführer Handwerk, Inhaber SHK..."
+                    className="w-full px-4 py-3 rounded-xl bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim focus:outline-none focus:ring-2 focus:ring-elvora-purple/50 focus:border-elvora-purple/50 transition-all"
+                    onKeyDown={(e) => e.key === 'Enter' && !scraping && startScraping()}
+                  />
+                </div>
+
+                {/* Entscheider Presets */}
+                <div>
+                  <label className="block text-xs font-medium text-elvora-text-dim mb-2">Entscheider-Rollen</label>
+                  <div className="flex flex-wrap gap-2">
+                    {entscheiderPresets.map(preset => (
+                      <button
+                        key={preset}
+                        onClick={() => {
+                          const current = keyword.split(/,/).map(k => k.trim()).filter(Boolean);
+                          if (current.includes(preset)) {
+                            setKeyword(current.filter(k => k !== preset).join(', '));
+                          } else {
+                            setKeyword(current.length > 0 ? `${keyword}, ${preset}` : preset);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          keyword.includes(preset)
+                            ? 'bg-elvora-purple/30 text-elvora-purple-light border border-elvora-purple/40'
+                            : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Branche + Rolle Presets */}
+                <div>
+                  <label className="block text-xs font-medium text-elvora-text-dim mb-2">Branche + Entscheider</label>
+                  <div className="flex flex-wrap gap-2">
+                    {branchenPresets.map(preset => (
+                      <button
+                        key={preset}
+                        onClick={() => {
+                          const current = keyword.split(/,/).map(k => k.trim()).filter(Boolean);
+                          if (current.includes(preset)) {
+                            setKeyword(current.filter(k => k !== preset).join(', '));
+                          } else {
+                            setKeyword(current.length > 0 ? `${keyword}, ${preset}` : preset);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          keyword.includes(preset)
+                            ? 'bg-elvora-pink/30 text-elvora-pink border border-elvora-pink/40'
+                            : 'bg-white/5 text-elvora-text-muted hover:bg-white/10 hover:text-white border border-white/5'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Kombinator */}
+                <div className="bg-white/[0.02] rounded-xl p-4 border border-white/5">
+                  <label className="block text-xs font-medium text-elvora-text-dim mb-3">Kombinator — Branche × Rolle automatisch generieren</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] text-elvora-text-dim mb-1.5">Branchen (eine pro Zeile)</label>
+                      <textarea
+                        value={kombiBranchen}
+                        onChange={e => setKombiBranchen(e.target.value)}
+                        placeholder={"Sanitär\nElektro\nDachdecker\nMaler"}
+                        rows={4}
+                        className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-elvora-text-dim mb-1.5">Rollen (eine pro Zeile)</label>
+                      <textarea
+                        value={kombiRollen}
+                        onChange={e => setKombiRollen(e.target.value)}
+                        placeholder={"Geschäftsführer\nInhaber\nCEO"}
+                        rows={4}
+                        className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-white/10 text-white placeholder-elvora-text-dim text-xs"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const branchen = kombiBranchen.split('\n').map(b => b.trim()).filter(Boolean);
+                      const rollen = kombiRollen.split('\n').map(r => r.trim()).filter(Boolean);
+                      const combos = branchen.flatMap(b => rollen.map(r => `${r} ${b}`));
+                      if (combos.length > 0) setKeyword(combos.join(', '));
+                    }}
+                    className="mt-3 px-4 py-2 rounded-lg bg-elvora-purple/20 text-elvora-purple-light text-xs font-medium hover:bg-elvora-purple/30 transition-colors w-full"
+                  >
+                    {(() => {
+                      const b = kombiBranchen.split('\n').filter(x => x.trim()).length;
+                      const r = kombiRollen.split('\n').filter(x => x.trim()).length;
+                      return `${b} Branchen × ${r} Rollen = ${b * r} Keywords generieren`;
+                    })()}
+                  </button>
+                </div>
+              </>
+            )}
           </>
         ) : (
           <>
@@ -954,7 +1081,7 @@ export default function LinkedInScraperPage() {
               <span className="text-sm font-medium text-white">SMTP-Verifikation</span>
             </div>
             <p className="text-xs text-elvora-text-dim mt-1">
-              E-Mail-Adressen per SMTP prüfen (genauer, aber etwas langsamer).
+              E-Mail-Adressen per SMTP prüfen (genauer, aber deutlich langsamer — ~7s pro E-Mail).
             </p>
           </div>
           <button

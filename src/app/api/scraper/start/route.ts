@@ -27,8 +27,8 @@ function importBusinessesToLeads(
   const category = detectCategory(keyword);
 
   const insertLead = db.prepare(`
-    INSERT INTO leads (name, website_original, website_normalized, phone, email, city, status, found_via_keywords, score, rating, category)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, 'pending', ?)
+    INSERT INTO leads (name, website_original, website_normalized, phone, email, city, status, found_via_keywords, score, rating, category, lead_type)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 0, 'pending', ?, 'business')
   `);
 
   const updateSeen = db.prepare(`
