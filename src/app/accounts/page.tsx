@@ -63,11 +63,12 @@ const STATUS_COLORS: Record<string, string> = {
 export default function AccountsPage() {
   const router = useRouter();
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
   const [view, setView] = useState<'list' | 'add' | 'detail'>('list');
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [blacklist, setBlacklist] = useState<BlacklistEntry[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
+  const [error, setError] = useState('');
 
   const [form, setForm] = useState({
     name: '', company: '', contact_name: '', contact_email: '', contact_phone: '',
@@ -77,15 +78,17 @@ export default function AccountsPage() {
   const [saving, setSaving] = useState(false);
   const [blacklistInput, setBlacklistInput] = useState('');
 
-  const loadAccounts = useCallback(async () => {
-    setLoading(true);
-    const url = statusFilter ? `/api/accounts?stats=1&status=${statusFilter}` : '/api/accounts?stats=1';
-    const res = await fetch(url);
-    if (res.ok) setAccounts(await res.json());
-    setLoading(false);
+  const loadAccounts = useCallback(async (showLoading = false) => {
+    if (showLoading) setInitialLoad(true);
+    try {
+      const url = statusFilter ? `/api/accounts?stats=1&status=${statusFilter}` : '/api/accounts?stats=1';
+      const res = await fetch(url);
+      if (res.ok) setAccounts(await res.json());
+    } catch {}
+    setInitialLoad(false);
   }, [statusFilter]);
 
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  useEffect(() => { loadAccounts(true); }, [loadAccounts]);
 
   const loadBlacklist = async (accountId: number) => {
     const res = await fetch(`/api/accounts/${accountId}/blacklist`);
@@ -93,59 +96,80 @@ export default function AccountsPage() {
   };
 
   const createAccount = async () => {
+    if (!form.name.trim()) { setError('Kontoname ist erforderlich'); return; }
     setSaving(true);
-    const res = await fetch('/api/accounts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...form,
-        monthly_fee: parseFloat(form.monthly_fee) || 0,
-      }),
-    });
-    if (res.ok) {
+    setError('');
+    try {
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          company: form.company.trim() || null,
+          contact_name: form.contact_name.trim() || null,
+          contact_email: form.contact_email.trim() || null,
+          contact_phone: form.contact_phone.trim() || null,
+          monthly_fee: parseFloat(form.monthly_fee) || 0,
+          notes: form.notes.trim() || null,
+          icp_description: form.icp_description.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || `Fehler: HTTP ${res.status}`);
+        setSaving(false);
+        return;
+      }
+      const newAccount = await res.json();
+      setAccounts(prev => [{ ...newAccount, stats: { totalLeads: 0, leadsWithEmail: 0, totalCampaigns: 0, activeCampaigns: 0, totalSent: 0, totalOpened: 0, totalReplied: 0, totalBounced: 0, activeDomains: 0, activeSequences: 0, blacklistCount: 0, sentToday: 0, dailyCapacity: 0 } }, ...prev]);
       setForm({ name: '', company: '', contact_name: '', contact_email: '', contact_phone: '', monthly_fee: '', notes: '', icp_description: '' });
       setView('list');
-      loadAccounts();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Netzwerkfehler');
     }
     setSaving(false);
   };
 
-  const updateStatus = async (id: number, status: string) => {
+  const updateStatus = async (id: number, newStatus: string) => {
+    setAccounts(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
+    if (selectedAccount?.id === id) {
+      setSelectedAccount(prev => prev ? { ...prev, status: newStatus } : null);
+    }
     await fetch(`/api/accounts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status: newStatus }),
     });
-    loadAccounts();
-    if (selectedAccount?.id === id) {
-      setSelectedAccount(prev => prev ? { ...prev, status } : null);
-    }
   };
 
   const deleteAccount = async (id: number) => {
     if (!confirm('Konto wirklich löschen? Leads werden entkoppelt, nicht gelöscht.')) return;
-    await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
+    setAccounts(prev => prev.filter(a => a.id !== id));
     setView('list');
     setSelectedAccount(null);
-    loadAccounts();
+    await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
   };
 
   const addToBlacklist = async () => {
     if (!selectedAccount || !blacklistInput.trim()) return;
     const emails = blacklistInput.split(/[\n,;]+/).map(e => e.trim()).filter(Boolean);
+    const tempEntries: BlacklistEntry[] = emails.map((email, i) => ({
+      id: -(i + 1), email, domain: email.includes('@') ? email.split('@')[1] : null, reason: null, created_at: new Date().toISOString(),
+    }));
+    setBlacklist(prev => [...tempEntries, ...prev]);
+    setBlacklistInput('');
     await fetch(`/api/accounts/${selectedAccount.id}/blacklist`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ emails }),
     });
-    setBlacklistInput('');
     loadBlacklist(selectedAccount.id);
   };
 
   const removeFromBlacklist = async (email: string) => {
     if (!selectedAccount) return;
+    setBlacklist(prev => prev.filter(b => b.email !== email));
     await fetch(`/api/accounts/${selectedAccount.id}/blacklist?email=${encodeURIComponent(email)}`, { method: 'DELETE' });
-    loadBlacklist(selectedAccount.id);
   };
 
   const openDetail = (account: Account) => {
@@ -171,12 +195,12 @@ export default function AccountsPage() {
         </div>
         <div className="flex gap-2">
           {view !== 'list' && (
-            <button onClick={() => { setView('list'); setSelectedAccount(null); }} className="px-4 py-2 rounded-lg bg-elvora-darker text-elvora-text-muted hover:text-white transition">
+            <button onClick={() => { setView('list'); setSelectedAccount(null); setError(''); }} className="px-4 py-2 rounded-lg bg-elvora-darker text-elvora-text-muted hover:text-white transition">
               ← Zurück
             </button>
           )}
           {view === 'list' && (
-            <button onClick={() => setView('add')} className="px-4 py-2 rounded-lg bg-elvora-accent text-white hover:bg-elvora-accent/80 transition">
+            <button onClick={() => { setView('add'); setError(''); }} className="px-4 py-2 rounded-lg bg-elvora-accent text-white hover:bg-elvora-accent/80 transition">
               + Neues Konto
             </button>
           )}
@@ -203,13 +227,22 @@ export default function AccountsPage() {
         </div>
       </div>
 
+      {/* Error */}
+      {error && (
+        <div className="p-3 rounded-lg bg-red-500/20 border border-red-500/30 text-red-400 text-sm flex justify-between items-center">
+          <span>{error}</span>
+          <button onClick={() => setError('')} className="text-red-400 hover:text-red-300 ml-4">✕</button>
+        </div>
+      )}
+
       {/* Add Form */}
       {view === 'add' && (
         <div className="card-glass p-6 rounded-xl space-y-4">
           <h2 className="text-lg font-semibold text-white">Neues Konto erstellen</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input placeholder="Kontoname *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              className="px-4 py-2 rounded-lg bg-elvora-darker border border-white/10 text-white placeholder-elvora-text-muted" />
+              className="px-4 py-2 rounded-lg bg-elvora-darker border border-white/10 text-white placeholder-elvora-text-muted"
+              onKeyDown={e => e.key === 'Enter' && createAccount()} />
             <input placeholder="Firma" value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))}
               className="px-4 py-2 rounded-lg bg-elvora-darker border border-white/10 text-white placeholder-elvora-text-muted" />
             <input placeholder="Ansprechpartner" value={form.contact_name} onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))}
@@ -225,7 +258,7 @@ export default function AccountsPage() {
             className="w-full px-4 py-2 rounded-lg bg-elvora-darker border border-white/10 text-white placeholder-elvora-text-muted h-20" />
           <textarea placeholder="Notizen" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
             className="w-full px-4 py-2 rounded-lg bg-elvora-darker border border-white/10 text-white placeholder-elvora-text-muted h-20" />
-          <button onClick={createAccount} disabled={saving || !form.name}
+          <button onClick={createAccount} disabled={saving || !form.name.trim()}
             className="px-6 py-2 rounded-lg bg-elvora-accent text-white hover:bg-elvora-accent/80 transition disabled:opacity-50">
             {saving ? 'Speichern...' : 'Konto erstellen'}
           </button>
@@ -244,7 +277,7 @@ export default function AccountsPage() {
             ))}
           </div>
 
-          {loading ? (
+          {initialLoad ? (
             <div className="text-elvora-text-muted text-center py-12">Laden...</div>
           ) : accounts.length === 0 ? (
             <div className="card-glass p-12 rounded-xl text-center">
@@ -344,7 +377,6 @@ export default function AccountsPage() {
             )}
           </div>
 
-          {/* Stats */}
           {selectedAccount.stats && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {[
@@ -362,7 +394,6 @@ export default function AccountsPage() {
             </div>
           )}
 
-          {/* Sending capacity */}
           {selectedAccount.stats && selectedAccount.stats.dailyCapacity > 0 && (
             <div className="card-glass p-4 rounded-xl">
               <div className="flex justify-between text-sm mb-2">
@@ -375,7 +406,6 @@ export default function AccountsPage() {
             </div>
           )}
 
-          {/* Blacklist */}
           <div className="card-glass p-6 rounded-xl">
             <h3 className="text-lg font-semibold text-white mb-4">Blacklist ({blacklist.length})</h3>
             <div className="flex gap-2 mb-4">
