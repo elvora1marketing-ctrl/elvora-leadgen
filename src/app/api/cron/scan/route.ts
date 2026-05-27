@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { scrapeGoogleMaps, normalizeWebsite, type ScrapedBusiness } from '@/lib/maps-scraper';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: NextRequest) {
   const authError = requireAuth(request);
   if (authError) return authError;

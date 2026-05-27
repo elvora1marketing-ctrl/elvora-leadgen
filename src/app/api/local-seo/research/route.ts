@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runLocalSeoResearch } from '@/lib/dataforseo';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/local-seo/research
  * Body: { branche: string, stadt: string }

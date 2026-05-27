@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import getDb from '@/lib/db';
 import { hashPassword } from '@/lib/utils';
 
+export const dynamic = "force-dynamic";
+
 function isHttps(request: NextRequest): boolean {
   if (request.url.startsWith('https://')) return true;
   const proto = request.headers.get('x-forwarded-proto');

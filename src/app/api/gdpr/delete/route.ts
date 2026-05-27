@@ -3,6 +3,8 @@ import { requireAuth } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import getDb from '@/lib/db';
 
+export const dynamic = "force-dynamic";
+
 function safeDelete(db: ReturnType<typeof getDb>, sql: string, params: unknown[]): boolean {
   try {
     db.prepare(sql).run(...params);

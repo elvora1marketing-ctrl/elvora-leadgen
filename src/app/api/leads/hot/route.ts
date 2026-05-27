@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 // GET /api/leads/hot – Leads die auf den Audit reagiert haben
 export async function GET(request: NextRequest) {
   try {

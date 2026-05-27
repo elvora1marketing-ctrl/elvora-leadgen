@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { executeWorkflows } from '@/lib/workflows';
 
+export const dynamic = "force-dynamic";
+
 /**
  * Resend Webhook for outbound email events
  * Configure in Resend Dashboard → Webhooks → Add Endpoint

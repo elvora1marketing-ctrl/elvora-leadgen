@@ -4,6 +4,8 @@ import { createJob, listJobs, runJob } from '@/lib/outreach-jobs';
 import { renderLeadEmail } from '@/lib/email-sender';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 

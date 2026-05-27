@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { parseImpressum } from '@/lib/impressum-parser';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 

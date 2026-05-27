@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { executeWorkflows } from '@/lib/workflows';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

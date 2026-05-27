@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 type Classification = 'interested' | 'not_interested' | 'question' | 'out_of_office' | 'bounce' | 'unsubscribe' | 'unclear';
 
 interface ClassifyRequest {

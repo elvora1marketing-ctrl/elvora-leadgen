@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 
+export const dynamic = "force-dynamic";
+
 function generateSlug(name: string): string {
   return name
     .toLowerCase()

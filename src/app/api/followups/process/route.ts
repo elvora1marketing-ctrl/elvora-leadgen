@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 interface FollowUpSequenceStep {
   step: number;
   days: number;

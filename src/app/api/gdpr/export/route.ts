@@ -3,6 +3,8 @@ import { requireAuth } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import getDb from '@/lib/db';
 
+export const dynamic = "force-dynamic";
+
 function safeQuery(db: ReturnType<typeof getDb>, sql: string, params: unknown[]): unknown[] {
   try {
     return db.prepare(sql).all(...params);

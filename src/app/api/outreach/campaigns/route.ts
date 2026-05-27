@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { createJob, runJob, listJobs as listMemJobs } from '@/lib/outreach-jobs';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 export const runtime = 'nodejs';
 
 interface CampaignRow {

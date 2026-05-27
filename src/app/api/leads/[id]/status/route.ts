@@ -7,6 +7,8 @@ import { checkLeadHandoff } from '@/lib/lead-handoff';
 import { dispatchWebhook } from '@/lib/webhook-dispatcher';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

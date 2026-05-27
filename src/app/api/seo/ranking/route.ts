@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkLocalRanking } from '@/lib/seo-analyzer';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/seo/ranking - Check local SERP ranking for a keyword + city
  * Body: { keyword: string, city: string, website: string }

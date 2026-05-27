@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runSeoAudit } from '@/lib/seo-analyzer';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/seo/audit - Run deep SEO audit on a URL
  * Body: { url: string }

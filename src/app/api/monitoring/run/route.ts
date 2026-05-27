@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { quickCheck } from '@/lib/website-analyzer';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 

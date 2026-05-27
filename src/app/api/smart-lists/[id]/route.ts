@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { buildWhereClause } from '../route';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 interface SmartListRule {
   field: string;
   op: string;

@@ -3,6 +3,8 @@ import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import getDb from '@/lib/db';
 
+export const dynamic = "force-dynamic";
+
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/svg+xml', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'];
 

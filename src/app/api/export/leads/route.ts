@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 function csvEscape(val: any): string {
   if (val === null || val === undefined) return '';
   const str = String(val);

@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 /**
  * PATCH /api/leads/bulk - Bulk update lead status
  * Body: { ids: number[], status?: string, contact_status?: string }

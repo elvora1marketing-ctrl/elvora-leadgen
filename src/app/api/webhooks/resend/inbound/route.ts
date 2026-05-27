@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 
+export const dynamic = "force-dynamic";
+
 /**
  * Resend Inbound Email Webhook - empfängt Replies von Leads
  *

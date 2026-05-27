@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/calendar?month=2026-04
  * Returns unified events for the month: tasks, follow-ups, meeting activities.

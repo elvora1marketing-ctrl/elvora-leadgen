@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/leads/[id]/reply
  * Send a direct reply email to a lead from the conversation thread

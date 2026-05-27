@@ -4,6 +4,8 @@ import { parseImpressum, type ImpressumData } from '@/lib/impressum-parser';
 import { extractEmails } from '@/lib/website-analyzer';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 

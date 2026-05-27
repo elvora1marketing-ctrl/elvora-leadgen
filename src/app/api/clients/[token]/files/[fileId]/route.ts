@@ -3,6 +3,8 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import getDb from '@/lib/db';
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ token: string; fileId: string }> }

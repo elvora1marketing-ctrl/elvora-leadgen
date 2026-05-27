@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { analyzeWebsite } from '@/lib/website-analyzer';
 import { requireAuth } from '@/lib/auth';
 
+export const dynamic = "force-dynamic";
+
 const BATCH_CONCURRENCY = 10;
 
 export async function POST(request: NextRequest) {

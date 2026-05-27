@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
 import getDb from '@/lib/db';
 
+export const dynamic = "force-dynamic";
+
 interface OpenClawEvent {
   type: 'message_received' | 'lead_replied' | 'appointment_booked' | 'lead_status_change';
   channel: 'whatsapp' | 'email' | 'telegram' | 'webchat';
