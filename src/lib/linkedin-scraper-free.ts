@@ -578,19 +578,138 @@ async function searchGoogle(
   return results;
 }
 
+/**
+ * Google Custom Search API — offizielle API, funktioniert immer, kein Scraping.
+ * Braucht API Key + Custom Search Engine ID (cx).
+ * Free: 100 Queries/Tag, danach $5/1000 Queries.
+ */
+async function searchGoogleCSE(
+  keyword: string,
+  location: string,
+  maxResults: number,
+  apiKey: string,
+  cx: string,
+  onProgress?: (msg: string, count: number) => void,
+): Promise<SearchResult[]> {
+  const results: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+
+  const query = location
+    ? `site:linkedin.com/in ${keyword} ${location}`
+    : `site:linkedin.com/in ${keyword}`;
+
+  const perPage = 10; // Google CSE max per request
+  const maxPages = maxResults > 0 ? Math.ceil(Math.min(maxResults, 100) / perPage) : 10;
+
+  for (let page = 0; page < maxPages; page++) {
+    const start = page * perPage + 1;
+    onProgress?.(`Google CSE Seite ${page + 1}...`, results.length);
+
+    try {
+      const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&start=${start}&num=${perPage}&gl=de&lr=lang_de`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+
+      if (res.status === 429) {
+        onProgress?.('Google CSE Tageslimit erreicht (100 Queries/Tag kostenlos)', results.length);
+        break;
+      }
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        onProgress?.(`Google CSE Fehler: ${res.status} ${errText.substring(0, 100)}`, results.length);
+        break;
+      }
+
+      const data = await res.json();
+      const items = (data.items || []) as { link?: string; title?: string; snippet?: string }[];
+      let foundOnPage = 0;
+
+      for (const item of items) {
+        const profileUrl = cleanLinkedInUrl(item.link || '');
+        if (!profileUrl) continue;
+        const norm = normalizeLinkedInUrl(profileUrl);
+        if (seenUrls.has(norm)) continue;
+        seenUrls.add(norm);
+
+        const parsed = parseSearchTitle(item.title || '');
+        results.push({
+          profileUrl,
+          snippetName: parsed.name,
+          snippetHeadline: parsed.headline || (item.snippet || '').slice(0, 100),
+        });
+        foundOnPage++;
+        if (maxResults > 0 && results.length >= maxResults) break;
+      }
+
+      onProgress?.(`Google CSE Seite ${page + 1}: ${foundOnPage} Profile (gesamt: ${results.length})`, results.length);
+
+      if (items.length < perPage || foundOnPage === 0) break;
+      if (maxResults > 0 && results.length >= maxResults) break;
+
+      // Respect rate limits
+      if (page < maxPages - 1) await randomDelay(200, 500);
+    } catch (err) {
+      onProgress?.(`Google CSE Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, results.length);
+      break;
+    }
+  }
+
+  return results;
+}
+
+export interface SearchEngineConfig {
+  searxngUrl?: string;
+  googleCseKey?: string;
+  googleCseCx?: string;
+}
+
 export async function searchProfiles(
   keyword: string,
   location: string,
   maxResults: number,
   onProgress?: (msg: string, count: number) => void,
   searxngUrl?: string,
+  engineConfig?: SearchEngineConfig,
 ): Promise<SearchResult[]> {
   const seenUrls = new Set<string>();
   const allResults: SearchResult[] = [];
+  const config = engineConfig || { searxngUrl };
 
-  onProgress?.('Starte parallele Suche über alle Suchmaschinen...', 0);
+  // Determine which engines are available
+  const hasGoogleCSE = !!(config.googleCseKey && config.googleCseCx);
+  const hasSearXNG = !!config.searxngUrl;
 
-  const searches: Promise<{ engine: string; results: SearchResult[] }>[] = [
+  if (hasGoogleCSE || hasSearXNG) {
+    onProgress?.(`Starte Suche — Engines: ${[
+      hasGoogleCSE ? 'Google CSE API' : null,
+      hasSearXNG ? 'SearXNG' : null,
+      'DuckDuckGo', 'Bing',
+    ].filter(Boolean).join(', ')}`, 0);
+  } else {
+    onProgress?.('Starte Suche — nur Scraping-Engines (DDG/Google/Bing). Für bessere Ergebnisse: Google CSE API oder SearXNG konfigurieren.', 0);
+  }
+
+  const searches: Promise<{ engine: string; results: SearchResult[] }>[] = [];
+
+  // Priority 1: Google CSE API (most reliable)
+  if (hasGoogleCSE) {
+    searches.push(
+      searchGoogleCSE(keyword, location, maxResults, config.googleCseKey!, config.googleCseCx!, (msg) => {
+        onProgress?.(`[Google CSE] ${msg}`, allResults.length);
+      }).then(results => ({ engine: 'Google CSE', results }))
+    );
+  }
+
+  // Priority 2: SearXNG (self-hosted, no limits)
+  if (hasSearXNG) {
+    searches.push(
+      searchSearXNG(keyword, location, maxResults, config.searxngUrl!, (msg) => {
+        onProgress?.(`[SearXNG] ${msg}`, allResults.length);
+      }).then(results => ({ engine: 'SearXNG', results }))
+    );
+  }
+
+  // Scraping engines — always try as fallback
+  searches.push(
     searchDuckDuckGo(keyword, location, maxResults, (msg) => {
       onProgress?.(`[DDG] ${msg}`, allResults.length);
     }).then(results => ({ engine: 'DuckDuckGo', results })),
@@ -600,15 +719,7 @@ export async function searchProfiles(
     searchGoogle(keyword, location, maxResults, (msg) => {
       onProgress?.(`[Google] ${msg}`, allResults.length);
     }).then(results => ({ engine: 'Google', results })),
-  ];
-
-  if (searxngUrl) {
-    searches.push(
-      searchSearXNG(keyword, location, maxResults, searxngUrl, (msg) => {
-        onProgress?.(`[SearXNG] ${msg}`, allResults.length);
-      }).then(results => ({ engine: 'SearXNG', results }))
-    );
-  }
+  );
 
   const settled = await Promise.allSettled(searches);
   const engineStats: string[] = [];
@@ -639,7 +750,10 @@ export async function searchProfiles(
   onProgress?.(`Alle Engines fertig: ${allResults.length} einzigartige Profile [${engineStats.join(', ')}]`, allResults.length);
 
   if (allResults.length === 0) {
-    onProgress?.('WARNUNG: Keine Ergebnisse von allen Suchmaschinen. Server-IP wird vermutlich blockiert. SearXNG-Instanz empfohlen!', 0);
+    const hints: string[] = [];
+    if (!hasGoogleCSE) hints.push('Google CSE API Key + CX in Einstellungen hinterlegen');
+    if (!hasSearXNG) hints.push('SearXNG-Instanz einrichten (docker run -d -p 8080:8080 searxng/searxng)');
+    onProgress?.(`WARNUNG: 0 Ergebnisse von allen Engines. Tipps: ${hints.join(' ODER ')}`, 0);
   }
 
   if (maxResults > 0 && allResults.length > maxResults) {
@@ -647,6 +761,76 @@ export async function searchProfiles(
   }
 
   return allResults;
+}
+
+/**
+ * Test which search engines work from this server.
+ */
+export async function testSearchEngines(config: SearchEngineConfig): Promise<{
+  engine: string;
+  status: 'ok' | 'error' | 'not_configured';
+  results: number;
+  error?: string;
+  latency?: number;
+}[]> {
+  const testKeyword = 'CEO Software';
+  const testLocation = 'Deutschland';
+  const results: { engine: string; status: 'ok' | 'error' | 'not_configured'; results: number; error?: string; latency?: number }[] = [];
+
+  // Test Google CSE
+  if (config.googleCseKey && config.googleCseCx) {
+    const start = Date.now();
+    try {
+      const r = await searchGoogleCSE(testKeyword, testLocation, 5, config.googleCseKey, config.googleCseCx);
+      results.push({ engine: 'Google CSE', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - start, error: r.length === 0 ? 'Keine Ergebnisse' : undefined });
+    } catch (e) {
+      results.push({ engine: 'Google CSE', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - start });
+    }
+  } else {
+    results.push({ engine: 'Google CSE', status: 'not_configured', results: 0 });
+  }
+
+  // Test SearXNG
+  if (config.searxngUrl) {
+    const start = Date.now();
+    try {
+      const r = await searchSearXNG(testKeyword, testLocation, 5, config.searxngUrl);
+      results.push({ engine: 'SearXNG', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - start, error: r.length === 0 ? 'Keine Ergebnisse' : undefined });
+    } catch (e) {
+      results.push({ engine: 'SearXNG', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - start });
+    }
+  } else {
+    results.push({ engine: 'SearXNG', status: 'not_configured', results: 0 });
+  }
+
+  // Test DuckDuckGo
+  const ddgStart = Date.now();
+  try {
+    const r = await searchDuckDuckGo(testKeyword, testLocation, 5);
+    results.push({ engine: 'DuckDuckGo', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - ddgStart, error: r.length === 0 ? 'Blockiert oder keine Ergebnisse' : undefined });
+  } catch (e) {
+    results.push({ engine: 'DuckDuckGo', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - ddgStart });
+  }
+
+  // Test Bing
+  const bingStart = Date.now();
+  try {
+    const r = await searchBing(testKeyword, testLocation, 5);
+    results.push({ engine: 'Bing', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - bingStart, error: r.length === 0 ? 'Blockiert oder keine Ergebnisse' : undefined });
+  } catch (e) {
+    results.push({ engine: 'Bing', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - bingStart });
+  }
+
+  // Test Google scraping
+  const gStart = Date.now();
+  try {
+    const r = await searchGoogle(testKeyword, testLocation, 5);
+    results.push({ engine: 'Google', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - gStart, error: r.length === 0 ? 'CAPTCHA oder IP-Block' : undefined });
+  } catch (e) {
+    results.push({ engine: 'Google', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - gStart });
+  }
+
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -1056,6 +1240,7 @@ export async function scrapeLinkedInKeyword(
   smtpVerification: boolean,
   onProgress?: (progress: LinkedInScrapeProgress) => void,
   searxngUrl?: string,
+  engineConfig?: SearchEngineConfig,
 ): Promise<FreeLinkedInPerson[]> {
   const people: FreeLinkedInPerson[] = [];
 
@@ -1066,9 +1251,10 @@ export async function scrapeLinkedInKeyword(
     profilesFound: 0,
   });
 
+  const config = engineConfig || { searxngUrl };
   const searchResults = await searchProfiles(keyword, location, maxResults, (msg, count) => {
     onProgress?.({ type: 'search_progress', keyword, message: msg, profilesFound: count });
-  }, searxngUrl);
+  }, searxngUrl, config);
 
   onProgress?.({
     type: 'search_results',

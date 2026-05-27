@@ -112,6 +112,13 @@ export default function LinkedInScraperPage() {
   const [kombiBranchen, setKombiBranchen] = useState('Sanitär\nElektro\nDachdecker\nMaler\nSchreiner');
   const [kombiRollen, setKombiRollen] = useState('Geschäftsführer\nInhaber\nCEO');
 
+  // Engine diagnostics
+  const [engineResults, setEngineResults] = useState<{ engine: string; status: string; results: number; error?: string; latency?: number }[] | null>(null);
+  const [testingEngines, setTestingEngines] = useState(false);
+  const [showEngineConfig, setShowEngineConfig] = useState(false);
+  const [engineSettings, setEngineSettings] = useState({ searxng_url: '', google_cse_key: '', google_cse_cx: '' });
+  const [savingSettings, setSavingSettings] = useState(false);
+
   const entscheiderPresets = [
     'Geschäftsführer',
     'Inhaber',
@@ -214,9 +221,51 @@ export default function LinkedInScraperPage() {
     } catch { /* silent */ }
   }, []);
 
+  const loadEngineSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        const settings = data.settings || data;
+        setEngineSettings({
+          searxng_url: settings.searxng_url || '',
+          google_cse_key: settings.google_cse_key || '',
+          google_cse_cx: settings.google_cse_cx || '',
+        });
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const testEngines = async () => {
+    setTestingEngines(true);
+    setEngineResults(null);
+    try {
+      const res = await fetch('/api/scraper/linkedin/test', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setEngineResults(data.engines);
+      }
+    } catch { /* silent */ }
+    setTestingEngines(false);
+  };
+
+  const saveEngineSetting = async (key: string, value: string) => {
+    setSavingSettings(true);
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value }),
+      });
+      setEngineSettings(prev => ({ ...prev, [key]: value }));
+    } catch { /* silent */ }
+    setSavingSettings(false);
+  };
+
   useEffect(() => {
     loadJobs();
-  }, [loadJobs]);
+    loadEngineSettings();
+  }, [loadJobs, loadEngineSettings]);
 
   const loadLeadsForEnrich = useCallback(async () => {
     setEnrichLoading(true);
@@ -485,6 +534,155 @@ export default function LinkedInScraperPage() {
             <div className="text-[9px] font-normal mt-0.5 opacity-70">{m.desc}</div>
           </button>
         ))}
+      </div>
+
+      {/* Engine Status & Config */}
+      <div className="card-glass overflow-hidden border border-white/10">
+        <div
+          className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-white/[0.02] transition-colors"
+          onClick={() => setShowEngineConfig(!showEngineConfig)}
+        >
+          <div className="flex items-center gap-3">
+            <svg className="w-4 h-4 text-elvora-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span className="text-sm font-semibold text-white">Suchmaschinen-Status</span>
+            {engineResults && (
+              <div className="flex items-center gap-1.5">
+                {engineResults.map((e, i) => (
+                  <span key={i} className={`w-2 h-2 rounded-full ${
+                    e.status === 'ok' ? 'bg-emerald-500' : e.status === 'not_configured' ? 'bg-white/20' : 'bg-red-500'
+                  }`} title={`${e.engine}: ${e.status}`} />
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); testEngines(); }}
+              disabled={testingEngines}
+              className="px-3 py-1.5 rounded-lg bg-elvora-purple/20 text-elvora-purple-light text-xs font-medium hover:bg-elvora-purple/30 transition-colors disabled:opacity-50"
+            >
+              {testingEngines ? 'Teste...' : 'Engines testen'}
+            </button>
+            <svg className={`w-4 h-4 text-elvora-text-dim transition-transform ${showEngineConfig ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Engine Test Results */}
+        {engineResults && (
+          <div className="px-4 pb-3 grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {engineResults.map((e, i) => (
+              <div key={i} className={`rounded-lg px-3 py-2 text-center border ${
+                e.status === 'ok' ? 'bg-emerald-500/10 border-emerald-500/20' :
+                e.status === 'not_configured' ? 'bg-white/[0.02] border-white/5' :
+                'bg-red-500/10 border-red-500/20'
+              }`}>
+                <div className="text-[10px] font-medium text-elvora-text-dim">{e.engine}</div>
+                <div className={`text-xs font-semibold mt-0.5 ${
+                  e.status === 'ok' ? 'text-emerald-400' :
+                  e.status === 'not_configured' ? 'text-elvora-text-dim' :
+                  'text-red-400'
+                }`}>
+                  {e.status === 'ok' ? `${e.results} Treffer` :
+                   e.status === 'not_configured' ? 'Nicht konfiguriert' :
+                   e.error || 'Fehler'}
+                </div>
+                {e.latency && <div className="text-[9px] text-elvora-text-dim mt-0.5">{(e.latency / 1000).toFixed(1)}s</div>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Config Panel */}
+        {showEngineConfig && (
+          <div className="px-4 pb-4 border-t border-white/5 pt-4 space-y-4">
+            <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3 text-xs text-blue-300 leading-relaxed">
+              <strong>Tipp:</strong> Von Cloud-Servern werden DuckDuckGo, Google und Bing oft blockiert (CAPTCHA/403).
+              Konfiguriere <strong>Google CSE API</strong> (am einfachsten) oder <strong>SearXNG</strong> (kostenlos + unbegrenzt) fuer zuverlaessige Ergebnisse.
+            </div>
+
+            {/* Google CSE */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-white">Google Custom Search API</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">Empfohlen</span>
+              </div>
+              <p className="text-[10px] text-elvora-text-dim leading-relaxed">
+                1. <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-400 hover:underline">API Key erstellen</a> (Google Cloud Console)
+                {' '}2. <a href="https://programmablesearchengine.google.com/controlpanel/create" target="_blank" rel="noopener" className="text-blue-400 hover:underline">Search Engine erstellen</a> (Programmable Search)
+                {' '}— &quot;Gesamtes Web durchsuchen&quot; aktivieren. 100 Queries/Tag kostenlos.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] text-elvora-text-dim mb-1">API Key</label>
+                  <div className="flex gap-1">
+                    <input
+                      type="password"
+                      value={engineSettings.google_cse_key}
+                      onChange={e => setEngineSettings(prev => ({ ...prev, google_cse_key: e.target.value }))}
+                      placeholder="AIza..."
+                      className="flex-1 px-3 py-1.5 rounded-lg bg-elvora-bg border border-white/10 text-xs text-white placeholder-elvora-text-dim"
+                    />
+                    <button
+                      onClick={() => saveEngineSetting('google_cse_key', engineSettings.google_cse_key)}
+                      disabled={savingSettings}
+                      className="px-2 py-1.5 rounded-lg bg-white/5 text-[10px] text-elvora-text-muted hover:text-white border border-white/10"
+                    >OK</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-elvora-text-dim mb-1">Search Engine ID (CX)</label>
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      value={engineSettings.google_cse_cx}
+                      onChange={e => setEngineSettings(prev => ({ ...prev, google_cse_cx: e.target.value }))}
+                      placeholder="a1b2c3..."
+                      className="flex-1 px-3 py-1.5 rounded-lg bg-elvora-bg border border-white/10 text-xs text-white placeholder-elvora-text-dim"
+                    />
+                    <button
+                      onClick={() => saveEngineSetting('google_cse_cx', engineSettings.google_cse_cx)}
+                      disabled={savingSettings}
+                      className="px-2 py-1.5 rounded-lg bg-white/5 text-[10px] text-elvora-text-muted hover:text-white border border-white/10"
+                    >OK</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* SearXNG */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-white">SearXNG (Self-Hosted)</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Kostenlos + Unbegrenzt</span>
+              </div>
+              <p className="text-[10px] text-elvora-text-dim leading-relaxed">
+                Auf dem Server starten: <code className="bg-white/5 px-1 py-0.5 rounded text-white">docker run -d -p 8888:8080 searxng/searxng</code>
+              </p>
+              <div>
+                <label className="block text-[10px] text-elvora-text-dim mb-1">SearXNG URL</label>
+                <div className="flex gap-1">
+                  <input
+                    type="text"
+                    value={engineSettings.searxng_url}
+                    onChange={e => setEngineSettings(prev => ({ ...prev, searxng_url: e.target.value }))}
+                    placeholder="http://localhost:8888"
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-elvora-bg border border-white/10 text-xs text-white placeholder-elvora-text-dim"
+                  />
+                  <button
+                    onClick={() => saveEngineSetting('searxng_url', engineSettings.searxng_url)}
+                    disabled={savingSettings}
+                    className="px-2 py-1.5 rounded-lg bg-white/5 text-[10px] text-elvora-text-muted hover:text-white border border-white/10"
+                  >OK</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Enrich Mode */}

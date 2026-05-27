@@ -7,6 +7,7 @@ import {
 import {
   scrapeLinkedInKeyword,
   type FreeLinkedInPerson,
+  type SearchEngineConfig,
 } from '@/lib/linkedin-scraper-free';
 import { requireAuth } from '@/lib/auth';
 
@@ -65,6 +66,14 @@ export async function POST(request: NextRequest) {
       const allErrors: string[] = [];
       const startTime = Date.now();
       const searxngUrl = (db.prepare("SELECT value FROM settings WHERE key = 'searxng_url'").get() as { value: string } | undefined)?.value || '';
+      const googleCseKey = (db.prepare("SELECT value FROM settings WHERE key = 'google_cse_key'").get() as { value: string } | undefined)?.value || '';
+      const googleCseCx = (db.prepare("SELECT value FROM settings WHERE key = 'google_cse_cx'").get() as { value: string } | undefined)?.value || '';
+
+      const engineConfig: SearchEngineConfig = {
+        searxngUrl: searxngUrl || undefined,
+        googleCseKey: googleCseKey || undefined,
+        googleCseCx: googleCseCx || undefined,
+      };
 
       // Create job entry
       const jobLabel = `LinkedIn: ${keywords.join(', ')}${location ? ` @ ${location}` : ''}`;
@@ -73,9 +82,14 @@ export async function POST(request: NextRequest) {
       ).run(jobLabel, maxResults);
       const jobId = Number(jobResult.lastInsertRowid);
 
+      const configuredEngines: string[] = [];
+      if (googleCseKey && googleCseCx) configuredEngines.push('Google CSE API');
+      if (searxngUrl) configuredEngines.push('SearXNG');
+      configuredEngines.push('DuckDuckGo', 'Bing', 'Google');
+
       send({
         type: 'log',
-        message: `Server bereit. SearXNG: ${searxngUrl ? 'Konfiguriert (' + searxngUrl + ')' : 'Nicht konfiguriert — nur DDG/Google/Bing'}`,
+        message: `Server bereit. Engines: ${configuredEngines.join(', ')}`,
       });
 
       send({
@@ -126,6 +140,7 @@ export async function POST(request: NextRequest) {
               });
             },
             searxngUrl || undefined,
+            engineConfig,
           );
 
           // Import results
