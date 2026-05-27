@@ -112,7 +112,7 @@ export default function LinkedInScraperPage() {
   const [finalResult, setFinalResult] = useState<LiveProgress | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [consoleLogs, setConsoleLogs] = useState<ConsoleLog[]>([]);
-  const consoleEndRef = useRef<HTMLDivElement | null>(null);
+  const consoleContainerRef = useRef<HTMLDivElement | null>(null);
   const [kombiBranchen, setKombiBranchen] = useState('Sanitär\nElektro\nDachdecker\nMaler\nSchreiner');
   const [kombiRollen, setKombiRollen] = useState('Geschäftsführer\nInhaber\nCEO');
 
@@ -173,7 +173,8 @@ export default function LinkedInScraperPage() {
   }, []);
 
   useEffect(() => {
-    consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = consoleContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [consoleLogs]);
 
   const sseToLog = useCallback((data: LiveProgress) => {
@@ -1305,7 +1306,7 @@ export default function LinkedInScraperPage() {
               </button>
             )}
           </div>
-          <div className="bg-black/30 p-3 max-h-64 overflow-y-auto font-mono text-[11px] leading-relaxed space-y-0.5">
+          <div ref={consoleContainerRef} className="bg-black/30 p-3 max-h-64 overflow-y-auto font-mono text-[11px] leading-relaxed space-y-0.5">
             {consoleLogs.map((log, i) => (
               <div key={i} className="flex gap-2">
                 <span className="text-elvora-text-dim flex-shrink-0">{log.time}</span>
@@ -1322,7 +1323,6 @@ export default function LinkedInScraperPage() {
             {scraping && consoleLogs.length === 0 && (
               <div className="text-elvora-text-dim animate-pulse">Warte auf Server-Antwort...</div>
             )}
-            <div ref={consoleEndRef} />
           </div>
         </div>
       )}
