@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 import { getAccountStats, generatePortalToken } from '@/lib/accounts';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   const authError = requireAuth(request);
   if (authError) return authError;

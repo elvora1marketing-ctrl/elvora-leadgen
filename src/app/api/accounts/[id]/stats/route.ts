@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 import { getAccountStats } from '@/lib/accounts';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const authError = requireAuth(request);
   if (authError) return authError;

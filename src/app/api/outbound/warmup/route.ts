@@ -3,6 +3,8 @@ import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 import { ensureDailyReset, getWarmingLimit } from '@/lib/outbound';
 
+export const dynamic = 'force-dynamic';
+
 interface WarmingDomain {
   id: number;
   domain: string;
