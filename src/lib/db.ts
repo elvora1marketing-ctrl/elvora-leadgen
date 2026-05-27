@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS scraper_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   keyword TEXT NOT NULL,
   max_pages INTEGER DEFAULT 5,
-  status TEXT DEFAULT 'running' CHECK(status IN ('running','completed','error')),
+  status TEXT DEFAULT 'running' CHECK(status IN ('running','completed','error','stopped')),
   businesses_found INTEGER DEFAULT 0,
   businesses_imported INTEGER DEFAULT 0,
   businesses_duplicate INTEGER DEFAULT 0,
@@ -1481,6 +1481,57 @@ export function getDb(): Database.Database {
       }
     } catch (e) {
       console.error('[DB] Inbox signature migration error:', e);
+    }
+
+    // Migration: Add config + completed_keywords to scraper_jobs for resume support
+    try {
+      const cols = instance.prepare("PRAGMA table_info(scraper_jobs)").all() as { name: string }[];
+      const colNames = cols.map(c => c.name);
+      if (!colNames.includes('config')) {
+        instance.exec("ALTER TABLE scraper_jobs ADD COLUMN config TEXT");
+        console.log('[DB] Migration: added config column to scraper_jobs');
+      }
+      if (!colNames.includes('completed_keywords')) {
+        instance.exec("ALTER TABLE scraper_jobs ADD COLUMN completed_keywords TEXT DEFAULT '[]'");
+        console.log('[DB] Migration: added completed_keywords column to scraper_jobs');
+      }
+    } catch (e) {
+      console.error('[DB] Scraper jobs resume columns migration error:', e);
+    }
+
+    // Migration: Allow 'stopped' status in scraper_jobs (SQLite can't ALTER CHECK, so recreate)
+    try {
+      const tableInfo = instance.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='scraper_jobs'").get() as { sql: string } | undefined;
+      if (tableInfo?.sql && !tableInfo.sql.includes("'stopped'")) {
+        instance.pragma('foreign_keys = OFF');
+        instance.exec(`
+          CREATE TABLE IF NOT EXISTS scraper_jobs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            keyword TEXT NOT NULL,
+            max_pages INTEGER DEFAULT 5,
+            status TEXT DEFAULT 'running' CHECK(status IN ('running','completed','error','stopped')),
+            businesses_found INTEGER DEFAULT 0,
+            businesses_imported INTEGER DEFAULT 0,
+            businesses_duplicate INTEGER DEFAULT 0,
+            errors TEXT DEFAULT '[]',
+            results TEXT DEFAULT '[]',
+            config TEXT,
+            completed_keywords TEXT DEFAULT '[]',
+            started_at TEXT DEFAULT (datetime('now')),
+            completed_at TEXT
+          );
+          INSERT INTO scraper_jobs_new SELECT id, keyword, max_pages, status, businesses_found, businesses_imported, businesses_duplicate, errors, results, config, completed_keywords, started_at, completed_at FROM scraper_jobs;
+          DROP TABLE scraper_jobs;
+          ALTER TABLE scraper_jobs_new RENAME TO scraper_jobs;
+          CREATE INDEX IF NOT EXISTS idx_scraper_status ON scraper_jobs(status);
+        `);
+        instance.pragma('foreign_keys = ON');
+        console.log('[DB] Migration: scraper_jobs status now allows stopped');
+      }
+    } catch (e) {
+      console.error('[DB] Scraper jobs status migration error:', e);
+      instance.pragma('foreign_keys = ON');
+      try { instance.exec('DROP TABLE IF EXISTS scraper_jobs_new'); } catch { /* ignore */ }
     }
 
     // Migration: Add lead_type column (entscheider vs business)

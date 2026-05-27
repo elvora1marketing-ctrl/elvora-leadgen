@@ -69,6 +69,9 @@ interface ScraperJob {
   results: string;
   started_at: string;
   completed_at: string | null;
+  totalKeywords?: number;
+  completedKeywordCount?: number;
+  canResume?: boolean;
 }
 
 type ScrapeMode = 'keyword' | 'company' | 'enrich';
@@ -440,6 +443,98 @@ export default function LinkedInScraperPage() {
   const cancelScraping = () => {
     abortRef.current?.abort();
     setScraping(false);
+  };
+
+  const resumeJob = async (jobIdToResume: number) => {
+    setScraping(true);
+    setFinalResult(null);
+    setError(null);
+    setLiveProgress(null);
+    setCompletedSearches([]);
+    setConsoleLogs([]);
+    addLog(`Job #${jobIdToResume} wird fortgesetzt...`, 'info');
+
+    const abortController = new AbortController();
+    abortRef.current = abortController;
+
+    try {
+      const res = await fetch('/api/scraper/linkedin/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resumeJobId: jobIdToResume }),
+        signal: abortController.signal,
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || 'Fortsetzen fehlgeschlagen');
+        addLog(`Server-Fehler: ${data.error || res.status}`, 'error');
+        setScraping(false);
+        return;
+      }
+
+      addLog('Stream verbunden — setze fort...', 'success');
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setError('Stream nicht verfügbar');
+        setScraping(false);
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6)) as LiveProgress;
+              sseToLog(data);
+
+              if (data.type === 'search_complete') {
+                setCompletedSearches(prev => [...prev, {
+                  keyword: data.keyword || '',
+                  found: data.searchFound || 0,
+                  imported: data.searchImported || 0,
+                  duplicates: data.searchDuplicates || 0,
+                  noEmail: data.searchNoEmail || 0,
+                  duration: data.searchDuration || 0,
+                }]);
+              }
+
+              if (data.type === 'batch_complete') {
+                setFinalResult(data);
+                setScraping(false);
+              }
+
+              setLiveProgress(data);
+            } catch {
+              // Invalid JSON
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        addLog('Scraping abgebrochen', 'warn');
+      } else {
+        setError('Netzwerkfehler - Server nicht erreichbar');
+        addLog(`Netzwerkfehler: ${err instanceof Error ? err.message : 'Server nicht erreichbar'}`, 'error');
+      }
+    } finally {
+      setScraping(false);
+      abortRef.current = null;
+      addLog('Stream geschlossen', 'info');
+      loadJobs();
+    }
   };
 
   const viewJobResults = async (jobId: number) => {
@@ -1452,46 +1547,78 @@ export default function LinkedInScraperPage() {
             {jobs.map((job) => {
               let jobErrors: string[] = [];
               try { jobErrors = job.errors ? JSON.parse(job.errors) : []; } catch { /* malformed */ }
+              const hasProgress = job.totalKeywords && job.totalKeywords > 0;
+              const progressPct = hasProgress ? Math.round(((job.completedKeywordCount || 0) / job.totalKeywords!) * 100) : null;
               return (
                 <div
                   key={job.id}
-                  className="px-3 sm:px-4 py-3 flex items-center justify-between hover:bg-white/[0.02] transition-colors cursor-pointer gap-2"
-                  onClick={() => viewJobResults(job.id)}
+                  className="px-3 sm:px-4 py-3 hover:bg-white/[0.02] transition-colors gap-2"
                 >
-                  <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                      job.status === 'completed' ? 'bg-elvora-success' :
-                      job.status === 'running' ? 'bg-blue-500 animate-pulse' :
-                      'bg-red-500'
-                    }`} />
-                    <div className="min-w-0">
-                      <span className="text-white text-sm font-medium truncate block">{job.keyword}</span>
-                      <span className="text-elvora-text-dim text-[10px] sm:text-xs">
-                        {new Date(job.started_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  <div className="flex items-center justify-between cursor-pointer" onClick={() => viewJobResults(job.id)}>
+                    <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                        job.status === 'completed' ? 'bg-elvora-success' :
+                        job.status === 'running' ? 'bg-blue-500 animate-pulse' :
+                        job.status === 'stopped' ? 'bg-amber-500' :
+                        'bg-red-500'
+                      }`} />
+                      <div className="min-w-0">
+                        <span className="text-white text-sm font-medium truncate block">{job.keyword}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-elvora-text-dim text-[10px] sm:text-xs">
+                            {new Date(job.started_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {hasProgress && progressPct !== null && progressPct < 100 && (
+                            <span className="text-[10px] text-amber-400">
+                              {job.completedKeywordCount}/{job.totalKeywords} Keywords ({progressPct}%)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 sm:gap-4 text-xs flex-shrink-0">
+                      <span className="text-elvora-text-muted">
+                        {job.businesses_found} gefunden
                       </span>
+                      <span className="text-elvora-success">
+                        {job.businesses_imported} neu
+                      </span>
+                      {job.businesses_duplicate > 0 && (
+                        <span className="text-elvora-warning">
+                          {job.businesses_duplicate} doppelt
+                        </span>
+                      )}
+                      {jobErrors.length > 0 && (
+                        <span className="text-red-400">
+                          {jobErrors.length} Fehler
+                        </span>
+                      )}
+                      <svg className="w-4 h-4 text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 sm:gap-4 text-xs flex-shrink-0">
-                    <span className="text-elvora-text-muted">
-                      {job.businesses_found} gefunden
-                    </span>
-                    <span className="text-elvora-success">
-                      {job.businesses_imported} neu
-                    </span>
-                    {job.businesses_duplicate > 0 && (
-                      <span className="text-elvora-warning">
-                        {job.businesses_duplicate} doppelt
-                      </span>
-                    )}
-                    {jobErrors.length > 0 && (
-                      <span className="text-red-400">
-                        {jobErrors.length} Fehler
-                      </span>
-                    )}
-                    <svg className="w-4 h-4 text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
+                  {/* Resume button for stopped/error jobs */}
+                  {job.canResume && !scraping && (
+                    <div className="mt-2 flex items-center gap-3">
+                      <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500/60 rounded-full"
+                          style={{ width: `${progressPct || 0}%` }}
+                        />
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); resumeJob(job.id); }}
+                        className="px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-semibold hover:bg-amber-500/30 transition-colors border border-amber-500/20 flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Fortsetzen ({(job.totalKeywords || 0) - (job.completedKeywordCount || 0)} übrig)
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}

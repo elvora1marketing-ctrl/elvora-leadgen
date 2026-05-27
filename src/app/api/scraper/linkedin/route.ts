@@ -17,16 +17,43 @@ export async function GET(request: NextRequest) {
   const jobId = searchParams.get('jobId');
 
   if (jobId) {
-    const job = db.prepare('SELECT * FROM scraper_jobs WHERE id = ?').get(Number(jobId));
+    const job = db.prepare('SELECT * FROM scraper_jobs WHERE id = ?').get(Number(jobId)) as Record<string, unknown> | undefined;
     if (!job) {
       return Response.json({ error: 'Job nicht gefunden' }, { status: 404 });
     }
-    return Response.json(job);
+    // Parse config for the client
+    let config = null;
+    let completedKeywords: string[] = [];
+    try { config = job.config ? JSON.parse(job.config as string) : null; } catch { /* ignore */ }
+    try { completedKeywords = job.completed_keywords ? JSON.parse(job.completed_keywords as string) : []; } catch { /* ignore */ }
+    const totalKeywords = config?.keywords?.length || 0;
+    return Response.json({
+      ...job,
+      parsedConfig: config,
+      parsedCompletedKeywords: completedKeywords,
+      remainingKeywords: totalKeywords - completedKeywords.length,
+      canResume: job.status === 'stopped' && completedKeywords.length < totalKeywords,
+    });
   }
 
   const jobs = db.prepare(
     "SELECT * FROM scraper_jobs WHERE keyword LIKE 'LinkedIn:%' ORDER BY id DESC LIMIT 50"
-  ).all();
+  ).all() as Record<string, unknown>[];
 
-  return Response.json({ jobs });
+  // Add resume info to each job
+  const enrichedJobs = jobs.map(job => {
+    let config = null;
+    let completedKeywords: string[] = [];
+    try { config = job.config ? JSON.parse(job.config as string) : null; } catch { /* ignore */ }
+    try { completedKeywords = job.completed_keywords ? JSON.parse(job.completed_keywords as string) : []; } catch { /* ignore */ }
+    const totalKeywords = config?.keywords?.length || 0;
+    return {
+      ...job,
+      totalKeywords,
+      completedKeywordCount: completedKeywords.length,
+      canResume: (job.status === 'stopped' || job.status === 'error') && completedKeywords.length < totalKeywords,
+    };
+  });
+
+  return Response.json({ jobs: enrichedJobs });
 }

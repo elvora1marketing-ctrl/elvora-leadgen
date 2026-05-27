@@ -15,9 +15,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * POST /api/scraper/linkedin/stream - Start LinkedIn scraping with SSE live progress
+ * POST /api/scraper/linkedin/stream - Start or resume LinkedIn scraping with SSE
  *
- * Body: { keywords: string[], location: string, maxResults: number, onlyWithEmail: boolean, smtpVerification: boolean }
+ * Body: { keywords, location, maxResults, onlyWithEmail, smtpVerification, resumeJobId? }
  */
 export async function POST(request: NextRequest) {
   const authError = requireAuth(request);
@@ -25,27 +25,84 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const {
-    keywords,
-    location = '',
-    maxResults = 0, // 0 = unlimited
-    onlyWithEmail = false,
-    smtpVerification = true,
+    keywords: rawKeywords,
+    location: rawLocation,
+    maxResults: rawMaxResults,
+    onlyWithEmail: rawOnlyWithEmail,
+    smtpVerification: rawSmtpVerification,
+    resumeJobId,
   } = body as {
-    keywords: string[];
+    keywords?: string[];
     location?: string;
     maxResults?: number;
     onlyWithEmail?: boolean;
     smtpVerification?: boolean;
+    resumeJobId?: number;
   };
 
-  if (!keywords?.length) {
-    return new Response(JSON.stringify({ error: 'Keywords erforderlich' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  const db = getDb();
+
+  // Resume mode: load config from existing job
+  let keywords: string[];
+  let location: string;
+  let maxResults: number;
+  let onlyWithEmail: boolean;
+  let smtpVerification: boolean;
+  let jobId: number;
+  let completedKeywords: string[];
+  let isResume = false;
+
+  if (resumeJobId) {
+    const job = db.prepare('SELECT * FROM scraper_jobs WHERE id = ?').get(resumeJobId) as {
+      id: number; config: string | null; completed_keywords: string | null;
+      status: string; businesses_found: number; businesses_imported: number;
+      businesses_duplicate: number;
+    } | undefined;
+
+    if (!job || !job.config) {
+      return new Response(JSON.stringify({ error: 'Job nicht gefunden oder hat keine gespeicherte Konfiguration' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const config = JSON.parse(job.config);
+    keywords = config.keywords || [];
+    location = config.location || '';
+    maxResults = config.maxResults || 0;
+    onlyWithEmail = config.onlyWithEmail || false;
+    smtpVerification = config.smtpVerification || false;
+    completedKeywords = JSON.parse(job.completed_keywords || '[]');
+    jobId = job.id;
+    isResume = true;
+
+    // Reset status to running
+    db.prepare("UPDATE scraper_jobs SET status = 'running', completed_at = NULL WHERE id = ?").run(jobId);
+  } else {
+    keywords = rawKeywords || [];
+    location = rawLocation || '';
+    maxResults = rawMaxResults || 0;
+    onlyWithEmail = rawOnlyWithEmail || false;
+    smtpVerification = rawSmtpVerification ?? true;
+    completedKeywords = [];
+
+    if (!keywords.length) {
+      return new Response(JSON.stringify({ error: 'Keywords erforderlich' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Create job entry with config
+    const jobLabel = `LinkedIn: ${keywords.join(', ')}${location ? ` @ ${location}` : ''}`;
+    const jobConfig = JSON.stringify({ keywords, location, maxResults, onlyWithEmail, smtpVerification });
+    const jobResult = db.prepare(
+      "INSERT INTO scraper_jobs (keyword, max_pages, status, started_at, config, completed_keywords) VALUES (?, ?, 'running', datetime('now'), ?, '[]')"
+    ).run(jobLabel, maxResults, jobConfig);
+    jobId = Number(jobResult.lastInsertRowid);
   }
 
-  const db = getDb();
+  const remainingKeywords = keywords.filter(kw => !completedKeywords.includes(kw));
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -69,21 +126,22 @@ export async function POST(request: NextRequest) {
 
       const engineConfig: SearchEngineConfig = {
         searxngUrl: searxngUrl || undefined,
-        totalKeywords: keywords.length,
+        totalKeywords: remainingKeywords.length,
       };
 
-      // Create job entry
-      const jobLabel = `LinkedIn: ${keywords.join(', ')}${location ? ` @ ${location}` : ''}`;
-      const jobResult = db.prepare(
-        "INSERT INTO scraper_jobs (keyword, max_pages, status, started_at) VALUES (?, ?, 'running', datetime('now'))"
-      ).run(jobLabel, maxResults);
-      const jobId = Number(jobResult.lastInsertRowid);
+      const massMode = remainingKeywords.length > 5;
 
-      const massMode = keywords.length > 5;
+      if (isResume) {
+        send({
+          type: 'log',
+          message: `Fortsetzen: ${completedKeywords.length} Keywords bereits erledigt, ${remainingKeywords.length} verbleibend`,
+        });
+      }
+
       send({
         type: 'log',
         message: searxngUrl
-          ? `SearXNG aktiv (${searxngUrl}) — ${keywords.length} Keywords${massMode ? ' (Massen-Modus: 2 Strategien + längere Pausen)' : ' (Tiefen-Modus: 4 Strategien)'}`
+          ? `SearXNG aktiv (${searxngUrl}) — ${remainingKeywords.length} Keywords${massMode ? ' (Massen-Modus: 2 Strategien + längere Pausen)' : ' (Tiefen-Modus: 4 Strategien)'}`
           : 'WARNUNG: Kein SearXNG konfiguriert! Scraping wird vermutlich fehlschlagen. Setup: bash scripts/setup-searxng.sh',
       });
 
@@ -91,15 +149,19 @@ export async function POST(request: NextRequest) {
         type: 'batch_start',
         jobId,
         totalKeywords: keywords.length,
-        keywords,
+        remainingKeywords: remainingKeywords.length,
+        completedKeywords: completedKeywords.length,
+        keywords: remainingKeywords,
         location,
         maxResults,
+        isResume,
       });
 
-      let keywordIndex = 0;
+      let keywordIndex = completedKeywords.length;
       let consecutiveEmptyKeywords = 0;
+      let finalStatus: 'completed' | 'stopped' = 'completed';
 
-      for (const kw of keywords) {
+      for (const kw of remainingKeywords) {
         keywordIndex++;
         let kwImported = 0;
         let kwDuplicates = 0;
@@ -118,7 +180,6 @@ export async function POST(request: NextRequest) {
         });
 
         try {
-          // Use the free scraper pipeline
           const people = await scrapeLinkedInKeyword(
             kw,
             location,
@@ -139,7 +200,7 @@ export async function POST(request: NextRequest) {
             engineConfig,
           );
 
-          // Import results in a transaction (10-50x faster)
+          // Import results in a transaction
           const importBatch = db.transaction(() => {
             for (const person of people) {
               const linkedInPerson: LinkedInPerson = {
@@ -195,6 +256,12 @@ export async function POST(request: NextRequest) {
             });
           }
 
+          // Save this keyword as completed
+          completedKeywords.push(kw);
+          db.prepare(
+            "UPDATE scraper_jobs SET completed_keywords = ?, businesses_found = ?, businesses_imported = ?, businesses_duplicate = ? WHERE id = ?"
+          ).run(JSON.stringify(completedKeywords), allPeople.length, totalImported, totalDuplicates, jobId);
+
           send({
             type: 'search_complete',
             keyword: kw,
@@ -219,13 +286,14 @@ export async function POST(request: NextRequest) {
           }
 
           if (consecutiveEmptyKeywords >= 3 && keywordIndex < keywords.length) {
+            finalStatus = 'stopped';
             send({
               type: 'log',
-              message: `ABBRUCH: ${consecutiveEmptyKeywords} Keywords in Folge ohne Ergebnisse — Suchmaschinen blockieren. Warte einige Minuten und versuche erneut.`,
+              message: `GESTOPPT: ${consecutiveEmptyKeywords} Keywords in Folge ohne Ergebnisse — Suchmaschinen blockieren. Job kann später fortgesetzt werden.`,
             });
             send({
               type: 'error',
-              error: `Automatisch gestoppt nach ${consecutiveEmptyKeywords} leeren Keywords. Upstream-Engines blockieren die IP.`,
+              error: `Automatisch gestoppt nach ${consecutiveEmptyKeywords} leeren Keywords. Upstream-Engines blockieren die IP. Fortsetzen über den "Fortsetzen"-Button.`,
               totalFound: allPeople.length,
               totalImported,
               totalDuplicates,
@@ -236,6 +304,12 @@ export async function POST(request: NextRequest) {
         } catch (err) {
           const errMsg = `${kw}: ${err instanceof Error ? err.message : 'Unbekannter Fehler'}`;
           allErrors.push(errMsg);
+          // Still mark as completed so we don't retry failed keywords
+          completedKeywords.push(kw);
+          db.prepare(
+            "UPDATE scraper_jobs SET completed_keywords = ? WHERE id = ?"
+          ).run(JSON.stringify(completedKeywords), jobId);
+
           send({
             type: 'error',
             keyword: kw,
@@ -248,26 +322,28 @@ export async function POST(request: NextRequest) {
         }
 
         if (keywordIndex < keywords.length) {
-          // More delay with more keywords to avoid upstream engine rate-limiting
-          const kwDelay = keywords.length > 20 ? 3000 : keywords.length > 5 ? 1500 : 500;
+          const kwDelay = remainingKeywords.length > 20 ? 3000 : remainingKeywords.length > 5 ? 1500 : 500;
           await new Promise(resolve => setTimeout(resolve, kwDelay));
         }
       }
 
       const totalDuration = Date.now() - startTime;
+      const allDone = completedKeywords.length >= keywords.length;
 
       // Update job record
       db.prepare(
         `UPDATE scraper_jobs SET
-          status = 'completed',
+          status = ?,
           businesses_found = ?,
           businesses_imported = ?,
           businesses_duplicate = ?,
           errors = ?,
           results = ?,
+          completed_keywords = ?,
           completed_at = datetime('now')
         WHERE id = ?`
       ).run(
+        allDone ? 'completed' : finalStatus === 'stopped' ? 'stopped' : 'completed',
         allPeople.length,
         totalImported,
         totalDuplicates,
@@ -281,6 +357,7 @@ export async function POST(request: NextRequest) {
           location: p.location,
           profileUrl: p.profileUrl,
         }))),
+        JSON.stringify(completedKeywords),
         jobId,
       );
 
@@ -294,6 +371,9 @@ export async function POST(request: NextRequest) {
         totalSkipped,
         duration: totalDuration,
         errors: allErrors,
+        completedKeywords: completedKeywords.length,
+        totalKeywords: keywords.length,
+        canResume: !allDone,
       });
 
       controller.close();
@@ -324,7 +404,6 @@ function importLinkedInLead(
   if (onlyWithEmail && !person.email) return 'no_email';
 
   const linkedInNorm = normalizeLinkedInUrl(person.profileUrl);
-  // Use LinkedIn URL path as the unique website_normalized key
   const websiteNorm = `linkedin:${linkedInNorm}`;
 
   const existing = db.prepare('SELECT id FROM leads WHERE website_normalized = ?').get(websiteNorm) as { id: number } | undefined;
