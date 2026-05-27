@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import getDb from '@/lib/db';
 import { executeWorkflows } from '@/lib/workflows';
 import { updateDealHealth } from '@/lib/deal-health';
+import { checkLeadHandoff } from '@/lib/lead-handoff';
+import { dispatchWebhook } from '@/lib/webhook-dispatcher';
 import { requireAuth } from '@/lib/auth';
 
 export async function PATCH(
@@ -142,6 +144,21 @@ export async function PATCH(
 
     // Recalculate deal health
     try { updateDealHealth(db, leadId); } catch {}
+
+    // Lead handoff notification to account owner
+    if (body.contact_status) {
+      try { checkLeadHandoff(leadId, body.contact_status); } catch {}
+
+      const webhookLead = db.prepare('SELECT id, name, email, company, city, contact_status, account_id FROM leads WHERE id = ?').get(leadId) as Record<string, unknown>;
+      const eventMap: Record<string, string> = { replied: 'lead.replied', meeting: 'lead.meeting_booked', won: 'lead.won' };
+      const specificEvent = eventMap[body.contact_status];
+      try {
+        dispatchWebhook('lead.status_changed', { lead: webhookLead, new_status: body.contact_status }, webhookLead?.account_id as number | null);
+        if (specificEvent) {
+          dispatchWebhook(specificEvent as Parameters<typeof dispatchWebhook>[0], { lead: webhookLead }, webhookLead?.account_id as number | null);
+        }
+      } catch {}
+    }
 
     return NextResponse.json({ success: true, lead_id: leadId });
   } catch (error: unknown) {

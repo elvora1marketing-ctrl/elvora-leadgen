@@ -154,6 +154,10 @@ export default function AccountsPage() {
     loadBlacklist(account.id);
   };
 
+  const openDashboard = (account: Account) => {
+    router.push(`/accounts/${account.id}`);
+  };
+
   const totalMRR = accounts.filter(a => a.status === 'active').reduce((s, a) => s + a.monthly_fee, 0);
   const activeCount = accounts.filter(a => a.status === 'active').length;
   const onboardingCount = accounts.filter(a => a.status === 'onboarding').length;
@@ -265,7 +269,7 @@ export default function AccountsPage() {
                 </thead>
                 <tbody>
                   {accounts.map(a => (
-                    <tr key={a.id} className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition" onClick={() => openDetail(a)}>
+                    <tr key={a.id} className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition" onClick={() => openDashboard(a)}>
                       <td className="px-4 py-3">
                         <div className="text-white font-medium">{a.name}</div>
                         {a.company && <div className="text-elvora-text-muted text-xs">{a.company}</div>}

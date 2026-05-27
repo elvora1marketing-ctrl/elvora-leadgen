@@ -37,11 +37,11 @@ export function ensureDailyReset(db: DB): void {
   reset();
 }
 
-export function pickSendingInbox(db: DB, campaignDomainIds?: number[], accountId?: number | null): { inboxId: number; email: string; displayName: string } | null {
+export function pickSendingInbox(db: DB, campaignDomainIds?: number[], accountId?: number | null): { inboxId: number; email: string; displayName: string; htmlSignature: string | null } | null {
   ensureDailyReset(db);
 
   let sql = `
-    SELECT i.id as inbox_id, i.email, i.display_name, i.sent_today as inbox_sent, i.daily_limit as inbox_limit,
+    SELECT i.id as inbox_id, i.email, i.display_name, i.html_signature, i.sent_today as inbox_sent, i.daily_limit as inbox_limit,
            d.id as domain_id, d.sent_today as domain_sent, d.daily_limit as domain_limit, d.status as domain_status, d.warm_current_day
     FROM sending_inboxes i
     JOIN sending_domains d ON i.domain_id = d.id
@@ -66,7 +66,7 @@ export function pickSendingInbox(db: DB, campaignDomainIds?: number[], accountId
   sql += ' ORDER BY i.sent_today ASC LIMIT 10';
 
   const rows = db.prepare(sql).all(...params) as {
-    inbox_id: number; email: string; display_name: string;
+    inbox_id: number; email: string; display_name: string; html_signature: string | null;
     inbox_sent: number; inbox_limit: number;
     domain_id: number; domain_sent: number; domain_limit: number;
     domain_status: string; warm_current_day: number;
@@ -77,7 +77,7 @@ export function pickSendingInbox(db: DB, campaignDomainIds?: number[], accountId
       const warmLimit = getWarmingLimit(row.warm_current_day);
       if (row.domain_sent >= warmLimit) continue;
     }
-    return { inboxId: row.inbox_id, email: row.email, displayName: row.display_name || '' };
+    return { inboxId: row.inbox_id, email: row.email, displayName: row.display_name || '', htmlSignature: row.html_signature };
   }
 
   return null;

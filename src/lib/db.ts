@@ -1441,6 +1441,48 @@ export function getDb(): Database.Database {
       console.error('[DB] Account ID columns migration error:', e);
     }
 
+    // Migration: Outgoing webhooks
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          url TEXT NOT NULL,
+          events TEXT NOT NULL DEFAULT '[]',
+          secret TEXT,
+          active INTEGER DEFAULT 1,
+          account_id INTEGER,
+          last_triggered_at TEXT,
+          last_status INTEGER,
+          failure_count INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS webhook_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subscription_id INTEGER NOT NULL,
+          event TEXT NOT NULL,
+          payload TEXT,
+          response_status INTEGER,
+          response_body TEXT,
+          duration_ms INTEGER,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE
+        );
+      `);
+    } catch (e) {
+      console.error('[DB] Webhooks migration error:', e);
+    }
+
+    // Migration: Add html_signature to sending_inboxes
+    try {
+      const cols = instance.prepare("PRAGMA table_info(sending_inboxes)").all() as { name: string }[];
+      if (!cols.find(c => c.name === 'html_signature')) {
+        instance.exec("ALTER TABLE sending_inboxes ADD COLUMN html_signature TEXT");
+      }
+    } catch (e) {
+      console.error('[DB] Inbox signature migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }

@@ -300,6 +300,7 @@ export async function sendLeadEmail(opts: SendOptions): Promise<SendResult> {
   let fromName = defaultFromName;
   let fromEmail = defaultFromEmail;
   let usedInboxId: number | null = null;
+  let inboxSignature: string | null = null;
 
   try {
     const { pickSendingInbox } = require('./outbound');
@@ -308,6 +309,7 @@ export async function sendLeadEmail(opts: SendOptions): Promise<SendResult> {
       fromEmail = inbox.email;
       if (inbox.displayName) fromName = inbox.displayName;
       usedInboxId = inbox.inboxId;
+      inboxSignature = inbox.htmlSignature;
     }
   } catch { /* no outbound domains — use default */ }
 
@@ -340,7 +342,10 @@ export async function sendLeadEmail(opts: SendOptions): Promise<SendResult> {
     firmenname: lead.name, ansprechpartner, website, stadt: lead.city, score: String(lead.score), absender: fromName,
   });
 
-  const html = buildEmailHtml(data, calendlyUrl, fromName, tpl, null).replace('</body>', `${trackingPixel}</body>`);
+  let html = buildEmailHtml(data, calendlyUrl, fromName, tpl, null).replace('</body>', `${trackingPixel}</body>`);
+  if (inboxSignature) {
+    html = html.replace('</body>', `<div style="margin-top:24px;border-top:1px solid #eee;padding-top:12px;">${inboxSignature}</div></body>`);
+  }
   const text = buildPlainText(data, calendlyUrl, fromName, tpl);
 
   try {

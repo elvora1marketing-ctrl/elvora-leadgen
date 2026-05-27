@@ -30,6 +30,7 @@ export async function PATCH(
     if (body.status !== undefined) { updates.push('status = ?'); values.push(body.status); }
     if (body.display_name !== undefined) { updates.push('display_name = ?'); values.push(body.display_name); }
     if (body.daily_limit !== undefined) { updates.push('daily_limit = ?'); values.push(body.daily_limit); }
+    if (body.html_signature !== undefined) { updates.push('html_signature = ?'); values.push(body.html_signature); }
 
     if (updates.length === 0) {
       return NextResponse.json({ error: 'Keine Änderungen' }, { status: 400 });

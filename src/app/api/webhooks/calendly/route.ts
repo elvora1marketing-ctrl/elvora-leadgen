@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
+import { checkLeadHandoff } from '@/lib/lead-handoff';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -58,6 +59,8 @@ export async function POST(request: NextRequest) {
           lead.id,
         );
       } catch {}
+
+      try { checkLeadHandoff(lead.id, 'meeting'); } catch {}
 
       return NextResponse.json({ ok: true, leadId: lead.id, action: 'updated' });
     }
