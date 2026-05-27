@@ -1373,6 +1373,63 @@ export function getDb(): Database.Database {
       console.error('[DB] Campaign leads inbox migration error:', e);
     }
 
+    // Migration: Multi-Tenant Accounts (Outbound-as-a-Service)
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS accounts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          company TEXT,
+          contact_name TEXT,
+          contact_email TEXT,
+          contact_phone TEXT,
+          status TEXT DEFAULT 'onboarding' CHECK(status IN ('onboarding','active','paused','churned')),
+          icp_description TEXT,
+          icp_industries TEXT DEFAULT '[]',
+          icp_locations TEXT DEFAULT '[]',
+          icp_company_sizes TEXT DEFAULT '[]',
+          onboarding_completed INTEGER DEFAULT 0,
+          monthly_fee REAL DEFAULT 0,
+          contract_start TEXT,
+          contract_end TEXT,
+          notes TEXT,
+          portal_token TEXT UNIQUE,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status);
+        CREATE INDEX IF NOT EXISTS idx_accounts_portal_token ON accounts(portal_token);
+
+        CREATE TABLE IF NOT EXISTS account_blacklists (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          email TEXT NOT NULL,
+          domain TEXT,
+          reason TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_account_blacklists_account ON account_blacklists(account_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_account_blacklists_unique ON account_blacklists(account_id, email);
+      `);
+    } catch (e) {
+      console.error('[DB] Accounts migration error:', e);
+    }
+
+    // Migration: Add account_id to key tables for multi-tenant isolation
+    try {
+      const tables = ['leads', 'outreach_campaigns', 'sending_domains', 'sequences', 'invoices'];
+      for (const table of tables) {
+        const cols = instance.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+        if (!cols.find(c => c.name === 'account_id')) {
+          instance.exec(`ALTER TABLE ${table} ADD COLUMN account_id INTEGER REFERENCES accounts(id)`);
+          instance.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_account_id ON ${table}(account_id)`);
+        }
+      }
+    } catch (e) {
+      console.error('[DB] Account ID columns migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }
