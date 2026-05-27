@@ -27,11 +27,7 @@ function configureSearXNGProxies(proxyText: string): { count: number; error?: st
     return { count: 0, error: `${SEARXNG_SETTINGS} nicht gefunden` };
   }
 
-  // Pick up to 200 random proxies to keep YAML manageable
-  const shuffled = entries.sort(() => Math.random() - 0.5);
-  const selected = shuffled.slice(0, Math.min(200, entries.length));
-
-  const proxyLines = selected.map(p =>
+  const proxyLines = entries.map(p =>
     `      - http://${encodeURIComponent(p.user)}:${encodeURIComponent(p.pass)}@${p.host}:${p.port}`
   ).join('\n');
 
@@ -55,7 +51,7 @@ ${proxyLines}`;
 
     writeFileSync(SEARXNG_SETTINGS, yml, 'utf-8');
     execSync('docker restart elvora-searxng', { timeout: 30000 });
-    return { count: selected.length };
+    return { count: entries.length };
   } catch (e) {
     return { count: 0, error: `${e instanceof Error ? e.message : 'Unbekannt'}` };
   }
