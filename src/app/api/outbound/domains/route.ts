@@ -11,13 +11,16 @@ export async function GET(request: NextRequest) {
     const db = getDb();
     ensureDailyReset(db);
 
+    const { searchParams } = new URL(request.url);
+    const accountId = searchParams.get('account_id');
     const domains = db.prepare(`
       SELECT d.*, COUNT(i.id) as inbox_count
       FROM sending_domains d
       LEFT JOIN sending_inboxes i ON d.id = i.domain_id
+      ${accountId ? 'WHERE d.account_id = ?' : ''}
       GROUP BY d.id
       ORDER BY d.created_at DESC
-    `).all();
+    `).all(...(accountId ? [accountId] : []));
 
     return NextResponse.json({ domains });
   } catch (error) {
@@ -41,14 +44,15 @@ export async function POST(request: NextRequest) {
     const today = new Date().toISOString().split('T')[0];
 
     const result = db.prepare(`
-      INSERT INTO sending_domains (domain, status, daily_limit, warm_start_date, warm_current_day, resend_domain_id, notes)
-      VALUES (?, 'warming', ?, ?, 1, ?, ?)
+      INSERT INTO sending_domains (domain, status, daily_limit, warm_start_date, warm_current_day, resend_domain_id, notes, account_id)
+      VALUES (?, 'warming', ?, ?, 1, ?, ?, ?)
     `).run(
       body.domain.trim(),
       body.daily_limit ?? 50,
       today,
       body.resend_domain_id ?? null,
-      body.notes ?? null
+      body.notes ?? null,
+      body.account_id ?? null,
     );
 
     const domain = db.prepare('SELECT * FROM sending_domains WHERE id = ?').get(result.lastInsertRowid);

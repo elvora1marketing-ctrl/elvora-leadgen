@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface Account {
   id: number;
@@ -60,6 +61,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function AccountsPage() {
+  const router = useRouter();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'add' | 'detail'>('list');
@@ -310,6 +312,12 @@ export default function AccountsPage() {
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[selectedAccount.status]}`}>
                   {STATUS_LABELS[selectedAccount.status]}
                 </span>
+                {!selectedAccount.onboarding_completed && (
+                  <button onClick={() => router.push(`/accounts/onboarding?id=${selectedAccount.id}`)}
+                    className="px-3 py-1.5 rounded-lg bg-elvora-accent/20 text-elvora-accent hover:bg-elvora-accent/30 text-xs transition">
+                    Onboarding starten
+                  </button>
+                )}
                 <button onClick={() => deleteAccount(selectedAccount.id)}
                   className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 text-xs transition">
                   Löschen

@@ -17,6 +17,7 @@ export interface SendOptions {
   baseUrl?: string;
   isFollowup?: boolean;
   campaignDomainIds?: number[];
+  accountId?: number | null;
 }
 
 interface LeadRow {
@@ -302,7 +303,7 @@ export async function sendLeadEmail(opts: SendOptions): Promise<SendResult> {
 
   try {
     const { pickSendingInbox } = require('./outbound');
-    const inbox = pickSendingInbox(db, opts.campaignDomainIds);
+    const inbox = pickSendingInbox(db, opts.campaignDomainIds, opts.accountId);
     if (inbox) {
       fromEmail = inbox.email;
       if (inbox.displayName) fromName = inbox.displayName;

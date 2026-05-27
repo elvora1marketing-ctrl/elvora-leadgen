@@ -22,6 +22,7 @@ export interface OutreachJob {
   scheduleType: 'immediate' | 'business_hours';
   subjectVariantB?: string;
   abSplit: boolean;
+  accountId?: number | null;
 }
 
 const jobs = new Map<string, OutreachJob>();
@@ -77,6 +78,7 @@ export function createJob(opts: {
     scheduleType: opts.scheduleType || 'immediate',
     subjectVariantB: opts.subjectVariantB,
     abSplit: opts.abSplit || false,
+    accountId: opts.accountId || null,
   };
   jobs.set(id, job);
   pruneOldJobs();
@@ -184,7 +186,7 @@ export async function runJob(id: string, baseUrl: string): Promise<void> {
 
       const leadId = job.leadIds[job.currentIndex];
 
-      const blacklisted = checkBlacklist(leadId);
+      const blacklisted = checkBlacklist(leadId, job.accountId);
       if (blacklisted) {
         job.skipped++;
         job.results.push({ leadId, recipient: null, type: null, success: false, error: 'Blacklisted', at: new Date().toISOString() });
@@ -193,7 +195,7 @@ export async function runJob(id: string, baseUrl: string): Promise<void> {
       }
 
       try {
-        const result = await sendLeadEmail({ leadId, preferEntscheider: job.preferEntscheider, baseUrl, campaignDomainIds });
+        const result = await sendLeadEmail({ leadId, preferEntscheider: job.preferEntscheider, baseUrl, campaignDomainIds, accountId: job.accountId });
         if (result.success) job.sent++;
         else if (!result.recipient) job.skipped++;
         else job.failed++;
@@ -254,7 +256,7 @@ export async function runJob(id: string, baseUrl: string): Promise<void> {
   }
 }
 
-function checkBlacklist(leadId: number): boolean {
+function checkBlacklist(leadId: number, accountId?: number | null): boolean {
   try {
     const db = getDb();
     const lead = db.prepare('SELECT email, entscheider_email, all_emails FROM leads WHERE id = ?').get(leadId) as { email: string | null; entscheider_email: string | null; all_emails: string | null } | undefined;
@@ -269,8 +271,18 @@ function checkBlacklist(leadId: number): boolean {
 
     if (emails.length === 0) return false;
     const placeholders = emails.map(() => '?').join(',');
+
+    // Check global blacklist
     const blocked = db.prepare(`SELECT COUNT(*) as c FROM email_blacklist WHERE email IN (${placeholders})`).get(...emails) as { c: number };
-    return blocked.c === emails.length;
+    if (blocked.c === emails.length) return true;
+
+    // Check account-level blacklist
+    if (accountId) {
+      const acctBlocked = db.prepare(`SELECT COUNT(*) as c FROM account_blacklists WHERE account_id = ? AND email IN (${placeholders})`).get(accountId, ...emails) as { c: number };
+      if (acctBlocked.c === emails.length) return true;
+    }
+
+    return false;
   } catch {
     return false;
   }

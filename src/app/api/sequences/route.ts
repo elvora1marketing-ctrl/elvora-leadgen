@@ -9,14 +9,17 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
+    const { searchParams } = new URL(request.url);
+    const accountId = searchParams.get('account_id');
     const sequences = db.prepare(`
       SELECT s.*,
         (SELECT COUNT(*) FROM sequence_enrollments WHERE sequence_id = s.id AND status = 'active') as active_count,
         (SELECT COUNT(*) FROM sequence_enrollments WHERE sequence_id = s.id AND status = 'completed') as completed_count_live,
         (SELECT COUNT(*) FROM sequence_enrollments WHERE sequence_id = s.id AND status = 'replied') as reply_count_live
       FROM sequences s
+      ${accountId ? 'WHERE s.account_id = ?' : ''}
       ORDER BY s.created_at DESC
-    `).all();
+    `).all(...(accountId ? [accountId] : []));
 
     return NextResponse.json({ sequences });
   } catch (error: unknown) {
@@ -62,9 +65,9 @@ export async function POST(request: NextRequest) {
     }
 
     const result = db.prepare(`
-      INSERT INTO sequences (name, steps)
-      VALUES (?, ?)
-    `).run(body.name.trim(), JSON.stringify(body.steps));
+      INSERT INTO sequences (name, steps, account_id)
+      VALUES (?, ?, ?)
+    `).run(body.name.trim(), JSON.stringify(body.steps), (body as Record<string, unknown>).accountId || null);
 
     const sequence = db.prepare('SELECT * FROM sequences WHERE id = ?').get(Number(result.lastInsertRowid));
 

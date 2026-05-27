@@ -37,7 +37,7 @@ export function ensureDailyReset(db: DB): void {
   reset();
 }
 
-export function pickSendingInbox(db: DB, campaignDomainIds?: number[]): { inboxId: number; email: string; displayName: string } | null {
+export function pickSendingInbox(db: DB, campaignDomainIds?: number[], accountId?: number | null): { inboxId: number; email: string; displayName: string } | null {
   ensureDailyReset(db);
 
   let sql = `
@@ -52,6 +52,11 @@ export function pickSendingInbox(db: DB, campaignDomainIds?: number[]): { inboxI
   `;
 
   const params: unknown[] = [];
+
+  if (accountId) {
+    sql += ' AND d.account_id = ?';
+    params.push(accountId);
+  }
 
   if (campaignDomainIds && campaignDomainIds.length > 0) {
     sql += ` AND d.id IN (${campaignDomainIds.map(() => '?').join(',')})`;

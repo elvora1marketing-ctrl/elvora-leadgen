@@ -9,12 +9,15 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
+    const { searchParams } = new URL(request.url);
+    const accountId = searchParams.get('account_id');
     const inboxes = db.prepare(`
       SELECT i.*, d.domain, d.status as domain_status
       FROM sending_inboxes i
       JOIN sending_domains d ON i.domain_id = d.id
+      ${accountId ? 'WHERE d.account_id = ?' : ''}
       ORDER BY i.created_at DESC
-    `).all();
+    `).all(...(accountId ? [accountId] : []));
 
     return NextResponse.json({ inboxes });
   } catch (error) {

@@ -9,7 +9,13 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
-    const tests = db.prepare('SELECT * FROM ab_tests ORDER BY created_at DESC').all() as Record<string, unknown>[];
+    const { searchParams } = new URL(request.url);
+    const accountId = searchParams.get('account_id');
+    const tests = db.prepare(
+      accountId
+        ? 'SELECT * FROM ab_tests WHERE account_id = ? ORDER BY created_at DESC'
+        : 'SELECT * FROM ab_tests ORDER BY created_at DESC'
+    ).all(...(accountId ? [accountId] : [])) as Record<string, unknown>[];
 
     const testsWithMetrics = tests.map((test) => {
       const aSent = (test.variant_a_sent as number) || 0;
@@ -69,9 +75,9 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
     const result = db.prepare(`
-      INSERT INTO ab_tests (name, subject_a, subject_b, body_a, body_b)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(name, subject_a, subject_b, body_a || null, body_b || null);
+      INSERT INTO ab_tests (name, subject_a, subject_b, body_a, body_b, account_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(name, subject_a, subject_b, body_a || null, body_b || null, body.account_id || null);
 
     const test = db.prepare('SELECT * FROM ab_tests WHERE id = ?').get(result.lastInsertRowid);
 

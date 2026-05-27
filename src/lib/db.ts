@@ -1169,6 +1169,17 @@ export function getDb(): Database.Database {
       console.error('[DB] AB Tests migration error:', e);
     }
 
+    // Migration: Add account_id to ab_tests
+    try {
+      const abCols = instance.prepare("PRAGMA table_info(ab_tests)").all() as { name: string }[];
+      if (!abCols.find(c => c.name === 'account_id')) {
+        instance.exec("ALTER TABLE ab_tests ADD COLUMN account_id INTEGER REFERENCES accounts(id)");
+        instance.exec("CREATE INDEX IF NOT EXISTS idx_ab_tests_account_id ON ab_tests(account_id)");
+      }
+    } catch (e) {
+      console.error('[DB] AB tests account_id migration error:', e);
+    }
+
     // Speed-to-lead: first_contacted_at on leads
     try {
       const leadCols2 = instance.prepare("PRAGMA table_info(leads)").all() as { name: string }[];

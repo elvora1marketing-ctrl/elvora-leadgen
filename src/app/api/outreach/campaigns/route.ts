@@ -38,12 +38,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
 
+    const accountId = searchParams.get('account_id');
     let query = 'SELECT * FROM outreach_campaigns';
     const params: string[] = [];
-    if (status) {
-      query += ' WHERE status = ?';
-      params.push(status);
-    }
+    const conditions: string[] = [];
+    if (status) { conditions.push('status = ?'); params.push(status); }
+    if (accountId) { conditions.push('account_id = ?'); params.push(accountId); }
+    if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
     query += ' ORDER BY created_at DESC';
 
     const campaigns = db.prepare(query).all(...params) as CampaignRow[];
@@ -141,8 +142,8 @@ export async function POST(request: NextRequest) {
     });
 
     const result = db.prepare(`
-      INSERT INTO outreach_campaigns (name, status, filters, lead_count, mails_per_hour, prefer_entscheider, schedule_type, subject_variant_b, ab_split)
-      VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO outreach_campaigns (name, status, filters, lead_count, mails_per_hour, prefer_entscheider, schedule_type, subject_variant_b, ab_split, account_id)
+      VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       body.name.trim(),
       JSON.stringify(filters),
@@ -152,6 +153,7 @@ export async function POST(request: NextRequest) {
       body.scheduleType || 'immediate',
       body.subjectVariantB || null,
       body.abSplit ? 1 : 0,
+      (body as Record<string, unknown>).accountId || null,
     );
 
     const campaignId = result.lastInsertRowid as number;
@@ -189,6 +191,7 @@ async function startCampaign(db: ReturnType<typeof getDb>, campaignId: number, r
   const leadRows = db.prepare("SELECT lead_id FROM outreach_campaign_leads WHERE campaign_id = ? AND status = 'pending' ORDER BY id ASC").all(campaignId) as { lead_id: number }[];
   if (leadRows.length === 0) return NextResponse.json({ error: 'Keine Leads in der Kampagne' }, { status: 400 });
 
+  const campData = campaign as CampaignRow & { account_id?: number | null };
   const job = createJob({
     leadIds: leadRows.map(r => r.lead_id),
     throttleMs: Math.floor(3_600_000 / (campaign.mails_per_hour || 60)),
@@ -197,6 +200,7 @@ async function startCampaign(db: ReturnType<typeof getDb>, campaignId: number, r
     scheduleType: campaign.schedule_type as 'immediate' | 'business_hours',
     subjectVariantB: campaign.subject_variant_b || undefined,
     abSplit: !!campaign.ab_split,
+    accountId: campData.account_id || null,
   });
 
   db.prepare("UPDATE outreach_campaigns SET status = 'running', job_id = ?, started_at = datetime('now') WHERE id = ?").run(job.id, campaignId);
