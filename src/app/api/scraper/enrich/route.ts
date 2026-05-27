@@ -170,15 +170,24 @@ export async function POST(request: NextRequest) {
 
     // Bulk: all leads without email
     if (bulk) {
-      const limit = Math.min(body.limit || 25, 100);
-      const leadsWithoutEmail = db.prepare(`
-        SELECT id FROM leads
-        WHERE (email IS NULL OR email = '')
-          AND (website_original IS NOT NULL AND website_original != '')
-          AND status IN ('qualified', 'pending', 'akquise')
-        ORDER BY score ASC, created_at DESC
-        LIMIT ?
-      `).all(limit) as { id: number }[];
+      const limit = body.limit || 0;
+      const query = limit > 0
+        ? db.prepare(`
+            SELECT id FROM leads
+            WHERE (email IS NULL OR email = '')
+              AND (website_original IS NOT NULL AND website_original != '')
+              AND status IN ('qualified', 'pending', 'akquise')
+            ORDER BY score ASC, created_at DESC
+            LIMIT ?
+          `).all(limit)
+        : db.prepare(`
+            SELECT id FROM leads
+            WHERE (email IS NULL OR email = '')
+              AND (website_original IS NOT NULL AND website_original != '')
+              AND status IN ('qualified', 'pending', 'akquise')
+            ORDER BY score ASC, created_at DESC
+          `).all();
+      const leadsWithoutEmail = query as { id: number }[];
 
       if (leadsWithoutEmail.length === 0) {
         return NextResponse.json({ results: [], total: 0, enriched: 0, message: 'Keine Leads ohne E-Mail gefunden' });

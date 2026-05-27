@@ -15,6 +15,8 @@
 import { normalizeLinkedInUrl, type LinkedInPerson } from './linkedin-scraper';
 import { delay, randomDelay } from './utils';
 import { parseImpressum } from './impressum-parser';
+import * as http from 'http';
+import * as tls from 'tls';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,6 +93,239 @@ const EMAIL_PATTERNS = [
 
 function getRandomUserAgent(): string {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+// ---------------------------------------------------------------------------
+// Proxy Support
+// ---------------------------------------------------------------------------
+
+export interface ProxyEntry {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+}
+
+export function parseProxyList(text: string): ProxyEntry[] {
+  return text.trim().split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith('#'))
+    .map(line => {
+      const p = line.split(':');
+      if (p.length < 4) return null;
+      return { host: p[0], port: parseInt(p[1]), user: p[2], pass: p.slice(3).join(':') };
+    })
+    .filter((p): p is ProxyEntry => p !== null && !isNaN(p.port));
+}
+
+function fetchViaProxy(
+  targetUrl: string,
+  proxy: ProxyEntry,
+  headers: Record<string, string> = {},
+  timeout = 12000,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(targetUrl);
+    const auth = Buffer.from(`${proxy.user}:${proxy.pass}`).toString('base64');
+
+    const timer = setTimeout(() => {
+      connectReq.destroy();
+      reject(new Error('Proxy timeout'));
+    }, timeout);
+
+    const connectReq = http.request({
+      host: proxy.host,
+      port: proxy.port,
+      method: 'CONNECT',
+      path: `${target.hostname}:443`,
+      headers: {
+        'Proxy-Authorization': `Basic ${auth}`,
+        'Host': `${target.hostname}:443`,
+      },
+    });
+
+    connectReq.on('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        clearTimeout(timer);
+        socket.destroy();
+        reject(new Error(`Proxy CONNECT ${res.statusCode}`));
+        return;
+      }
+
+      const tlsSocket = tls.connect({
+        socket,
+        servername: target.hostname,
+      }, () => {
+        const path = target.pathname + target.search;
+        const headerLines = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join('\r\n');
+        const req = `GET ${path} HTTP/1.1\r\nHost: ${target.hostname}\r\n${headerLines}\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n`;
+        tlsSocket.write(req);
+      });
+
+      let rawData = '';
+      tlsSocket.on('data', (chunk: Buffer) => { rawData += chunk.toString(); });
+      tlsSocket.on('end', () => {
+        clearTimeout(timer);
+        const headerEnd = rawData.indexOf('\r\n\r\n');
+        if (headerEnd === -1) {
+          resolve({ status: 0, body: rawData });
+          return;
+        }
+        const statusLine = rawData.substring(0, rawData.indexOf('\r\n'));
+        const statusMatch = statusLine.match(/HTTP\/\d\.\d (\d+)/);
+        const status = statusMatch ? parseInt(statusMatch[1]) : 0;
+        const body = rawData.substring(headerEnd + 4);
+        resolve({ status, body });
+      });
+      tlsSocket.on('error', (e) => { clearTimeout(timer); reject(e); });
+    });
+
+    connectReq.on('error', (e) => { clearTimeout(timer); reject(e); });
+    connectReq.end();
+  });
+}
+
+async function searchGoogleViaProxy(
+  keyword: string,
+  location: string,
+  maxResults: number,
+  proxies: ProxyEntry[],
+  onProgress?: (msg: string, count: number) => void,
+  lightweight: boolean = false,
+): Promise<SearchResult[]> {
+  const results: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+
+  const allQueries = [
+    {
+      label: 'Google',
+      q: location
+        ? `site:linkedin.com/in ${keyword} ${location}`
+        : `site:linkedin.com/in ${keyword}`,
+    },
+    {
+      label: 'Google breit',
+      q: location
+        ? `"linkedin.com/in" ${keyword} ${location}`
+        : `"linkedin.com/in" ${keyword}`,
+    },
+  ];
+
+  const queries = lightweight ? [allQueries[0]] : allQueries;
+  const maxPages = lightweight ? 10 : 30;
+
+  for (let qi = 0; qi < queries.length; qi++) {
+    const { label, q } = queries[qi];
+    let start = 0;
+    let pageNum = 0;
+    let hasMore = true;
+    let proxyRetries = 0;
+
+    while (hasMore) {
+      pageNum++;
+      const proxy = proxies[Math.floor(Math.random() * proxies.length)];
+
+      if (pageNum <= 3 || pageNum % 5 === 0) {
+        onProgress?.(`[${label}] Seite ${pageNum} via Proxy ${proxy.host}...`, results.length);
+      }
+
+      try {
+        const url = `https://www.google.com/search?q=${encodeURIComponent(q)}&start=${start}&num=10&hl=de`;
+        const res = await fetchViaProxy(url, proxy, {
+          'User-Agent': getRandomUserAgent(),
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'de-DE,de;q=0.9,en;q=0.3',
+        });
+
+        if (res.status === 429 || res.status === 503) {
+          onProgress?.(`[${label}] ${res.status} — wechsle Proxy`, results.length);
+          proxyRetries++;
+          if (proxyRetries >= 5) {
+            onProgress?.(`[${label}] Zu viele Fehler — stoppe`, results.length);
+            break;
+          }
+          await randomDelay(500, 1500);
+          continue;
+        }
+
+        if (res.body.includes('detected unusual traffic') || res.body.includes('CAPTCHA') || res.body.includes('captcha')) {
+          onProgress?.(`[${label}] CAPTCHA — wechsle Proxy`, results.length);
+          proxyRetries++;
+          if (proxyRetries >= 5) break;
+          await randomDelay(500, 1500);
+          continue;
+        }
+
+        proxyRetries = 0;
+        const html = res.body;
+        let foundOnPage = 0;
+
+        const linkRegex = /<a[^>]+href="(https?:\/\/[^"]*linkedin\.com\/in\/[^"&]+)"[^>]*>/gi;
+        let match;
+        while ((match = linkRegex.exec(html)) !== null) {
+          const profileUrl = cleanLinkedInUrl(match[1]);
+          if (!profileUrl) continue;
+          const norm = normalizeLinkedInUrl(profileUrl);
+          if (seenUrls.has(norm)) continue;
+          seenUrls.add(norm);
+
+          const username = profileUrl.split('/in/')[1] || '';
+          const escapedUsername = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const titleRegex = new RegExp(`<h3[^>]*>([^<]*${escapedUsername}[^<]*)<\\/h3>`, 'i');
+          const titleMatch = html.match(titleRegex);
+          const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+          const parsed = parseSearchTitle(title || username);
+
+          results.push({ profileUrl, snippetName: parsed.name, snippetHeadline: parsed.headline });
+          foundOnPage++;
+          if (maxResults > 0 && results.length >= maxResults) break;
+        }
+
+        if (foundOnPage === 0) {
+          const altRegex = /href="\/url\?q=(https?%3A%2F%2F[^"]*linkedin\.com%2Fin%2F[^"&]+)/gi;
+          while ((match = altRegex.exec(html)) !== null) {
+            const decoded = decodeURIComponent(match[1]);
+            const profileUrl = cleanLinkedInUrl(decoded);
+            if (!profileUrl) continue;
+            const norm = normalizeLinkedInUrl(profileUrl);
+            if (seenUrls.has(norm)) continue;
+            seenUrls.add(norm);
+            results.push({ profileUrl, snippetName: '', snippetHeadline: '' });
+            foundOnPage++;
+            if (maxResults > 0 && results.length >= maxResults) break;
+          }
+        }
+
+        onProgress?.(`[${label}] Seite ${pageNum}: ${foundOnPage} Profile (gesamt: ${results.length})`, results.length);
+
+        if (foundOnPage === 0 || (maxResults > 0 && results.length >= maxResults)) {
+          hasMore = false;
+        } else {
+          start += 10;
+          await randomDelay(1000, 3000);
+        }
+
+        if (pageNum >= maxPages) hasMore = false;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unbekannt';
+        onProgress?.(`[${label}] Proxy-Fehler: ${msg} — wechsle Proxy`, results.length);
+        proxyRetries++;
+        if (proxyRetries >= 5) {
+          onProgress?.(`[${label}] 5 Proxy-Fehler — stoppe Strategie`, results.length);
+          break;
+        }
+        await randomDelay(300, 800);
+      }
+    }
+
+    onProgress?.(`[${label}] fertig: ${results.length} Profile`, results.length);
+
+    if (qi < queries.length - 1 && results.length < (maxResults || 999)) {
+      await randomDelay(1000, 2000);
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -684,6 +919,7 @@ async function searchGoogle(
 export interface SearchEngineConfig {
   searxngUrl?: string;
   totalKeywords?: number;
+  proxies?: ProxyEntry[];
 }
 
 /**
@@ -706,10 +942,30 @@ export async function searchProfiles(
   const allResults: SearchResult[] = [];
   const config = engineConfig || { searxngUrl };
 
+  const hasProxies = config.proxies && config.proxies.length > 0;
   const hasSearXNG = !!config.searxngUrl;
-  const hasReliableEngine = hasSearXNG;
+  const hasReliableEngine = hasProxies || hasSearXNG;
 
-  if (hasSearXNG) {
+  if (hasProxies) {
+    const lightweight = (config.totalKeywords || 1) > 5;
+    onProgress?.(`Proxy-Suche (${config.proxies!.length} Proxies) — ${lightweight ? 'Massen-Modus' : 'Tiefen-Suche'}`, 0);
+
+    try {
+      const r = await searchGoogleViaProxy(keyword, location, maxResults, config.proxies!, (msg) => {
+        onProgress?.(msg, allResults.length);
+      }, lightweight);
+      for (const item of r) {
+        const norm = normalizeLinkedInUrl(item.profileUrl);
+        if (!seenUrls.has(norm)) {
+          seenUrls.add(norm);
+          allResults.push(item);
+        }
+      }
+      onProgress?.(`Proxy-Suche fertig: ${allResults.length} einzigartige Profile`, allResults.length);
+    } catch (e) {
+      onProgress?.(`Proxy-Fehler: ${e instanceof Error ? e.message : 'Unbekannt'}`, allResults.length);
+    }
+  } else if (hasSearXNG) {
     const lightweight = (config.totalKeywords || 1) > 5;
     onProgress?.(`SearXNG aktiv — ${lightweight ? 'Massen-Modus (schnell)' : 'Tiefen-Suche'} gestartet`, 0);
 
@@ -730,7 +986,6 @@ export async function searchProfiles(
     }
   }
 
-  // Only fall back to scraping engines if no reliable engine is configured
   if (!hasReliableEngine) {
     onProgress?.('WARNUNG: Kein SearXNG konfiguriert. Versuche DDG/Bing als Fallback (funktioniert selten von Cloud-Servern).', 0);
 
@@ -758,10 +1013,12 @@ export async function searchProfiles(
   }
 
   if (allResults.length === 0) {
-    if (!hasSearXNG) {
-      onProgress?.('0 Ergebnisse. Loesung: SearXNG einrichten! Auf dem Server: docker run -d --name searxng -p 8888:8080 -e SEARXNG_SECRET=elvora123 searxng/searxng — dann URL in Einstellungen hinterlegen.', 0);
+    if (hasProxies) {
+      onProgress?.('0 Profile gefunden — Google liefert keine Ergebnisse ueber die Proxies. Proxy-Liste pruefen.', 0);
+    } else if (!hasSearXNG) {
+      onProgress?.('0 Ergebnisse. Loesung: Proxies einfuegen oder SearXNG einrichten!', 0);
     } else {
-      onProgress?.('0 Ergebnisse von SearXNG. Pruefe: 1) Laeuft SearXNG? 2) Sind Engines aktiviert (google, bing, duckduckgo)? 3) JSON-Format aktiviert?', 0);
+      onProgress?.('0 Ergebnisse von SearXNG. Pruefe: 1) Laeuft SearXNG? 2) Sind Engines aktiviert?', 0);
     }
   }
 

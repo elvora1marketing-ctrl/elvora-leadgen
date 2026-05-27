@@ -83,7 +83,7 @@ export default function EmailFinderPage() {
       const res = await fetch('/api/scraper/enrich', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bulk: true, limit: parseInt(bulkLimit) || 25 }),
+        body: JSON.stringify({ bulk: true, limit: 0 }),
       });
       const data = await res.json();
       setBulkResults(data.results || []);
@@ -239,18 +239,12 @@ export default function EmailFinderPage() {
           </p>
 
           <div className="flex gap-2 mb-4">
-            <select value={bulkLimit} onChange={e => setBulkLimit(e.target.value)} className="px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-sm">
-              <option value="10">10 Leads</option>
-              <option value="25">25 Leads</option>
-              <option value="50">50 Leads</option>
-              <option value="100">100 Leads</option>
-            </select>
             <button
               onClick={runBulk}
               disabled={bulkRunning || !stats?.enrichable}
               className="flex-1 px-5 py-2.5 rounded-lg bg-elvora-purple text-white text-sm font-medium hover:bg-elvora-purple/80 transition-colors disabled:opacity-50"
             >
-              {bulkRunning ? 'Läuft...' : `${stats?.enrichable || 0} Leads anreichern`}
+              {bulkRunning ? 'Läuft...' : `Alle ${stats?.enrichable?.toLocaleString('de-DE') || 0} Leads anreichern`}
             </button>
           </div>
 
