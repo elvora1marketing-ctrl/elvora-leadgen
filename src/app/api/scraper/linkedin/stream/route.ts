@@ -11,9 +11,55 @@ import {
   type SearchEngineConfig,
 } from '@/lib/linkedin-scraper-free';
 import { requireAuth } from '@/lib/auth';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { execSync } from 'child_process';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const SEARXNG_SETTINGS = '/opt/searxng/settings.yml';
+
+function configureSearXNGProxies(proxyText: string): { count: number; error?: string } {
+  const entries = parseProxyList(proxyText);
+  if (entries.length === 0) return { count: 0, error: 'Keine gueltigen Proxies' };
+
+  if (!existsSync(SEARXNG_SETTINGS)) {
+    return { count: 0, error: `${SEARXNG_SETTINGS} nicht gefunden` };
+  }
+
+  // Pick up to 200 random proxies to keep YAML manageable
+  const shuffled = entries.sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, Math.min(200, entries.length));
+
+  const proxyLines = selected.map(p =>
+    `      - http://${encodeURIComponent(p.user)}:${encodeURIComponent(p.pass)}@${p.host}:${p.port}`
+  ).join('\n');
+
+  const newOutgoing = `outgoing:
+  request_timeout: 10.0
+  pool_connections: 100
+  pool_maxsize: 20
+  proxies:
+    all://:
+${proxyLines}`;
+
+  try {
+    let yml = readFileSync(SEARXNG_SETTINGS, 'utf-8');
+
+    if (yml.includes('outgoing:')) {
+      // Replace entire outgoing block (it's the last section in the file)
+      yml = yml.replace(/outgoing:[\s\S]*$/, newOutgoing);
+    } else {
+      yml += '\n' + newOutgoing + '\n';
+    }
+
+    writeFileSync(SEARXNG_SETTINGS, yml, 'utf-8');
+    execSync('docker restart elvora-searxng', { timeout: 30000 });
+    return { count: selected.length };
+  } catch (e) {
+    return { count: 0, error: `${e instanceof Error ? e.message : 'Unbekannt'}` };
+  }
+}
 
 /**
  * POST /api/scraper/linkedin/stream - Start or resume LinkedIn scraping with SSE
@@ -130,12 +176,6 @@ export async function POST(request: NextRequest) {
       const searxngUrl = (db.prepare("SELECT value FROM settings WHERE key = 'searxng_url'").get() as { value: string } | undefined)?.value || '';
       const parsedProxies = proxies ? parseProxyList(proxies) : [];
 
-      const engineConfig: SearchEngineConfig = {
-        searxngUrl: searxngUrl || undefined,
-        totalKeywords: remainingKeywords.length,
-        proxies: parsedProxies.length > 0 ? parsedProxies : undefined,
-      };
-
       const massMode = remainingKeywords.length > 5;
 
       if (isResume) {
@@ -145,20 +185,30 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      if (parsedProxies.length > 0) {
-        send({
-          type: 'log',
-          message: `${parsedProxies.length.toLocaleString()} Proxies geladen — direkte Google-Suche mit IP-Rotation`,
-        });
+      // Configure SearXNG with proxies for outgoing requests
+      if (parsedProxies.length > 0 && searxngUrl) {
+        send({ type: 'log', message: `${parsedProxies.length.toLocaleString()} Proxies geladen — konfiguriere SearXNG...` });
+        const proxyResult = configureSearXNGProxies(proxies!);
+        if (proxyResult.error) {
+          send({ type: 'log', message: `Proxy-Warnung: ${proxyResult.error}` });
+        }
+        if (proxyResult.count > 0) {
+          send({ type: 'log', message: `${proxyResult.count} Proxies in SearXNG konfiguriert — warte auf Neustart...` });
+          await new Promise(resolve => setTimeout(resolve, 8000));
+          send({ type: 'log', message: 'SearXNG bereit mit Proxy-Rotation' });
+        }
       }
+
+      const engineConfig: SearchEngineConfig = {
+        searxngUrl: searxngUrl || undefined,
+        totalKeywords: remainingKeywords.length,
+      };
 
       send({
         type: 'log',
-        message: parsedProxies.length > 0
-          ? `Proxy-Modus aktiv — ${remainingKeywords.length} Keywords${massMode ? ' (Massen-Modus)' : ' (Tiefen-Modus)'}`
-          : searxngUrl
-            ? `SearXNG aktiv (${searxngUrl}) — ${remainingKeywords.length} Keywords${massMode ? ' (Massen-Modus)' : ' (Tiefen-Modus)'}`
-            : 'WARNUNG: Keine Proxies und kein SearXNG! Scraping wird vermutlich fehlschlagen.',
+        message: searxngUrl
+          ? `SearXNG aktiv (${searxngUrl})${parsedProxies.length > 0 ? ' + Proxies' : ''} — ${remainingKeywords.length} Keywords${massMode ? ' (Massen-Modus)' : ' (Tiefen-Modus)'}`
+          : 'WARNUNG: Kein SearXNG konfiguriert! Scraping wird vermutlich fehlschlagen.',
       });
 
       send({

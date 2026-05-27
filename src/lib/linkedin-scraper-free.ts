@@ -941,7 +941,6 @@ async function searchGoogle(
 export interface SearchEngineConfig {
   searxngUrl?: string;
   totalKeywords?: number;
-  proxies?: ProxyEntry[];
 }
 
 /**
@@ -964,30 +963,10 @@ export async function searchProfiles(
   const allResults: SearchResult[] = [];
   const config = engineConfig || { searxngUrl };
 
-  const hasProxies = config.proxies && config.proxies.length > 0;
   const hasSearXNG = !!config.searxngUrl;
-  const hasReliableEngine = hasProxies || hasSearXNG;
+  const hasReliableEngine = hasSearXNG;
 
-  if (hasProxies) {
-    const lightweight = (config.totalKeywords || 1) > 5;
-    onProgress?.(`Proxy-Suche (${config.proxies!.length} Proxies) — ${lightweight ? 'Massen-Modus' : 'Tiefen-Suche'}`, 0);
-
-    try {
-      const r = await searchGoogleViaProxy(keyword, location, maxResults, config.proxies!, (msg) => {
-        onProgress?.(msg, allResults.length);
-      }, lightweight);
-      for (const item of r) {
-        const norm = normalizeLinkedInUrl(item.profileUrl);
-        if (!seenUrls.has(norm)) {
-          seenUrls.add(norm);
-          allResults.push(item);
-        }
-      }
-      onProgress?.(`Proxy-Suche fertig: ${allResults.length} einzigartige Profile`, allResults.length);
-    } catch (e) {
-      onProgress?.(`Proxy-Fehler: ${e instanceof Error ? e.message : 'Unbekannt'}`, allResults.length);
-    }
-  } else if (hasSearXNG) {
+  if (hasSearXNG) {
     const lightweight = (config.totalKeywords || 1) > 5;
     onProgress?.(`SearXNG aktiv — ${lightweight ? 'Massen-Modus (schnell)' : 'Tiefen-Suche'} gestartet`, 0);
 
@@ -1035,12 +1014,10 @@ export async function searchProfiles(
   }
 
   if (allResults.length === 0) {
-    if (hasProxies) {
-      onProgress?.('0 Profile gefunden — Google liefert keine Ergebnisse ueber die Proxies. Proxy-Liste pruefen.', 0);
-    } else if (!hasSearXNG) {
-      onProgress?.('0 Ergebnisse. Loesung: Proxies einfuegen oder SearXNG einrichten!', 0);
+    if (!hasSearXNG) {
+      onProgress?.('0 Ergebnisse. SearXNG einrichten + Proxies eintragen!', 0);
     } else {
-      onProgress?.('0 Ergebnisse von SearXNG. Pruefe: 1) Laeuft SearXNG? 2) Sind Engines aktiviert?', 0);
+      onProgress?.('0 Ergebnisse von SearXNG. Pruefe: 1) Laeuft SearXNG? 2) Sind Proxies konfiguriert? 3) Engines aktiviert?', 0);
     }
   }
 
