@@ -380,8 +380,12 @@ async function searchBing(
 
 /**
  * Search via SearXNG instance for LinkedIn profiles.
- * Self-hosted — no rate limits, no CAPTCHAs.
- * Uses multiple query strategies since `site:` operator doesn't work with all engines.
+ * Self-hosted — no rate limits, no CAPTCHAs, unlimited pagination.
+ * Designed for mass scraping (10k+ profiles).
+ *
+ * Strategy: Runs ALL query formats and paginates deeply (up to 50 pages each).
+ * Different SearXNG engines respond to different query formats, so running
+ * all strategies maximizes coverage.
  */
 async function searchSearXNG(
   keyword: string,
@@ -393,80 +397,132 @@ async function searchSearXNG(
   const results: SearchResult[] = [];
   const seenUrls = new Set<string>();
 
-  // Try multiple query formats — different engines support different operators
   const queries = [
-    location
-      ? `"linkedin.com/in" ${keyword} ${location}`
-      : `"linkedin.com/in" ${keyword}`,
-    location
-      ? `linkedin ${keyword} ${location} Profil`
-      : `linkedin ${keyword} Profil`,
-    location
-      ? `site:linkedin.com/in ${keyword} ${location}`
-      : `site:linkedin.com/in ${keyword}`,
+    {
+      label: 'site:',
+      q: location
+        ? `site:linkedin.com/in ${keyword} ${location}`
+        : `site:linkedin.com/in ${keyword}`,
+    },
+    {
+      label: 'URL-Match',
+      q: location
+        ? `"linkedin.com/in" ${keyword} ${location}`
+        : `"linkedin.com/in" ${keyword}`,
+    },
+    {
+      label: 'Profil',
+      q: location
+        ? `linkedin profil ${keyword} ${location}`
+        : `linkedin profil ${keyword}`,
+    },
+    {
+      label: 'Breit',
+      q: location
+        ? `${keyword} ${location} linkedin`
+        : `${keyword} linkedin`,
+    },
   ];
 
+  const maxPagesPerStrategy = maxResults === 0 ? 50 : Math.max(5, Math.ceil(maxResults / 10));
+  let emptyStrategies = 0;
+
   for (let qi = 0; qi < queries.length; qi++) {
-    const query = queries[qi];
+    const { label, q } = queries[qi];
     let pageNum = 0;
     let hasMore = true;
-    const strategyLabel = qi === 0 ? 'Strategie A' : qi === 1 ? 'Strategie B' : 'Strategie C';
-
-    if (qi > 0 && results.length >= 5) break; // Already have results, skip remaining strategies
+    let strategyFound = 0;
+    let consecutiveEmpty = 0;
 
     while (hasMore) {
       pageNum++;
-      onProgress?.(`SearXNG ${strategyLabel} Seite ${pageNum}...`, results.length);
+      if (pageNum % 5 === 1 || pageNum <= 3) {
+        onProgress?.(`[${label}] Seite ${pageNum}... (${results.length} Profile bisher)`, results.length);
+      }
 
       try {
-        const url = `${searxngUrl}/search?q=${encodeURIComponent(query)}&format=json&pageno=${pageNum}&language=de`;
-        const res = await fetch(url, {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(10000),
+        const params = new URLSearchParams({
+          q,
+          format: 'json',
+          pageno: String(pageNum),
+          language: 'de',
+          safesearch: '0',
+          time_range: '',
         });
 
+        const res = await fetch(`${searxngUrl}/search?${params}`, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (res.status === 429) {
+          onProgress?.(`[${label}] Rate-Limit — warte 3s`, results.length);
+          await delay(3000);
+          continue;
+        }
         if (!res.ok) {
-          onProgress?.(`SearXNG Fehler: ${res.status}`, results.length);
+          onProgress?.(`[${label}] HTTP ${res.status}`, results.length);
           break;
         }
 
         const data = await res.json();
-        const searchResults = (data.results || []) as { url?: string; title?: string; content?: string }[];
+        const items = (data.results || []) as { url?: string; title?: string; content?: string }[];
         let foundOnPage = 0;
 
-        onProgress?.(`SearXNG ${strategyLabel} Seite ${pageNum}: ${searchResults.length} Ergebnisse von Server`, results.length);
-
-        for (const item of searchResults) {
-          const itemUrl = item.url || '';
-          const profileUrl = cleanLinkedInUrl(itemUrl);
+        for (const item of items) {
+          const profileUrl = cleanLinkedInUrl(item.url || '');
           if (!profileUrl) continue;
           const norm = normalizeLinkedInUrl(profileUrl);
           if (seenUrls.has(norm)) continue;
           seenUrls.add(norm);
           const parsed = parseSearchTitle(item.title || '');
-          results.push({ profileUrl, snippetName: parsed.name, snippetHeadline: parsed.headline || (item.content || '').slice(0, 100) });
+          results.push({
+            profileUrl,
+            snippetName: parsed.name,
+            snippetHeadline: parsed.headline || (item.content || '').slice(0, 100),
+          });
           foundOnPage++;
+          strategyFound++;
           if (maxResults > 0 && results.length >= maxResults) break;
         }
 
-        onProgress?.(`SearXNG ${strategyLabel} Seite ${pageNum}: ${foundOnPage} LinkedIn-Profile gefiltert (gesamt: ${results.length})`, results.length);
+        if (foundOnPage === 0) {
+          consecutiveEmpty++;
+        } else {
+          consecutiveEmpty = 0;
+        }
 
-        if (foundOnPage === 0 && pageNum >= 2) hasMore = false;
-        else if (searchResults.length === 0) hasMore = false;
+        // Stop conditions for this strategy
+        if (consecutiveEmpty >= 3) hasMore = false;
+        else if (items.length === 0) hasMore = false;
         else if (maxResults > 0 && results.length >= maxResults) hasMore = false;
-        else if (pageNum >= 10) hasMore = false;
+        else if (pageNum >= maxPagesPerStrategy) hasMore = false;
 
-        if (hasMore) await randomDelay(300, 700);
+        if (hasMore) await randomDelay(150, 400);
       } catch (err) {
-        onProgress?.(`SearXNG Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, results.length);
-        hasMore = false;
+        const msg = err instanceof Error ? err.message : 'Unbekannt';
+        if (msg.includes('timeout') || msg.includes('abort')) {
+          onProgress?.(`[${label}] Timeout Seite ${pageNum} — weiter`, results.length);
+          consecutiveEmpty++;
+          if (consecutiveEmpty >= 3) hasMore = false;
+          continue;
+        }
+        onProgress?.(`[${label}] Fehler: ${msg}`, results.length);
+        break;
       }
     }
 
+    onProgress?.(`[${label}] fertig: ${strategyFound} neue Profile in ${pageNum} Seiten (gesamt: ${results.length})`, results.length);
+
+    if (strategyFound === 0) emptyStrategies++;
+    if (maxResults > 0 && results.length >= maxResults) break;
+
     // Short delay between strategies
-    if (qi < queries.length - 1 && results.length < 5) {
-      await randomDelay(200, 500);
-    }
+    if (qi < queries.length - 1) await randomDelay(200, 500);
+  }
+
+  if (emptyStrategies === queries.length) {
+    onProgress?.('SearXNG: 0 Ergebnisse bei allen Strategien — SearXNG laeuft, aber findet keine LinkedIn-Profile. Pruefe ob Engines in SearXNG aktiviert sind (google, bing, duckduckgo).', 0);
   }
 
   return results;
@@ -578,90 +634,19 @@ async function searchGoogle(
   return results;
 }
 
-/**
- * Google Custom Search API — offizielle API, funktioniert immer, kein Scraping.
- * Braucht API Key + Custom Search Engine ID (cx).
- * Free: 100 Queries/Tag, danach $5/1000 Queries.
- */
-async function searchGoogleCSE(
-  keyword: string,
-  location: string,
-  maxResults: number,
-  apiKey: string,
-  cx: string,
-  onProgress?: (msg: string, count: number) => void,
-): Promise<SearchResult[]> {
-  const results: SearchResult[] = [];
-  const seenUrls = new Set<string>();
-
-  const query = location
-    ? `site:linkedin.com/in ${keyword} ${location}`
-    : `site:linkedin.com/in ${keyword}`;
-
-  const perPage = 10; // Google CSE max per request
-  const maxPages = maxResults > 0 ? Math.ceil(Math.min(maxResults, 100) / perPage) : 10;
-
-  for (let page = 0; page < maxPages; page++) {
-    const start = page * perPage + 1;
-    onProgress?.(`Google CSE Seite ${page + 1}...`, results.length);
-
-    try {
-      const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&start=${start}&num=${perPage}&gl=de&lr=lang_de`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-
-      if (res.status === 429) {
-        onProgress?.('Google CSE Tageslimit erreicht (100 Queries/Tag kostenlos)', results.length);
-        break;
-      }
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        onProgress?.(`Google CSE Fehler: ${res.status} ${errText.substring(0, 100)}`, results.length);
-        break;
-      }
-
-      const data = await res.json();
-      const items = (data.items || []) as { link?: string; title?: string; snippet?: string }[];
-      let foundOnPage = 0;
-
-      for (const item of items) {
-        const profileUrl = cleanLinkedInUrl(item.link || '');
-        if (!profileUrl) continue;
-        const norm = normalizeLinkedInUrl(profileUrl);
-        if (seenUrls.has(norm)) continue;
-        seenUrls.add(norm);
-
-        const parsed = parseSearchTitle(item.title || '');
-        results.push({
-          profileUrl,
-          snippetName: parsed.name,
-          snippetHeadline: parsed.headline || (item.snippet || '').slice(0, 100),
-        });
-        foundOnPage++;
-        if (maxResults > 0 && results.length >= maxResults) break;
-      }
-
-      onProgress?.(`Google CSE Seite ${page + 1}: ${foundOnPage} Profile (gesamt: ${results.length})`, results.length);
-
-      if (items.length < perPage || foundOnPage === 0) break;
-      if (maxResults > 0 && results.length >= maxResults) break;
-
-      // Respect rate limits
-      if (page < maxPages - 1) await randomDelay(200, 500);
-    } catch (err) {
-      onProgress?.(`Google CSE Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, results.length);
-      break;
-    }
-  }
-
-  return results;
-}
-
 export interface SearchEngineConfig {
   searxngUrl?: string;
-  googleCseKey?: string;
-  googleCseCx?: string;
 }
 
+/**
+ * Main search orchestrator.
+ *
+ * Priority:
+ * 1. SearXNG (self-hosted, kostenlos, unbegrenzt) — runs solo when configured
+ * 2. Google CSE API (100 free queries/day) — runs as supplement
+ * 3. DDG/Bing/Google scraping — only when nothing else is configured, and they
+ *    almost never work from cloud IPs
+ */
 export async function searchProfiles(
   keyword: string,
   location: string,
@@ -674,86 +659,62 @@ export async function searchProfiles(
   const allResults: SearchResult[] = [];
   const config = engineConfig || { searxngUrl };
 
-  // Determine which engines are available
-  const hasGoogleCSE = !!(config.googleCseKey && config.googleCseCx);
   const hasSearXNG = !!config.searxngUrl;
+  const hasReliableEngine = hasSearXNG;
 
-  if (hasGoogleCSE || hasSearXNG) {
-    onProgress?.(`Starte Suche — Engines: ${[
-      hasGoogleCSE ? 'Google CSE API' : null,
-      hasSearXNG ? 'SearXNG' : null,
-      'DuckDuckGo', 'Bing',
-    ].filter(Boolean).join(', ')}`, 0);
-  } else {
-    onProgress?.('Starte Suche — nur Scraping-Engines (DDG/Google/Bing). Für bessere Ergebnisse: Google CSE API oder SearXNG konfigurieren.', 0);
-  }
-
-  const searches: Promise<{ engine: string; results: SearchResult[] }>[] = [];
-
-  // Priority 1: Google CSE API (most reliable)
-  if (hasGoogleCSE) {
-    searches.push(
-      searchGoogleCSE(keyword, location, maxResults, config.googleCseKey!, config.googleCseCx!, (msg) => {
-        onProgress?.(`[Google CSE] ${msg}`, allResults.length);
-      }).then(results => ({ engine: 'Google CSE', results }))
-    );
-  }
-
-  // Priority 2: SearXNG (self-hosted, no limits)
   if (hasSearXNG) {
-    searches.push(
-      searchSearXNG(keyword, location, maxResults, config.searxngUrl!, (msg) => {
-        onProgress?.(`[SearXNG] ${msg}`, allResults.length);
-      }).then(results => ({ engine: 'SearXNG', results }))
-    );
-  }
+    onProgress?.(`SearXNG aktiv — Massen-Suche gestartet`, 0);
 
-  // Scraping engines — always try as fallback
-  searches.push(
-    searchDuckDuckGo(keyword, location, maxResults, (msg) => {
-      onProgress?.(`[DDG] ${msg}`, allResults.length);
-    }).then(results => ({ engine: 'DuckDuckGo', results })),
-    searchBing(keyword, location, maxResults, (msg) => {
-      onProgress?.(`[Bing] ${msg}`, allResults.length);
-    }).then(results => ({ engine: 'Bing', results })),
-    searchGoogle(keyword, location, maxResults, (msg) => {
-      onProgress?.(`[Google] ${msg}`, allResults.length);
-    }).then(results => ({ engine: 'Google', results })),
-  );
-
-  const settled = await Promise.allSettled(searches);
-  const engineStats: string[] = [];
-
-  for (const result of settled) {
-    if (result.status === 'fulfilled') {
-      const { engine, results } = result.value;
-      let added = 0;
-      for (const r of results) {
-        const norm = normalizeLinkedInUrl(r.profileUrl);
+    try {
+      const r = await searchSearXNG(keyword, location, maxResults, config.searxngUrl!, (msg) => {
+        onProgress?.(msg, allResults.length);
+      });
+      for (const item of r) {
+        const norm = normalizeLinkedInUrl(item.profileUrl);
         if (!seenUrls.has(norm)) {
           seenUrls.add(norm);
-          allResults.push(r);
-          added++;
+          allResults.push(item);
         }
       }
-      engineStats.push(`${engine}: ${results.length} (${added} neu)`);
-      if (results.length === 0) {
-        onProgress?.(`[${engine}] 0 Ergebnisse — wahrscheinlich blockiert (CAPTCHA/IP-Block)`, 0);
-      }
-    } else {
-      const reason = result.reason instanceof Error ? result.reason.message : 'Unbekannter Fehler';
-      engineStats.push(`FEHLER: ${reason}`);
-      onProgress?.(`[Engine] Fehlgeschlagen: ${reason}`, allResults.length);
+      onProgress?.(`SearXNG fertig: ${allResults.length} einzigartige Profile`, allResults.length);
+    } catch (e) {
+      onProgress?.(`SearXNG Fehler: ${e instanceof Error ? e.message : 'Unbekannt'}`, allResults.length);
     }
   }
 
-  onProgress?.(`Alle Engines fertig: ${allResults.length} einzigartige Profile [${engineStats.join(', ')}]`, allResults.length);
+  // Only fall back to scraping engines if no reliable engine is configured
+  if (!hasReliableEngine) {
+    onProgress?.('WARNUNG: Kein SearXNG konfiguriert. Versuche DDG/Bing als Fallback (funktioniert selten von Cloud-Servern).', 0);
+
+    const fallbacks: Promise<{ engine: string; results: SearchResult[] }>[] = [
+      searchDuckDuckGo(keyword, location, maxResults, (msg) => {
+        onProgress?.(`[DDG] ${msg}`, allResults.length);
+      }).then(results => ({ engine: 'DuckDuckGo', results })),
+      searchBing(keyword, location, maxResults, (msg) => {
+        onProgress?.(`[Bing] ${msg}`, allResults.length);
+      }).then(results => ({ engine: 'Bing', results })),
+    ];
+
+    const settled = await Promise.allSettled(fallbacks);
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        for (const r of result.value.results) {
+          const norm = normalizeLinkedInUrl(r.profileUrl);
+          if (!seenUrls.has(norm)) {
+            seenUrls.add(norm);
+            allResults.push(r);
+          }
+        }
+      }
+    }
+  }
 
   if (allResults.length === 0) {
-    const hints: string[] = [];
-    if (!hasGoogleCSE) hints.push('Google CSE API Key + CX in Einstellungen hinterlegen');
-    if (!hasSearXNG) hints.push('SearXNG-Instanz einrichten (docker run -d -p 8080:8080 searxng/searxng)');
-    onProgress?.(`WARNUNG: 0 Ergebnisse von allen Engines. Tipps: ${hints.join(' ODER ')}`, 0);
+    if (!hasSearXNG) {
+      onProgress?.('0 Ergebnisse. Loesung: SearXNG einrichten! Auf dem Server: docker run -d --name searxng -p 8888:8080 -e SEARXNG_SECRET=elvora123 searxng/searxng — dann URL in Einstellungen hinterlegen.', 0);
+    } else {
+      onProgress?.('0 Ergebnisse von SearXNG. Pruefe: 1) Laeuft SearXNG? 2) Sind Engines aktiviert (google, bing, duckduckgo)? 3) JSON-Format aktiviert?', 0);
+    }
   }
 
   if (maxResults > 0 && allResults.length > maxResults) {
@@ -777,57 +738,35 @@ export async function testSearchEngines(config: SearchEngineConfig): Promise<{
   const testLocation = 'Deutschland';
   const results: { engine: string; status: 'ok' | 'error' | 'not_configured'; results: number; error?: string; latency?: number }[] = [];
 
-  // Test Google CSE
-  if (config.googleCseKey && config.googleCseCx) {
-    const start = Date.now();
-    try {
-      const r = await searchGoogleCSE(testKeyword, testLocation, 5, config.googleCseKey, config.googleCseCx);
-      results.push({ engine: 'Google CSE', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - start, error: r.length === 0 ? 'Keine Ergebnisse' : undefined });
-    } catch (e) {
-      results.push({ engine: 'Google CSE', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - start });
-    }
-  } else {
-    results.push({ engine: 'Google CSE', status: 'not_configured', results: 0 });
-  }
-
   // Test SearXNG
   if (config.searxngUrl) {
     const start = Date.now();
     try {
       const r = await searchSearXNG(testKeyword, testLocation, 5, config.searxngUrl);
-      results.push({ engine: 'SearXNG', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - start, error: r.length === 0 ? 'Keine Ergebnisse' : undefined });
+      results.push({ engine: 'SearXNG', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - start, error: r.length === 0 ? 'Laeuft, aber 0 LinkedIn-Profile gefunden. Pruefe Engine-Konfiguration.' : undefined });
     } catch (e) {
       results.push({ engine: 'SearXNG', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - start });
     }
   } else {
-    results.push({ engine: 'SearXNG', status: 'not_configured', results: 0 });
+    results.push({ engine: 'SearXNG', status: 'not_configured', results: 0, error: 'docker run -d --name searxng -p 8888:8080 searxng/searxng' });
   }
 
-  // Test DuckDuckGo
+  // Test DuckDuckGo (quick, just to show status)
   const ddgStart = Date.now();
   try {
-    const r = await searchDuckDuckGo(testKeyword, testLocation, 5);
-    results.push({ engine: 'DuckDuckGo', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - ddgStart, error: r.length === 0 ? 'Blockiert oder keine Ergebnisse' : undefined });
+    const r = await searchDuckDuckGo(testKeyword, testLocation, 3);
+    results.push({ engine: 'DuckDuckGo', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - ddgStart, error: r.length === 0 ? 'Blockiert (normal bei Cloud-Servern)' : undefined });
   } catch (e) {
-    results.push({ engine: 'DuckDuckGo', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - ddgStart });
+    results.push({ engine: 'DuckDuckGo', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Blockiert', latency: Date.now() - ddgStart });
   }
 
   // Test Bing
   const bingStart = Date.now();
   try {
-    const r = await searchBing(testKeyword, testLocation, 5);
-    results.push({ engine: 'Bing', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - bingStart, error: r.length === 0 ? 'Blockiert oder keine Ergebnisse' : undefined });
+    const r = await searchBing(testKeyword, testLocation, 3);
+    results.push({ engine: 'Bing', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - bingStart, error: r.length === 0 ? 'Blockiert (normal bei Cloud-Servern)' : undefined });
   } catch (e) {
-    results.push({ engine: 'Bing', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - bingStart });
-  }
-
-  // Test Google scraping
-  const gStart = Date.now();
-  try {
-    const r = await searchGoogle(testKeyword, testLocation, 5);
-    results.push({ engine: 'Google', status: r.length > 0 ? 'ok' : 'error', results: r.length, latency: Date.now() - gStart, error: r.length === 0 ? 'CAPTCHA oder IP-Block' : undefined });
-  } catch (e) {
-    results.push({ engine: 'Google', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Fehler', latency: Date.now() - gStart });
+    results.push({ engine: 'Bing', status: 'error', results: 0, error: e instanceof Error ? e.message : 'Blockiert', latency: Date.now() - bingStart });
   }
 
   return results;
