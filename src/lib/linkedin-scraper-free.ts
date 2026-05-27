@@ -241,7 +241,7 @@ async function searchGoogleViaProxy(
       }
 
       try {
-        const url = `https://www.google.com/search?q=${encodeURIComponent(q)}&start=${start}&num=10&hl=de`;
+        const url = `https://www.google.com/search?q=${encodeURIComponent(q)}&start=${start}&num=10&hl=de&gbv=1&sei=1`;
         const res = await fetchViaProxy(url, proxy, {
           'User-Agent': getRandomUserAgent(),
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
