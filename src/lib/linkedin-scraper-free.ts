@@ -15,8 +15,6 @@
 import { normalizeLinkedInUrl, type LinkedInPerson } from './linkedin-scraper';
 import { delay, randomDelay } from './utils';
 import { parseImpressum } from './impressum-parser';
-import * as http from 'http';
-import * as tls from 'tls';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,71 +116,35 @@ export function parseProxyList(text: string): ProxyEntry[] {
     .filter((p): p is ProxyEntry => p !== null && !isNaN(p.port));
 }
 
-function fetchViaProxy(
+const GOOGLE_CONSENT_COOKIES = 'CONSENT=PENDING+987; SOCS=CAESHAgBEhJnd3NfMjAyMzA4MTUtMF9SQzIaAmRlIAEaBgiA_ZYZBQ; NID=dummy';
+
+async function fetchViaProxy(
   targetUrl: string,
   proxy: ProxyEntry,
   headers: Record<string, string> = {},
-  timeout = 12000,
+  timeout = 15000,
 ): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(targetUrl);
-    const auth = Buffer.from(`${proxy.user}:${proxy.pass}`).toString('base64');
+  const proxyUrl = `http://${encodeURIComponent(proxy.user)}:${encodeURIComponent(proxy.pass)}@${proxy.host}:${proxy.port}`;
 
-    const timer = setTimeout(() => {
-      connectReq.destroy();
-      reject(new Error('Proxy timeout'));
-    }, timeout);
+  // undici ships with Node.js 18+ — handles chunked encoding, redirects, TLS properly
+  const undici = require('undici');
+  const agent = new undici.ProxyAgent(proxyUrl);
 
-    const connectReq = http.request({
-      host: proxy.host,
-      port: proxy.port,
-      method: 'CONNECT',
-      path: `${target.hostname}:443`,
+  try {
+    const res = await undici.fetch(targetUrl, {
+      dispatcher: agent,
       headers: {
-        'Proxy-Authorization': `Basic ${auth}`,
-        'Host': `${target.hostname}:443`,
+        ...headers,
+        'Cookie': GOOGLE_CONSENT_COOKIES,
       },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(timeout),
     });
-
-    connectReq.on('connect', (res, socket) => {
-      if (res.statusCode !== 200) {
-        clearTimeout(timer);
-        socket.destroy();
-        reject(new Error(`Proxy CONNECT ${res.statusCode}`));
-        return;
-      }
-
-      const tlsSocket = tls.connect({
-        socket,
-        servername: target.hostname,
-      }, () => {
-        const path = target.pathname + target.search;
-        const headerLines = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join('\r\n');
-        const req = `GET ${path} HTTP/1.1\r\nHost: ${target.hostname}\r\n${headerLines}\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n`;
-        tlsSocket.write(req);
-      });
-
-      let rawData = '';
-      tlsSocket.on('data', (chunk: Buffer) => { rawData += chunk.toString(); });
-      tlsSocket.on('end', () => {
-        clearTimeout(timer);
-        const headerEnd = rawData.indexOf('\r\n\r\n');
-        if (headerEnd === -1) {
-          resolve({ status: 0, body: rawData });
-          return;
-        }
-        const statusLine = rawData.substring(0, rawData.indexOf('\r\n'));
-        const statusMatch = statusLine.match(/HTTP\/\d\.\d (\d+)/);
-        const status = statusMatch ? parseInt(statusMatch[1]) : 0;
-        const body = rawData.substring(headerEnd + 4);
-        resolve({ status, body });
-      });
-      tlsSocket.on('error', (e) => { clearTimeout(timer); reject(e); });
-    });
-
-    connectReq.on('error', (e) => { clearTimeout(timer); reject(e); });
-    connectReq.end();
-  });
+    const body = await res.text();
+    return { status: res.status, body };
+  } finally {
+    agent.close();
+  }
 }
 
 async function searchGoogleViaProxy(
@@ -236,6 +198,13 @@ async function searchGoogleViaProxy(
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': 'de-DE,de;q=0.9,en;q=0.3',
         });
+
+        // Debug: show response info on first page
+        if (pageNum === 1) {
+          const preview = res.body.substring(0, 300).replace(/\s+/g, ' ').trim();
+          const hasLinkedIn = res.body.includes('linkedin.com/in');
+          onProgress?.(`[${label}] Status ${res.status}, ${res.body.length} bytes, LinkedIn-URLs: ${hasLinkedIn ? 'JA' : 'NEIN'} — ${preview.substring(0, 150)}...`, results.length);
+        }
 
         if (res.status === 429 || res.status === 503) {
           onProgress?.(`[${label}] ${res.status} — wechsle Proxy`, results.length);
