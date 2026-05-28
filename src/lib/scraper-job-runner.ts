@@ -1,8 +1,11 @@
 /**
  * Background Scraper Job Runner
  *
- * Jobs laufen unabhängig von HTTP-Verbindungen im Node.js-Prozess.
- * Frontend kann sich jederzeit verbinden/trennen — der Job läuft weiter.
+ * Jobs laufen unabhaengig von HTTP-Verbindungen im Node.js-Prozess.
+ * Frontend kann sich jederzeit verbinden/trennen — der Job laeuft weiter.
+ * Jobs ueberleben Page-Refresh, Browser-Wechsel, Geraetewechsel.
+ * Einzig ein Server-Neustart (pm2 restart) stoppt laufende Jobs —
+ * diese werden beim naechsten Start als "stopped" markiert und koennen fortgesetzt werden.
  */
 
 export interface JobLogEntry {
@@ -45,6 +48,10 @@ class JobRunner {
     return Array.from(this.jobs.values()).filter(j => j.status === 'running');
   }
 
+  getAllJobs(): BackgroundJob[] {
+    return Array.from(this.jobs.values());
+  }
+
   createJob(id: number): BackgroundJob {
     const job: BackgroundJob = {
       id,
@@ -80,6 +87,9 @@ class JobRunner {
     if (!job) return;
     const entry: JobLogEntry = { time: Date.now(), source, message, type };
     job.logs.push(entry);
+    if (job.logs.length > 5000) {
+      job.logs = job.logs.slice(-4000);
+    }
     const listeners = this.listeners.get(id);
     if (listeners) {
       for (const fn of listeners) {
@@ -106,8 +116,6 @@ class JobRunner {
     job.status = success ? 'completed' : 'error';
     job.completedAt = Date.now();
     this.abortControllers.delete(id);
-    // Keep job in memory for 30 min after completion for reconnects
-    setTimeout(() => this.jobs.delete(id), 30 * 60 * 1000);
   }
 
   subscribe(id: number, listener: JobListener): () => void {
@@ -119,5 +127,5 @@ class JobRunner {
   }
 }
 
-// Singleton — lebt solange der Node.js-Prozess läuft
+// Singleton — lebt solange der Node.js-Prozess laeuft
 export const jobRunner = new JobRunner();

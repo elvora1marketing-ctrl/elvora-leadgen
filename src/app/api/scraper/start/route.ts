@@ -121,16 +121,15 @@ async function runScrapeJob(
   if (options.deepScan) jobRunner.addLog(jobId, 'System', 'Tiefenscan aktiv — alle Seiten + Stadtteile', 'info');
   jobRunner.updateProgress(jobId, currentStep, totalSteps, isResume ? 'Fortsetzen...' : 'Starte...');
 
-  let finalStatus: 'completed' | 'stopped' = 'completed';
-  let consecutiveErrors = 0;
+  let stopped = false;
 
   for (let ki = 0; ki < keywords.length; ki++) {
-    if (signal?.aborted) { finalStatus = 'stopped'; break; }
+    if (signal?.aborted) { stopped = true; break; }
     const kw = keywords[ki];
     jobRunner.addLog(jobId, 'System', `━━━ Keyword ${ki + 1}/${keywords.length}: "${kw}" ━━━`, 'info');
 
     for (let ci = 0; ci < cities.length; ci++) {
-      if (signal?.aborted) { finalStatus = 'stopped'; break; }
+      if (signal?.aborted) { stopped = true; break; }
       const ct = cities[ci];
       const stepKey = `${kw}||${ct}`;
 
@@ -142,8 +141,6 @@ async function runScrapeJob(
       if (cities.length > 1) {
         jobRunner.addLog(jobId, 'System', `[${ci + 1}/${cities.length}] ${ct}`, 'info');
       }
-
-      let stepHadError = false;
 
       const sourcePromises = sources.map(async (sourceId) => {
         if (signal?.aborted) return;
@@ -159,23 +156,11 @@ async function runScrapeJob(
           }
         } catch (err) {
           if (signal?.aborted) return;
-          stepHadError = true;
           const msg = err instanceof Error ? err.message : 'Fehler';
-          jobRunner.addLog(jobId, sourceId, `${ct}: ${msg}`, 'error');
+          jobRunner.addLog(jobId, sourceId, `${ct}: Fehler — ${msg}`, 'error');
         }
       });
       await Promise.allSettled(sourcePromises);
-
-      if (stepHadError) {
-        consecutiveErrors++;
-        if (consecutiveErrors >= 10) {
-          finalStatus = 'stopped';
-          jobRunner.addLog(jobId, 'System', `GESTOPPT: ${consecutiveErrors} Schritte in Folge mit Fehlern — Job kann spaeter fortgesetzt werden.`, 'error');
-          break;
-        }
-      } else {
-        consecutiveErrors = 0;
-      }
 
       currentStep++;
       completedSteps.push(stepKey);
@@ -187,12 +172,16 @@ async function runScrapeJob(
       ).run(JSON.stringify(completedSteps), stats?.totalFound || 0, stats?.imported || 0, stats?.duplicates || 0, jobId);
     }
 
-    if (finalStatus === 'stopped') break;
+    if (stopped) break;
   }
 
   const stats = jobRunner.getJob(jobId)?.stats;
-  if (finalStatus === 'completed') {
+  const dbStatus = stopped ? 'stopped' : 'completed';
+
+  if (!stopped) {
     jobRunner.addLog(jobId, 'System', `Fertig: ${stats?.totalFound || 0} gefunden, ${stats?.imported || 0} importiert, ${stats?.duplicates || 0} Duplikate`, 'success');
+  } else {
+    jobRunner.addLog(jobId, 'System', `Gestoppt bei ${currentStep}/${totalSteps} — kann fortgesetzt werden`, 'warn');
   }
 
   db.prepare(`
@@ -204,14 +193,14 @@ async function runScrapeJob(
       completed_at = datetime('now')
     WHERE id = ?
   `).run(
-    finalStatus,
+    dbStatus,
     stats?.totalFound || 0,
     stats?.imported || 0,
     stats?.duplicates || 0,
     jobId,
   );
 
-  jobRunner.complete(jobId, finalStatus === 'completed');
+  jobRunner.complete(jobId, !stopped);
 }
 
 async function scrapeGoogleMaps(jobId: number, db: ReturnType<typeof getDb>, keyword: string, city: string, deepScan: boolean) {

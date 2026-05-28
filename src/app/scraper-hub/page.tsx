@@ -111,6 +111,7 @@ export default function ScraperHubPage() {
   const consoleRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const connectToJobRef = useRef<((id: number) => void) | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
@@ -151,81 +152,124 @@ export default function ScraperHubPage() {
       .catch(() => {});
   }, []);
 
-  // Connect to job stream
+  // Connect to job stream with auto-reconnect
   const connectToJob = useCallback((jobId: number) => {
     if (eventSourceRef.current) eventSourceRef.current.close();
-
-    const es = new EventSource(`/api/scraper/jobs/${jobId}/stream`);
-    eventSourceRef.current = es;
     setActiveJobId(jobId);
     setPhase('scraping');
 
-    // Buffer for batch replay on reconnect
-    let replayBuffer: LogEntry[] = [];
-    let isReplaying = true;
-    const replayTimer = setTimeout(() => {
-      if (replayBuffer.length > 0) {
-        setLogs(replayBuffer);
-        replayBuffer = [];
-      }
-      isReplaying = false;
-    }, 500);
+    let reconnectAttempts = 0;
+    let destroyed = false;
 
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'log') {
-          const entry: LogEntry = {
-            time: formatTime(data.time),
-            source: data.source,
-            message: data.message,
-            type: data.logType || 'info',
-          };
-          if (isReplaying) {
-            replayBuffer.push(entry);
-          } else {
-            setLogs(prev => [...prev, entry]);
-          }
-        } else if (data.type === 'stats') {
-          setStats({
-            totalFound: data.totalFound || 0,
-            imported: data.imported || 0,
-            duplicates: data.duplicates || 0,
-          });
-        } else if (data.type === 'progress') {
-          setProgress({ current: data.current || 0, total: data.total || 0, label: data.label || '' });
-        } else if (data.type === 'done') {
-          clearTimeout(replayTimer);
-          if (replayBuffer.length > 0) {
-            setLogs(replayBuffer);
-            replayBuffer = [];
-          }
-          isReplaying = false;
-          setPhase('done');
-          if (data.stats) {
+    function connect() {
+      if (destroyed) return;
+      const es = new EventSource(`/api/scraper/jobs/${jobId}/stream`);
+      eventSourceRef.current = es;
+
+      let replayBuffer: LogEntry[] = [];
+      let isReplaying = true;
+      const replayTimer = setTimeout(() => {
+        if (replayBuffer.length > 0) {
+          setLogs(replayBuffer);
+          replayBuffer = [];
+        }
+        isReplaying = false;
+      }, 500);
+
+      es.onmessage = (event) => {
+        reconnectAttempts = 0;
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'log') {
+            const entry: LogEntry = {
+              time: formatTime(data.time),
+              source: data.source,
+              message: data.message,
+              type: data.logType || 'info',
+            };
+            if (isReplaying) {
+              replayBuffer.push(entry);
+            } else {
+              setLogs(prev => [...prev, entry]);
+            }
+          } else if (data.type === 'stats') {
             setStats({
-              totalFound: data.stats.totalFound || 0,
-              imported: data.stats.imported || 0,
-              duplicates: data.stats.duplicates || 0,
+              totalFound: data.totalFound || 0,
+              imported: data.imported || 0,
+              duplicates: data.duplicates || 0,
             });
+          } else if (data.type === 'progress') {
+            setProgress({ current: data.current || 0, total: data.total || 0, label: data.label || '' });
+          } else if (data.type === 'done') {
+            destroyed = true;
+            clearTimeout(replayTimer);
+            if (replayBuffer.length > 0) {
+              setLogs(replayBuffer);
+              replayBuffer = [];
+            }
+            isReplaying = false;
+            setPhase('done');
+            if (data.stats) {
+              setStats({
+                totalFound: data.stats.totalFound || 0,
+                imported: data.stats.imported || 0,
+                duplicates: data.stats.duplicates || 0,
+              });
+            }
+            es.close();
+            // Refresh history
+            fetch('/api/scraper/jobs').then(r => r.json()).then(d => {
+              if (d.history) setJobHistory(d.history);
+            }).catch(() => {});
           }
-          es.close();
-        }
-      } catch { /* skip */ }
-    };
+        } catch { /* skip */ }
+      };
 
-    es.onerror = () => {
-      setTimeout(() => {
-        if (es.readyState === EventSource.CLOSED) {
-          clearTimeout(replayTimer);
-          if (replayBuffer.length > 0) {
-            setLogs(replayBuffer);
-            replayBuffer = [];
-          }
-          isReplaying = false;
-          setPhase('done');
+      es.onerror = () => {
+        es.close();
+        clearTimeout(replayTimer);
+        if (replayBuffer.length > 0) {
+          setLogs(replayBuffer);
+          replayBuffer = [];
         }
-      }, 2000);
+        isReplaying = false;
+
+        if (destroyed) return;
+
+        // Auto-reconnect — the job is still running on the server
+        reconnectAttempts++;
+        const delay = Math.min(2000 * reconnectAttempts, 15000);
+        setTimeout(() => {
+          if (destroyed) return;
+          // Check if job is still running before reconnecting
+          fetch(`/api/scraper/jobs`)
+            .then(r => r.json())
+            .then(data => {
+              if (destroyed) return;
+              const running = data.jobs?.find((j: { id: number }) => j.id === jobId);
+              if (running) {
+                connect();
+              } else {
+                // Job finished while we were disconnected
+                setPhase('done');
+                if (data.history) setJobHistory(data.history);
+              }
+            })
+            .catch(() => {
+              if (!destroyed) setTimeout(connect, 5000);
+            });
+        }, delay);
+      };
+    }
+
+    connect();
+
+    // Return cleanup function via ref
+    const prevCleanup = cleanupRef.current;
+    cleanupRef.current = () => {
+      destroyed = true;
+      eventSourceRef.current?.close();
+      prevCleanup?.();
     };
   }, []);
 
@@ -234,7 +278,7 @@ export default function ScraperHubPage() {
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => { eventSourceRef.current?.close(); };
+    return () => { cleanupRef.current?.(); eventSourceRef.current?.close(); };
   }, []);
 
   function addLog(source: string, message: string, type: LogEntry['type'] = 'info') {
@@ -249,9 +293,13 @@ export default function ScraperHubPage() {
     if (activeJobId) {
       await fetch(`/api/scraper/jobs/${activeJobId}/abort`, { method: 'POST' });
     }
-    eventSourceRef.current?.close();
-    addLog('System', 'Abgebrochen.', 'warn');
+    cleanupRef.current?.();
+    addLog('System', 'Abgebrochen — kann ueber Job-History fortgesetzt werden.', 'warn');
     setPhase('done');
+    // Refresh history so resume button appears
+    fetch('/api/scraper/jobs').then(r => r.json()).then(d => {
+      if (d.history) setJobHistory(d.history);
+    }).catch(() => {});
   }
 
   const startScraping = useCallback(async () => {

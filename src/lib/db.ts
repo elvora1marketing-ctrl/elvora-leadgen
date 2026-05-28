@@ -1547,6 +1547,17 @@ export function getDb(): Database.Database {
       console.error('[DB] Lead type migration error:', e);
     }
 
+    // Recovery: mark orphaned "running" jobs as "stopped" (resumable)
+    // This happens when the server was restarted while jobs were running
+    try {
+      const orphaned = instance.prepare("UPDATE scraper_jobs SET status = 'stopped' WHERE status = 'running'").run();
+      if (orphaned.changes > 0) {
+        console.log(`[DB] Recovery: ${orphaned.changes} orphaned running job(s) marked as stopped (resumable)`);
+      }
+    } catch (e) {
+      console.error('[DB] Recovery error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }
