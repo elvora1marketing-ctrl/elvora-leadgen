@@ -87,9 +87,12 @@ async function runScrapeJob(
   cities: string[],
   sources: string[],
   options: { autoEnrich: boolean; deepScan: boolean; proxies?: string },
+  completedSteps: string[] = [],
 ) {
   const db = getDb();
   const signal = jobRunner.getAbortSignal(jobId);
+  const isResume = completedSteps.length > 0;
+  const completedSet = new Set(completedSteps);
 
   if (options.proxies && options.proxies.trim()) {
     jobRunner.addLog(jobId, 'System', 'Proxy-Konfiguration fuer SearXNG...', 'info');
@@ -107,29 +110,43 @@ async function runScrapeJob(
   const cfg: Record<string, string> = {};
   for (const r of settingsRows) cfg[r.key] = r.value;
 
-  const totalSteps = keywords.length * cities.length * sources.length;
-  let currentStep = 0;
+  const totalSteps = keywords.length * cities.length;
+  const alreadyDone = completedSteps.length;
+  let currentStep = alreadyDone;
 
+  if (isResume) {
+    jobRunner.addLog(jobId, 'System', `Fortsetzen: ${alreadyDone} Schritte erledigt, ${totalSteps - alreadyDone} verbleibend`, 'info');
+  }
   jobRunner.addLog(jobId, 'System', `Scraping: ${keywords.length} Keywords × ${cities.length} Städte × ${sources.length} Quellen`, 'info');
   if (options.deepScan) jobRunner.addLog(jobId, 'System', 'Tiefenscan aktiv — alle Seiten + Stadtteile', 'info');
-  jobRunner.updateProgress(jobId, 0, totalSteps, 'Starte...');
+  jobRunner.updateProgress(jobId, currentStep, totalSteps, isResume ? 'Fortsetzen...' : 'Starte...');
+
+  let finalStatus: 'completed' | 'stopped' = 'completed';
+  let consecutiveErrors = 0;
 
   for (let ki = 0; ki < keywords.length; ki++) {
-    if (signal?.aborted) break;
+    if (signal?.aborted) { finalStatus = 'stopped'; break; }
     const kw = keywords[ki];
     jobRunner.addLog(jobId, 'System', `━━━ Keyword ${ki + 1}/${keywords.length}: "${kw}" ━━━`, 'info');
 
     for (let ci = 0; ci < cities.length; ci++) {
-      if (signal?.aborted) break;
+      if (signal?.aborted) { finalStatus = 'stopped'; break; }
       const ct = cities[ci];
+      const stepKey = `${kw}||${ct}`;
+
+      if (completedSet.has(stepKey)) {
+        currentStep++;
+        continue;
+      }
+
       if (cities.length > 1) {
         jobRunner.addLog(jobId, 'System', `[${ci + 1}/${cities.length}] ${ct}`, 'info');
       }
 
-      // Run all selected sources in PARALLEL per city
+      let stepHadError = false;
+
       const sourcePromises = sources.map(async (sourceId) => {
         if (signal?.aborted) return;
-        currentStep++;
         jobRunner.updateProgress(jobId, currentStep, totalSteps, `${kw} — ${ct} — ${sourceId}`);
 
         try {
@@ -142,16 +159,39 @@ async function runScrapeJob(
           }
         } catch (err) {
           if (signal?.aborted) return;
+          stepHadError = true;
           const msg = err instanceof Error ? err.message : 'Fehler';
           jobRunner.addLog(jobId, sourceId, `${ct}: ${msg}`, 'error');
         }
       });
       await Promise.allSettled(sourcePromises);
+
+      if (stepHadError) {
+        consecutiveErrors++;
+        if (consecutiveErrors >= 10) {
+          finalStatus = 'stopped';
+          jobRunner.addLog(jobId, 'System', `GESTOPPT: ${consecutiveErrors} Schritte in Folge mit Fehlern — Job kann spaeter fortgesetzt werden.`, 'error');
+          break;
+        }
+      } else {
+        consecutiveErrors = 0;
+      }
+
+      currentStep++;
+      completedSteps.push(stepKey);
+      completedSet.add(stepKey);
+
+      const stats = jobRunner.getJob(jobId)?.stats;
+      db.prepare(
+        "UPDATE scraper_jobs SET completed_keywords = ?, businesses_found = ?, businesses_imported = ?, businesses_duplicate = ? WHERE id = ?"
+      ).run(JSON.stringify(completedSteps), stats?.totalFound || 0, stats?.imported || 0, stats?.duplicates || 0, jobId);
     }
+
+    if (finalStatus === 'stopped') break;
   }
 
   const stats = jobRunner.getJob(jobId)?.stats;
-  if (!signal?.aborted) {
+  if (finalStatus === 'completed') {
     jobRunner.addLog(jobId, 'System', `Fertig: ${stats?.totalFound || 0} gefunden, ${stats?.imported || 0} importiert, ${stats?.duplicates || 0} Duplikate`, 'success');
   }
 
@@ -164,14 +204,14 @@ async function runScrapeJob(
       completed_at = datetime('now')
     WHERE id = ?
   `).run(
-    signal?.aborted ? 'aborted' : 'completed',
+    finalStatus,
     stats?.totalFound || 0,
     stats?.imported || 0,
     stats?.duplicates || 0,
     jobId,
   );
 
-  jobRunner.complete(jobId, !signal?.aborted);
+  jobRunner.complete(jobId, finalStatus === 'completed');
 }
 
 async function scrapeGoogleMaps(jobId: number, db: ReturnType<typeof getDb>, keyword: string, city: string, deepScan: boolean) {
@@ -463,34 +503,84 @@ export async function POST(request: NextRequest) {
   if (authError) return authError;
 
   const body = await request.json();
-  const { keywords, cities, sources, autoEnrich = true, deepScan = false, proxies } = body as {
-    keywords: string[];
-    cities: string[];
-    sources: string[];
+  const { keywords: rawKeywords, cities: rawCities, sources: rawSources, autoEnrich = true, deepScan = false, proxies, resumeJobId } = body as {
+    keywords?: string[];
+    cities?: string[];
+    sources?: string[];
     autoEnrich?: boolean;
     deepScan?: boolean;
     proxies?: string;
+    resumeJobId?: number;
   };
 
-  if (!keywords?.length || !cities?.length || !sources?.length) {
-    return Response.json({ error: 'Keywords, Cities und Sources erforderlich' }, { status: 400 });
-  }
-
   const db = getDb();
-  const jobLabel = `Hub: ${keywords.length} Keywords × ${cities.length} Städte`;
-  const jobResult = db.prepare(
-    "INSERT INTO scraper_jobs (keyword, max_pages, status, started_at) VALUES (?, ?, 'running', datetime('now'))"
-  ).run(jobLabel, keywords.length);
-  const jobId = Number(jobResult.lastInsertRowid);
+
+  let keywords: string[];
+  let cities: string[];
+  let sources: string[];
+  let options: { autoEnrich: boolean; deepScan: boolean; proxies?: string };
+  let jobId: number;
+  let completedSteps: string[] = [];
+
+  if (resumeJobId) {
+    const job = db.prepare('SELECT * FROM scraper_jobs WHERE id = ?').get(resumeJobId) as {
+      id: number; config: string | null; completed_keywords: string | null;
+      status: string; businesses_found: number; businesses_imported: number; businesses_duplicate: number;
+    } | undefined;
+
+    if (!job || !job.config) {
+      return Response.json({ error: 'Job nicht gefunden oder keine Config gespeichert' }, { status: 400 });
+    }
+
+    const config = JSON.parse(job.config);
+    keywords = config.keywords || [];
+    cities = config.cities || [];
+    sources = config.sources || [];
+    options = {
+      autoEnrich: config.autoEnrich ?? true,
+      deepScan: config.deepScan ?? false,
+      proxies: proxies || config.proxies,
+    };
+    completedSteps = JSON.parse(job.completed_keywords || '[]');
+
+    db.prepare("UPDATE scraper_jobs SET status = 'running', completed_at = NULL WHERE id = ?").run(resumeJobId);
+    jobId = resumeJobId;
+  } else {
+    keywords = rawKeywords || [];
+    cities = rawCities || [];
+    sources = rawSources || [];
+    options = { autoEnrich, deepScan, proxies };
+
+    if (!keywords.length || !cities.length || !sources.length) {
+      return Response.json({ error: 'Keywords, Cities und Sources erforderlich' }, { status: 400 });
+    }
+
+    const jobLabel = `Hub: ${keywords.length} Keywords × ${cities.length} Städte`;
+    const jobConfig = JSON.stringify({ keywords, cities, sources, autoEnrich, deepScan, proxies: proxies || undefined });
+    const jobResult = db.prepare(
+      "INSERT INTO scraper_jobs (keyword, max_pages, status, started_at, config, completed_keywords) VALUES (?, ?, 'running', datetime('now'), ?, '[]')"
+    ).run(jobLabel, keywords.length, jobConfig);
+    jobId = Number(jobResult.lastInsertRowid);
+  }
 
   jobRunner.createJob(jobId);
 
-  // Fire and forget — runs in background regardless of HTTP connection
-  runScrapeJob(jobId, keywords, cities, sources, { autoEnrich, deepScan, proxies }).catch(err => {
+  const job = jobRunner.getJob(jobId)!;
+  if (resumeJobId) {
+    const prevJob = db.prepare('SELECT businesses_found, businesses_imported, businesses_duplicate FROM scraper_jobs WHERE id = ?').get(jobId) as {
+      businesses_found: number; businesses_imported: number; businesses_duplicate: number;
+    };
+    job.stats.totalFound = prevJob.businesses_found || 0;
+    job.stats.imported = prevJob.businesses_imported || 0;
+    job.stats.duplicates = prevJob.businesses_duplicate || 0;
+  }
+
+  runScrapeJob(jobId, keywords, cities, sources, options, completedSteps).catch(err => {
     console.error('Background scrape job error:', err);
-    jobRunner.addLog(jobId, 'System', `Kritischer Fehler: ${err}`, 'error');
+    jobRunner.addLog(jobId, 'System', `Kritischer Fehler: ${err instanceof Error ? err.message : err}`, 'error');
+    db.prepare("UPDATE scraper_jobs SET status = 'error', completed_at = datetime('now') WHERE id = ?").run(jobId);
     jobRunner.complete(jobId, false);
   });
 
-  return Response.json({ jobId, message: 'Job gestartet' });
+  return Response.json({ jobId, message: resumeJobId ? 'Job fortgesetzt' : 'Job gestartet' });
 }

@@ -24,6 +24,9 @@ interface ScraperJobHistory {
   duration: string;
   status: string;
   startedAt: string;
+  canResume?: boolean;
+  doneSteps?: number;
+  totalSteps?: number;
 }
 
 type SearchMode = 'city' | 'radius' | 'germany';
@@ -322,7 +325,34 @@ export default function ScraperHubPage() {
     } catch (err) {
       addLog('System', `Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
     }
-  }, [keyword, city, searchMode, inputMode, selectedCategory, categories, radius, selectedSources, autoEnrich, deepScan, connectToJob]);
+  }, [keyword, city, searchMode, inputMode, selectedCategory, categories, radius, selectedSources, autoEnrich, deepScan, connectToJob, proxyList]);
+
+  const resumeJob = useCallback(async (jobId: number) => {
+    setLogs([]);
+    setStats({ totalFound: 0, imported: 0, duplicates: 0 });
+    setProgress({ current: 0, total: 0, label: '' });
+
+    try {
+      const res = await fetch('/api/scraper/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resumeJobId: jobId,
+          proxies: proxyList.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.jobId) {
+        addLog('System', `Fehler: ${data.error || 'Unbekannt'}`, 'error');
+        return;
+      }
+
+      connectToJob(data.jobId);
+    } catch (err) {
+      addLog('System', `Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
+    }
+  }, [connectToJob, proxyList]);
 
   const selectedCat = categories.find(c => c.id === selectedCategory);
   const canStart = inputMode === 'category'
@@ -744,7 +774,8 @@ export default function ScraperHubPage() {
                   <th className="text-right py-2 px-3 font-medium">Gefunden</th>
                   <th className="text-right py-2 px-3 font-medium">Importiert</th>
                   <th className="text-left py-2 px-3 font-medium">Status</th>
-                  <th className="text-right py-2 pl-3 font-medium">Dauer</th>
+                  <th className="text-right py-2 px-3 font-medium">Dauer</th>
+                  <th className="text-right py-2 pl-3 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
@@ -755,17 +786,34 @@ export default function ScraperHubPage() {
                     <td className="py-2.5 px-3 text-right text-elvora-text-muted">{job.found}</td>
                     <td className="py-2.5 px-3 text-right text-elvora-success font-semibold">{job.imported}</td>
                     <td className="py-2.5 px-3">
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                        job.status === 'completed' ? 'bg-elvora-success/15 text-elvora-success' :
-                        job.status === 'running' ? 'bg-elvora-purple/15 text-elvora-purple-light' :
-                        job.status === 'error' ? 'bg-red-400/15 text-red-400' :
-                        job.status === 'aborted' ? 'bg-elvora-warning/15 text-elvora-warning' :
-                        'bg-white/5 text-elvora-text-dim'
-                      }`}>
-                        {job.status}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          job.status === 'completed' ? 'bg-elvora-success/15 text-elvora-success' :
+                          job.status === 'running' ? 'bg-elvora-purple/15 text-elvora-purple-light' :
+                          job.status === 'error' ? 'bg-red-400/15 text-red-400' :
+                          job.status === 'aborted' || job.status === 'stopped' ? 'bg-elvora-warning/15 text-elvora-warning' :
+                          'bg-white/5 text-elvora-text-dim'
+                        }`}>
+                          {job.status === 'stopped' ? 'gestoppt' : job.status}
+                        </span>
+                        {job.canResume && job.totalSteps && job.totalSteps > 0 && (
+                          <span className="text-[10px] text-elvora-text-dim">
+                            {job.doneSteps}/{job.totalSteps}
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="py-2.5 pl-3 text-right text-elvora-text-dim">{job.duration}</td>
+                    <td className="py-2.5 px-3 text-right text-elvora-text-dim">{job.duration}</td>
+                    <td className="py-2.5 pl-3 text-right">
+                      {job.canResume && phase !== 'scraping' && (
+                        <button
+                          onClick={() => resumeJob(job.id)}
+                          className="px-2.5 py-1 rounded-lg bg-elvora-purple/15 border border-elvora-purple/30 text-elvora-purple-light text-[10px] font-medium hover:bg-elvora-purple/25 transition-colors"
+                        >
+                          Fortsetzen
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
