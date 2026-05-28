@@ -6,56 +6,14 @@ import {
 } from '@/lib/linkedin-scraper';
 import {
   scrapeLinkedInKeyword,
-  parseProxyList,
   type FreeLinkedInPerson,
   type SearchEngineConfig,
 } from '@/lib/linkedin-scraper-free';
 import { requireAuth } from '@/lib/auth';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { execSync } from 'child_process';
+import { configureSearXNGProxies, parseProxyList } from '@/lib/searxng-proxy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const SEARXNG_SETTINGS = '/opt/searxng/settings.yml';
-
-function configureSearXNGProxies(proxyText: string): { count: number; error?: string } {
-  const entries = parseProxyList(proxyText);
-  if (entries.length === 0) return { count: 0, error: 'Keine gueltigen Proxies' };
-
-  if (!existsSync(SEARXNG_SETTINGS)) {
-    return { count: 0, error: `${SEARXNG_SETTINGS} nicht gefunden` };
-  }
-
-  const proxyLines = entries.map(p =>
-    `      - http://${encodeURIComponent(p.user)}:${encodeURIComponent(p.pass)}@${p.host}:${p.port}`
-  ).join('\n');
-
-  const newOutgoing = `outgoing:
-  request_timeout: 10.0
-  pool_connections: 100
-  pool_maxsize: 20
-  proxies:
-    all://:
-${proxyLines}`;
-
-  try {
-    let yml = readFileSync(SEARXNG_SETTINGS, 'utf-8');
-
-    if (yml.includes('outgoing:')) {
-      // Replace entire outgoing block (it's the last section in the file)
-      yml = yml.replace(/outgoing:[\s\S]*$/, newOutgoing);
-    } else {
-      yml += '\n' + newOutgoing + '\n';
-    }
-
-    writeFileSync(SEARXNG_SETTINGS, yml, 'utf-8');
-    execSync('docker restart elvora-searxng', { timeout: 30000 });
-    return { count: entries.length };
-  } catch (e) {
-    return { count: 0, error: `${e instanceof Error ? e.message : 'Unbekannt'}` };
-  }
-}
 
 /**
  * POST /api/scraper/linkedin/stream - Start or resume LinkedIn scraping with SSE

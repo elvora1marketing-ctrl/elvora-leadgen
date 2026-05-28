@@ -94,6 +94,8 @@ export default function ScraperHubPage() {
   const [selectedSources, setSelectedSources] = useState<string[]>(['branchenportal', 'websearch']);
   const [autoEnrich, setAutoEnrich] = useState(true);
   const [deepScan, setDeepScan] = useState(false);
+  const [proxyList, setProxyList] = useState('');
+  const [showProxyField, setShowProxyField] = useState(false);
   const [phase, setPhase] = useState<Phase>('config');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [allCities, setAllCities] = useState<Array<{ name: string; state: string }>>([]);
@@ -305,6 +307,7 @@ export default function ScraperHubPage() {
           sources: selectedSources,
           autoEnrich,
           deepScan,
+          proxies: proxyList.trim() || undefined,
         }),
       });
 
@@ -530,6 +533,41 @@ export default function ScraperHubPage() {
             <input type="checkbox" checked={deepScan} onChange={(e) => setDeepScan(e.target.checked)} className="w-4 h-4 rounded bg-elvora-bg-alt border-elvora-border" />
             <span className="text-xs text-elvora-text-muted">Tiefenscan -- alle Seiten + Stadtteile durchsuchen</span>
           </label>
+        </div>
+
+        {/* Proxies */}
+        <div>
+          <button
+            onClick={() => setShowProxyField(!showProxyField)}
+            className="flex items-center gap-1.5 text-xs text-elvora-text-dim hover:text-elvora-text transition-colors"
+          >
+            <svg className={`w-3 h-3 transition-transform ${showProxyField ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            Proxies (optional)
+            {proxyList.trim() && (
+              <span className="text-elvora-success font-medium ml-1">
+                {proxyList.trim().split('\n').filter(l => l.trim() && !l.startsWith('#')).length.toLocaleString('de-DE')} aktiv
+              </span>
+            )}
+          </button>
+          {showProxyField && (
+            <div className="mt-2 space-y-2">
+              <textarea
+                value={proxyList}
+                onChange={(e) => setProxyList(e.target.value)}
+                placeholder="ip:port:user:pass — eine pro Zeile"
+                rows={4}
+                disabled={phase === 'scraping'}
+                className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg-alt border border-elvora-border text-elvora-text text-xs font-mono placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 disabled:opacity-50 resize-y"
+              />
+              {proxyList.trim() && (
+                <p className="text-[11px] text-elvora-text-dim">
+                  {proxyList.trim().split('\n').filter(l => l.trim() && !l.startsWith('#')).length.toLocaleString('de-DE')} Proxies erkannt — werden in SearXNG konfiguriert
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}

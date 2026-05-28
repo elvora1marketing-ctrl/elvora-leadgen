@@ -9,6 +9,7 @@ import { scrapeGelbeSeiten, scrape11880 } from '@/lib/branchenportal-scraper';
 import { parseImpressum } from '@/lib/impressum-parser';
 import { getDistricts } from '@/lib/german-districts';
 import { requireAuth } from '@/lib/auth';
+import { configureSearXNGProxies } from '@/lib/searxng-proxy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -85,10 +86,22 @@ async function runScrapeJob(
   keywords: string[],
   cities: string[],
   sources: string[],
-  options: { autoEnrich: boolean; deepScan: boolean },
+  options: { autoEnrich: boolean; deepScan: boolean; proxies?: string },
 ) {
   const db = getDb();
   const signal = jobRunner.getAbortSignal(jobId);
+
+  if (options.proxies && options.proxies.trim()) {
+    jobRunner.addLog(jobId, 'System', 'Proxy-Konfiguration fuer SearXNG...', 'info');
+    const proxyResult = configureSearXNGProxies(options.proxies);
+    if (proxyResult.error) {
+      jobRunner.addLog(jobId, 'System', `Proxy-Fehler: ${proxyResult.error}`, 'error');
+    } else {
+      jobRunner.addLog(jobId, 'System', `${proxyResult.count.toLocaleString('de-DE')} Proxies in SearXNG konfiguriert — Neustart...`, 'success');
+      await new Promise(r => setTimeout(r, 8000));
+      jobRunner.addLog(jobId, 'System', 'SearXNG bereit', 'info');
+    }
+  }
 
   const settingsRows = db.prepare("SELECT key, value FROM settings WHERE key IN ('searxng_url', 'brave_search_api_key')").all() as { key: string; value: string }[];
   const cfg: Record<string, string> = {};
@@ -450,12 +463,13 @@ export async function POST(request: NextRequest) {
   if (authError) return authError;
 
   const body = await request.json();
-  const { keywords, cities, sources, autoEnrich = true, deepScan = false } = body as {
+  const { keywords, cities, sources, autoEnrich = true, deepScan = false, proxies } = body as {
     keywords: string[];
     cities: string[];
     sources: string[];
     autoEnrich?: boolean;
     deepScan?: boolean;
+    proxies?: string;
   };
 
   if (!keywords?.length || !cities?.length || !sources?.length) {
@@ -472,7 +486,7 @@ export async function POST(request: NextRequest) {
   jobRunner.createJob(jobId);
 
   // Fire and forget — runs in background regardless of HTTP connection
-  runScrapeJob(jobId, keywords, cities, sources, { autoEnrich, deepScan }).catch(err => {
+  runScrapeJob(jobId, keywords, cities, sources, { autoEnrich, deepScan, proxies }).catch(err => {
     console.error('Background scrape job error:', err);
     jobRunner.addLog(jobId, 'System', `Kritischer Fehler: ${err}`, 'error');
     jobRunner.complete(jobId, false);
