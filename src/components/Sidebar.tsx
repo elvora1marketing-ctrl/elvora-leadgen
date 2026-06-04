@@ -313,7 +313,7 @@ function DeployModal({ onClose }: { onClose: () => void }) {
 
           {Object.keys(steps).length > 0 && (
             <div className="flex items-center gap-4 text-xs">
-              {['Git Pull', 'Build', 'Neustart'].map(s => (
+              {['Git Pull', 'Dependencies', 'Build', 'Neustart'].map(s => (
                 <div key={s} className="flex items-center gap-1.5">
                   {stepIcon(steps[s] || 'pending')}
                   <span className={steps[s] === 'running' ? 'text-white' : 'text-elvora-text-muted'}>{s}</span>

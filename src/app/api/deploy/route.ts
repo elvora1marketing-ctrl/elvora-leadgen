@@ -81,6 +81,16 @@ export async function POST(request: NextRequest) {
             return;
           }
 
+          const installOk = await runStep(
+            'Dependencies',
+            'npm install --no-audit --no-fund 2>&1',
+            DEPLOY_DIR,
+          );
+          if (!installOk) {
+            send({ type: 'done', success: false, message: 'npm install fehlgeschlagen' });
+            return;
+          }
+
           const buildOk = await runStep(
             'Build',
             'npm run build 2>&1',

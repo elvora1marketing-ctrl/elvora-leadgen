@@ -39,13 +39,13 @@ export async function GET(request: NextRequest) {
       code = readFileSync(codePath, 'utf-8');
     }
 
-    let spec = '';
+    let specContent = '';
     const specPath = join(BAUKASTEN_DIR, entry.spec);
     if (existsSync(specPath)) {
-      spec = readFileSync(specPath, 'utf-8');
+      specContent = readFileSync(specPath, 'utf-8');
     }
 
-    return Response.json({ ...entry, code, spec });
+    return Response.json({ ...entry, code, specContent });
   }
 
   if (action === 'tokens') {
