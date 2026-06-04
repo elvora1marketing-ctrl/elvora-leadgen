@@ -1,0 +1,22 @@
+[
+  {
+    "id": "hero-01",
+    "category": "hero",
+    "name": "Split Hero mit Bild",
+    "description": "2-Spalten Hero: Links Headline + Subline + 2 CTAs + Trust-Row, rechts Bild mit dezenter Glow. Dark, brutalist-clean.",
+    "tags": ["hero", "split", "image", "cta", "trust", "landing-top"],
+    "useCase": "Landingpages, Startseiten — oberster Abschnitt. Handwerk, Dienstleister, B2B.",
+    "variants": ["imageRight", "imageLeft"],
+    "slots": {
+      "headline": { "type": "string", "description": "Hauptüberschrift" },
+      "subline": { "type": "string", "description": "Beschreibungstext unter der Headline" },
+      "ctaPrimary": { "type": "{ label: string, href: string }", "description": "Primärer CTA-Button (Gradient)" },
+      "ctaSecondary": { "type": "{ label: string, href: string }", "description": "Optionaler sekundärer CTA (Border)" },
+      "image": { "type": "{ src: string, alt: string }", "description": "Hero-Bild" },
+      "trustLogos": { "type": "Array<{ src: string, alt: string, width?: number }>", "description": "Optionale Trust-Logos" }
+    },
+    "deps": ["primitives/Button", "lucide-react"],
+    "file": "blocks/hero-01/Hero01.tsx",
+    "spec": "blocks/hero-01/spec.md"
+  }
+]

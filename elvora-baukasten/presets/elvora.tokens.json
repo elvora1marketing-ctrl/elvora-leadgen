@@ -1,0 +1,49 @@
+{
+  "name": "Elvora",
+  "description": "Elvora Brand — brutalist-clean, dark, hohe Kontraste",
+  "colors": {
+    "background": "#0A0A0B",
+    "surface": "#141416",
+    "elevated": "#1C1C20",
+    "border": {
+      "default": "#26262A",
+      "hover": "#3A3A40"
+    },
+    "text": {
+      "primary": "#FAFAFA",
+      "secondary": "#A1A1AA",
+      "dim": "#636366"
+    },
+    "accent": {
+      "solid": "#E1106E",
+      "gradient": {
+        "from": "#E1106E",
+        "to": "#FF6A3D",
+        "direction": "135deg"
+      }
+    },
+    "status": {
+      "success": "#34C759",
+      "warning": "#FF9F0A",
+      "error": "#FF453A"
+    }
+  },
+  "typography": {
+    "fontFamily": "Inter, system-ui, sans-serif",
+    "fontWeights": {
+      "normal": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700
+    }
+  },
+  "radius": {
+    "card": "1rem",
+    "button": "0.75rem",
+    "input": "0.75rem"
+  },
+  "spacing": {
+    "sectionY": "py-16 md:py-24",
+    "containerX": "px-4 md:px-6 lg:px-8"
+  }
+}
