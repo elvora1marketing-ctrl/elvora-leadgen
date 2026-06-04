@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useAuth } from './AuthProvider';
 
 interface NavItem {
@@ -197,12 +197,168 @@ function ElvoraText({ className = '' }: { className?: string }) {
   );
 }
 
+interface DeployLog {
+  step: string;
+  message: string;
+}
+
+function DeployModal({ onClose }: { onClose: () => void }) {
+  const [branch, setBranch] = useState('claude/extract-chat-info-X4Ud2');
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [doneMessage, setDoneMessage] = useState('');
+  const [logs, setLogs] = useState<DeployLog[]>([]);
+  const [steps, setSteps] = useState<Record<string, string>>({});
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logs]);
+
+  const startDeploy = async () => {
+    setRunning(true);
+    setDone(false);
+    setLogs([]);
+    setSteps({});
+
+    try {
+      const res = await fetch('/api/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unbekannter Fehler' }));
+        setLogs([{ step: 'Fehler', message: err.error || 'Request fehlgeschlagen' }]);
+        setRunning(false);
+        setDone(true);
+        setSuccess(false);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done: streamDone, value } = await reader.read();
+        if (streamDone) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'log') {
+              setLogs(prev => [...prev, { step: data.step, message: data.message }]);
+            } else if (data.type === 'step') {
+              setSteps(prev => ({ ...prev, [data.label]: data.status }));
+            } else if (data.type === 'done') {
+              setDone(true);
+              setSuccess(!!data.success);
+              setDoneMessage(data.message || '');
+              setRunning(false);
+            }
+          } catch { /* malformed SSE */ }
+        }
+      }
+    } catch {
+      setLogs(prev => [...prev, { step: 'Fehler', message: 'Verbindung abgebrochen — Server startet vermutlich neu.' }]);
+      setDone(true);
+      setSuccess(true);
+      setDoneMessage('Verbindung getrennt — Server startet neu.');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const stepIcon = (status: string) => {
+    if (status === 'running') return <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse inline-block" />;
+    if (status === 'done') return <span className="text-green-400 text-xs">&#10003;</span>;
+    if (status === 'error') return <span className="text-red-400 text-xs">&#10007;</span>;
+    return <span className="w-2 h-2 rounded-full bg-elvora-text-dim inline-block" />;
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+      <div className="relative w-full max-w-lg mx-4 bg-elvora-bg-alt border border-elvora-border rounded-xl overflow-hidden shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-elvora-border">
+          <div className="flex items-center gap-2.5">
+            <svg className="w-5 h-5 text-elvora-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span className="text-sm font-semibold text-white">Deploy</span>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-elvora-card text-elvora-text-dim hover:text-white transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Branch</label>
+            <input
+              value={branch}
+              onChange={e => setBranch(e.target.value)}
+              disabled={running}
+              className="w-full h-9 px-3 text-sm bg-elvora-card border border-elvora-border rounded-lg text-white placeholder:text-elvora-text-dim focus:border-elvora-purple/50 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+
+          {Object.keys(steps).length > 0 && (
+            <div className="flex items-center gap-4 text-xs">
+              {['Git Pull', 'Build', 'Neustart'].map(s => (
+                <div key={s} className="flex items-center gap-1.5">
+                  {stepIcon(steps[s] || 'pending')}
+                  <span className={steps[s] === 'running' ? 'text-white' : 'text-elvora-text-muted'}>{s}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {logs.length > 0 && (
+            <div ref={logRef} className="bg-black/40 border border-elvora-border rounded-lg p-3 h-56 overflow-y-auto font-mono text-[11px] leading-relaxed space-y-0.5">
+              {logs.map((l, i) => (
+                <div key={i} className="text-elvora-text-muted">
+                  <span className="text-elvora-text-dim">[{l.step}]</span>{' '}
+                  <span className={l.message.toLowerCase().includes('error') || l.message.toLowerCase().includes('fehler') ? 'text-red-400' : ''}>{l.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {done && (
+            <div className={`text-sm font-medium px-3 py-2 rounded-lg ${success ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+              {doneMessage}
+              {success && <span className="block text-xs text-elvora-text-muted mt-1">Seite in ein paar Sekunden neu laden.</span>}
+            </div>
+          )}
+
+          <button
+            onClick={startDeploy}
+            disabled={running || !branch.trim()}
+            className="w-full h-10 rounded-lg text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-gradient-to-r from-elvora-purple to-elvora-pink text-white hover:brightness-110 active:brightness-95"
+          >
+            {running ? 'Deploying...' : done ? 'Erneut deployen' : 'Deploy starten'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
   const [triggerCount, setTriggerCount] = useState(0);
+  const [showDeploy, setShowDeploy] = useState(false);
   const { logout } = useAuth();
 
   const loadBadgeCounts = useCallback(async () => {
@@ -297,19 +453,30 @@ export default function Sidebar() {
 
         {/* Bottom */}
         <div className="px-3 py-3 border-t border-elvora-border">
-          <Link
-            href="/settings"
-            className={`flex items-center gap-3 px-3 py-[7px] rounded-lg text-[13px] font-medium transition-all relative ${
-              pathname === '/settings' ? 'bg-elvora-purple/[0.08] text-white' : 'text-elvora-text-muted hover:text-elvora-text hover:bg-white/[0.03]'
-            }`}
-          >
-            {pathname === '/settings' && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full bg-elvora-purple" />}
-            <svg className="w-[18px] h-[18px] text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Einstellungen
-          </Link>
+          <div className="flex items-center gap-1">
+            <Link
+              href="/settings"
+              className={`flex-1 flex items-center gap-3 px-3 py-[7px] rounded-lg text-[13px] font-medium transition-all relative ${
+                pathname === '/settings' ? 'bg-elvora-purple/[0.08] text-white' : 'text-elvora-text-muted hover:text-elvora-text hover:bg-white/[0.03]'
+              }`}
+            >
+              {pathname === '/settings' && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full bg-elvora-purple" />}
+              <svg className="w-[18px] h-[18px] text-elvora-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Einstellungen
+            </Link>
+            <button
+              onClick={() => setShowDeploy(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-elvora-text-dim hover:text-elvora-purple hover:bg-elvora-purple/10 transition-all flex-shrink-0"
+              title="Deploy"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
           <div className="flex items-center gap-3 px-3 py-2.5 mt-2">
             <div className="w-8 h-8 rounded-full bg-elvora-card border border-elvora-border flex items-center justify-center text-elvora-text-muted text-xs font-semibold flex-shrink-0">A</div>
             <div className="flex-1 min-w-0">
@@ -327,6 +494,8 @@ export default function Sidebar() {
           </div>
         </div>
       </aside>
+
+      {showDeploy && <DeployModal onClose={() => setShowDeploy(false)} />}
     </>
   );
 }
