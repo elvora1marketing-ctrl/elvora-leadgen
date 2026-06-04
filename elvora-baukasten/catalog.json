@@ -15,7 +15,7 @@
       "image": { "type": "{ src: string, alt: string }", "description": "Hero-Bild" },
       "trustLogos": { "type": "Array<{ src: string, alt: string, width?: number }>", "description": "Optionale Trust-Logos" }
     },
-    "deps": ["primitives/Button", "lucide-react"],
+    "deps": ["primitives/Button"],
     "file": "blocks/hero-01/Hero01.tsx",
     "spec": "blocks/hero-01/spec.md"
   }

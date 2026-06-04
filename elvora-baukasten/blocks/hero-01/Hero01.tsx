@@ -1,5 +1,20 @@
 import { Button } from '../../primitives/Button';
-import { ArrowRight, ChevronRight } from 'lucide-react';
+
+function ArrowRightIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12h14M12 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
 
 export interface HeroCtaProps {
   label: string;
@@ -53,7 +68,7 @@ export function Hero01({
               <Button asChild size="lg">
                 <a href={ctaPrimary.href}>
                   {ctaPrimary.label}
-                  <ArrowRight className="h-4 w-4" />
+                  <ArrowRightIcon className="h-4 w-4" />
                 </a>
               </Button>
 
@@ -61,7 +76,7 @@ export function Hero01({
                 <Button asChild variant="secondary" size="lg">
                   <a href={ctaSecondary.href}>
                     {ctaSecondary.label}
-                    <ChevronRight className="h-4 w-4" />
+                    <ChevronRightIcon className="h-4 w-4" />
                   </a>
                 </Button>
               )}

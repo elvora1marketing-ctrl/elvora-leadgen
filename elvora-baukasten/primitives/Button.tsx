@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { Slot } from '@radix-ui/react-slot';
 
 const variantStyles = {
   primary:
@@ -20,6 +19,15 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   variant?: keyof typeof variantStyles;
   size?: keyof typeof sizeStyles;
   asChild?: boolean;
+}
+
+function Slot({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) {
+  if (React.isValidElement(children)) {
+    const childProps = children.props as Record<string, unknown>;
+    const mergedClassName = [props.className, childProps.className].filter(Boolean).join(' ');
+    return React.cloneElement(children, { ...props, ...childProps, className: mergedClassName } as Record<string, unknown>);
+  }
+  return <>{children}</>;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
