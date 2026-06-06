@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
   try {
     const db = getDb();
     const body = await request.json();
-    const { name, email, phone, date, time_slot, message, lead_id } = body;
+    const { name, email, phone, date, time_slot, message, lead_id, event_type_id } = body;
 
     if (!name || !date || !time_slot) {
       return NextResponse.json(
@@ -69,17 +69,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get duration from settings
-    const durationSetting = db.prepare(
-      "SELECT value FROM settings WHERE key = 'booking_duration'"
-    ).get() as { value: string } | undefined;
-    const duration = durationSetting ? parseInt(durationSetting.value) : 30;
+    // Get duration from event type or settings
+    let duration = 30;
+    if (event_type_id) {
+      const et = db.prepare('SELECT duration FROM booking_event_types WHERE id = ?').get(event_type_id) as { duration: number } | undefined;
+      if (et) duration = et.duration;
+    } else {
+      const durationSetting = db.prepare(
+        "SELECT value FROM settings WHERE key = 'booking_duration'"
+      ).get() as { value: string } | undefined;
+      if (durationSetting) duration = parseInt(durationSetting.value);
+    }
 
     const token = crypto.randomUUID();
 
     const result = db.prepare(`
-      INSERT INTO bookings (lead_id, name, email, phone, date, time_slot, duration, message, status, token)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)
+      INSERT INTO bookings (lead_id, name, email, phone, date, time_slot, duration, message, status, token, event_type_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)
     `).run(
       lead_id || null,
       name,
@@ -89,7 +95,8 @@ export async function POST(request: NextRequest) {
       time_slot,
       duration,
       message || null,
-      token
+      token,
+      event_type_id || null
     );
 
     const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(result.lastInsertRowid);

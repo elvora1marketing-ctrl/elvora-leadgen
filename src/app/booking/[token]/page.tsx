@@ -1,87 +1,125 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, useCallback, use } from 'react';
+import Link from 'next/link';
 
-interface Slot {
-  id: number;
-  day_of_week: number;
-  start_time: string;
-  end_time: string;
-  is_active: number;
-}
+interface Slot { id: number; start_time: string; end_time: string; }
+interface EventType { id: number; name: string; slug: string; description: string; duration: number; color: string; location: string; }
+interface Booking { id: number; name: string; email: string | null; phone: string | null; date: string; time_slot: string; duration: number; message: string | null; status: string; token: string; }
 
-interface BookingSettings {
-  booking_enabled?: string;
-  booking_duration?: string;
-  booking_buffer?: string;
-  booking_advance_days?: string;
-  booking_page_title?: string;
-  booking_page_description?: string;
-}
-
-interface Booking {
-  id: number;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  date: string;
-  time_slot: string;
-  duration: number;
-  message: string | null;
-  status: string;
-  token: string;
-  created_at: string;
-}
-
-const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const MONTH_NAMES = ['Januar', 'Februar', 'Maerz', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const DAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
   return `${d.getDate()}. ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-function getDateString(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+function pad(n: number): string { return String(n).padStart(2, '0'); }
+function toDateStr(d: Date): string { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function getDayOfWeek(d: Date): number { const js = d.getDay(); return js === 0 ? 6 : js - 1; }
 
-function getNext14Days(): Date[] {
-  const days: Date[] = [];
-  const now = new Date();
-  for (let i = 1; days.length < 14; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() + i);
-    days.push(d);
-  }
-  return days;
-}
+function MonthCalendar({
+  currentMonth, selectedDate, activeDays, blockedDates, advanceDays, onSelectDate, onChangeMonth,
+}: {
+  currentMonth: Date; selectedDate: string | null; activeDays: Set<number>; blockedDates: Set<string>;
+  advanceDays: number; onSelectDate: (d: string) => void; onChangeMonth: (dir: -1 | 1) => void;
+}) {
+  const year = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startOffset = getDayOfWeek(firstDay);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const maxDate = new Date(today); maxDate.setDate(maxDate.getDate() + advanceDays);
+  const prevMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const canGoPrev = currentMonth > prevMonth;
 
-const statusLabels: Record<string, { label: string; color: string }> = {
-  confirmed: { label: 'Bestätigt', color: 'bg-elvora-success/15 text-elvora-success' },
-  cancelled: { label: 'Abgesagt', color: 'bg-red-500/15 text-red-400' },
-  completed: { label: 'Abgeschlossen', color: 'bg-elvora-purple/15 text-elvora-purple-light' },
-  no_show: { label: 'Nicht erschienen', color: 'bg-elvora-warning/15 text-elvora-warning' },
-};
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= lastDay.getDate(); d++) cells.push(new Date(year, month, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <button
+          onClick={() => onChangeMonth(-1)}
+          disabled={!canGoPrev}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-elvora-text-muted hover:text-white hover:bg-white/5 disabled:opacity-20 transition-all"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+        </button>
+        <span className="text-sm font-semibold text-white">{MONTH_NAMES[month]} {year}</span>
+        <button
+          onClick={() => onChangeMonth(1)}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-elvora-text-muted hover:text-white hover:bg-white/5 transition-all"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-0.5 mb-1">
+        {DAY_LABELS.map(d => (
+          <div key={d} className="text-center text-[11px] font-medium text-elvora-text-dim py-1">{d}</div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-0.5">
+        {cells.map((date, i) => {
+          if (!date) return <div key={`e${i}`} className="h-10" />;
+          const dateStr = toDateStr(date);
+          const isPast = date <= today;
+          const isFuture = date > maxDate;
+          const dayIdx = getDayOfWeek(date);
+          const isActive = activeDays.has(dayIdx) && !isPast && !isFuture && !blockedDates.has(dateStr);
+          const isSelected = selectedDate === dateStr;
+          const isToday = toDateStr(date) === toDateStr(today);
+
+          return (
+            <button
+              key={dateStr}
+              type="button"
+              disabled={!isActive}
+              onClick={() => onSelectDate(dateStr)}
+              className={`h-10 rounded-lg text-sm font-medium transition-all relative ${
+                isSelected
+                  ? 'bg-elvora-purple text-white shadow-elvora'
+                  : isActive
+                    ? 'text-white hover:bg-elvora-purple/15 hover:text-elvora-purple-light'
+                    : 'text-elvora-text-dim/30 cursor-not-allowed'
+              }`}
+            >
+              {date.getDate()}
+              {isToday && !isSelected && (
+                <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-elvora-purple" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function BookingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
-  const isNewBooking = token === 'new';
 
+  // Determine mode: event-type booking, "new" (legacy), or existing booking view
+  const [mode, setMode] = useState<'loading' | 'booking' | 'confirmation' | 'error'>('loading');
+  const [eventType, setEventType] = useState<EventType | null>(null);
   const [existingBooking, setExistingBooking] = useState<Booking | null>(null);
-  const [lookupLoading, setLookupLoading] = useState(!isNewBooking);
-  const [lookupError, setLookupError] = useState(false);
 
   // Booking form state
-  const [settings, setSettings] = useState<BookingSettings>({});
-  const [availableDays] = useState<Date[]>(getNext14Days());
-  const [activeDaysOfWeek, setActiveDaysOfWeek] = useState<Set<number>>(new Set());
-  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [activeDays, setActiveDays] = useState<Set<number>>(new Set());
+  const [blockedDates, setBlockedDates] = useState<Set<string>>(new Set());
+  const [advanceDays, setAdvanceDays] = useState(14);
+  const [currentMonth, setCurrentMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [availableSlots, setAvailableSlots] = useState<Slot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [step, setStep] = useState<'calendar' | 'form'>('calendar');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -89,44 +127,55 @@ export default function BookingPage({ params }: { params: Promise<{ token: strin
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState<Booking | null>(null);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
-  // Load existing booking by token
+  // Resolve token: event type slug, "new", or booking token
   useEffect(() => {
-    if (isNewBooking) return;
-    fetch('/api/bookings')
-      .then(r => r.json())
+    if (token === 'new') {
+      setMode('booking');
+      loadSlotConfig();
+      return;
+    }
+    // Try event type slug first
+    fetch(`/api/bookings/event-types?slug=${token}`)
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(data => {
-        const found = (data.bookings || []).find((b: Booking) => b.token === token);
-        if (found) {
-          setExistingBooking(found);
-        } else {
-          setLookupError(true);
+        if (data.eventType) {
+          setEventType(data.eventType);
+          setMode('booking');
+          loadSlotConfig();
         }
       })
-      .catch(() => setLookupError(true))
-      .finally(() => setLookupLoading(false));
-  }, [token, isNewBooking]);
+      .catch(() => {
+        // Try as booking token
+        fetch('/api/bookings')
+          .then(r => r.json())
+          .then(data => {
+            const found = (data.bookings || []).find((b: Booking) => b.token === token);
+            if (found) {
+              setExistingBooking(found);
+              setMode('confirmation');
+            } else {
+              setMode('error');
+            }
+          })
+          .catch(() => setMode('error'));
+      });
+  }, [token]);
 
-  // Load active days of week from all slots (to know which calendar days to enable)
-  useEffect(() => {
-    if (!isNewBooking) return;
+  function loadSlotConfig() {
     fetch('/api/bookings/slots')
       .then(r => r.json())
       .then(data => {
         const slots = data.slots || [];
         const days = new Set<number>();
-        for (const s of slots) {
+        for (const s of slots as { is_active: number; day_of_week: number }[]) {
           if (s.is_active) days.add(s.day_of_week);
         }
-        setActiveDaysOfWeek(days);
-        // Load settings from first date fetch
-        setSettingsLoaded(true);
-      })
-      .catch(() => {});
-  }, [isNewBooking]);
+        setActiveDays(days);
+      });
+  }
 
-  // Load available slots when date is selected
+  // Load slots when date selected
   useEffect(() => {
     if (!selectedDate) return;
     setSlotsLoading(true);
@@ -135,24 +184,31 @@ export default function BookingPage({ params }: { params: Promise<{ token: strin
       .then(r => r.json())
       .then(data => {
         setAvailableSlots(data.slots || []);
-        if (data.settings) setSettings(data.settings);
+        if (data.blockedDates) setBlockedDates(new Set(data.blockedDates));
+        if (data.settings?.booking_advance_days) setAdvanceDays(parseInt(data.settings.booking_advance_days));
       })
       .catch(() => setAvailableSlots([]))
       .finally(() => setSlotsLoading(false));
   }, [selectedDate]);
 
+  const changeMonth = useCallback((dir: -1 | 1) => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + dir, 1));
+  }, []);
+
+  const handleSelectSlot = (slot: string) => {
+    setSelectedSlot(slot);
+    setStep('form');
+  };
+
+  const goBackToCalendar = () => {
+    setStep('calendar');
+    setSelectedSlot(null);
+  };
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-
-    if (!selectedDate || !selectedSlot) {
-      setError('Bitte wählen Sie ein Datum und einen Zeitslot.');
-      return;
-    }
-    if (!name.trim()) {
-      setError('Bitte geben Sie Ihren Namen ein.');
-      return;
-    }
+    if (!selectedDate || !selectedSlot || !name.trim()) { setError('Bitte alle Pflichtfelder ausfuellen.'); return; }
 
     setSubmitting(true);
     try {
@@ -160,110 +216,86 @@ export default function BookingPage({ params }: { params: Promise<{ token: strin
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim() || null,
-          phone: phone.trim() || null,
-          date: selectedDate,
-          time_slot: selectedSlot,
-          message: message.trim() || null,
+          name: name.trim(), email: email.trim() || null, phone: phone.trim() || null,
+          date: selectedDate, time_slot: selectedSlot, message: message.trim() || null,
+          event_type_id: eventType?.id || null,
         }),
       });
-
       const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Fehler beim Buchen');
-        return;
-      }
-
+      if (!res.ok) { setError(data.error || 'Fehler beim Buchen'); return; }
       setSuccess(data.booking);
-    } catch {
-      setError('Netzwerkfehler. Bitte versuchen Sie es erneut.');
-    } finally {
-      setSubmitting(false);
-    }
+    } catch { setError('Netzwerkfehler.'); } finally { setSubmitting(false); }
   }
 
-  function isDayAvailable(date: Date): boolean {
-    const jsDay = date.getDay();
-    const dayOfWeek = jsDay === 0 ? 6 : jsDay - 1;
-    return activeDaysOfWeek.has(dayOfWeek);
+  const duration = eventType?.duration || 30;
+  const locationLabel = eventType?.location || 'Video-Call';
+  const etName = eventType?.name || 'Termin';
+  const etColor = eventType?.color || '#8B5CF6';
+
+  // --- Loading ---
+  if (mode === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-5 h-5 border-2 border-elvora-purple border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
-  // --- Existing booking view ---
-  if (!isNewBooking) {
-    if (lookupLoading) {
-      return (
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-5 h-5 border-2 border-elvora-purple border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-elvora-text-dim">Buchung wird geladen...</p>
+  // --- Error ---
+  if (mode === 'error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="card rounded-xl p-8 max-w-md w-full text-center">
+          <div className="w-12 h-12 rounded-full bg-red-500/15 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </div>
+          <h2 className="text-lg font-semibold text-white mb-2">Seite nicht gefunden</h2>
+          <p className="text-sm text-elvora-text-dim mb-4">Dieser Buchungslink ist ungueltig.</p>
+          <Link href="/booking" className="text-sm text-elvora-purple-light hover:underline">Zur Terminuebersicht</Link>
         </div>
-      );
-    }
+      </div>
+    );
+  }
 
-    if (lookupError || !existingBooking) {
-      return (
-        <div className="min-h-screen flex items-center justify-center p-4">
-          <div className="card rounded-xl p-8 max-w-md w-full text-center">
-            <div className="w-12 h-12 rounded-full bg-red-500/15 flex items-center justify-center mx-auto mb-4">
-              <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </div>
-            <h2 className="text-lg font-semibold text-white mb-2">Buchung nicht gefunden</h2>
-            <p className="text-sm text-elvora-text-dim">Dieser Buchungslink ist ungültig oder die Buchung wurde entfernt.</p>
-          </div>
-        </div>
-      );
-    }
-
-    const st = statusLabels[existingBooking.status] || { label: existingBooking.status, color: 'bg-elvora-border text-elvora-text-dim' };
+  // --- Existing Booking Confirmation ---
+  if (mode === 'confirmation' && existingBooking) {
+    const stMap: Record<string, { label: string; color: string }> = {
+      confirmed: { label: 'Bestaetigt', color: 'bg-elvora-success/15 text-elvora-success' },
+      cancelled: { label: 'Abgesagt', color: 'bg-red-500/15 text-red-400' },
+      completed: { label: 'Abgeschlossen', color: 'bg-elvora-purple/15 text-elvora-purple-light' },
+      no_show: { label: 'Nicht erschienen', color: 'bg-elvora-warning/15 text-elvora-warning' },
+    };
+    const st = stMap[existingBooking.status] || { label: existingBooking.status, color: 'bg-elvora-border text-elvora-text-dim' };
 
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="max-w-md w-full">
-          <div className="text-center mb-6">
-            <h1 className="text-xl font-bold text-white">Ihre Buchung</h1>
-            <p className="text-sm text-elvora-text-dim mt-1">Details zu Ihrem gebuchten Termin</p>
-          </div>
-
-          <div className="card rounded-xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-elvora-text-dim">Status</span>
-              <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${st.color}`}>{st.label}</span>
+          <div className="card rounded-xl overflow-hidden">
+            <div className="h-2 bg-elvora-gradient" />
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 rounded-full bg-elvora-success/15 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-elvora-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+              </div>
+              <h1 className="text-xl font-bold text-white">Ihre Buchung</h1>
+              <span className={`inline-block mt-2 px-3 py-1 rounded-lg text-xs font-medium ${st.color}`}>{st.label}</span>
             </div>
-
-            <div className="border-t border-elvora-border pt-4 space-y-3">
-              <div className="flex items-start gap-3">
-                <svg className="w-4 h-4 text-elvora-purple mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <div>
-                  <div className="text-sm font-medium text-white">{formatDate(existingBooking.date)}</div>
-                  <div className="text-xs text-elvora-text-dim">{existingBooking.time_slot} Uhr ({existingBooking.duration} Min.)</div>
+            <div className="px-6 pb-6 space-y-3">
+              <div className="bg-elvora-bg rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-3">
+                  <svg className="w-4 h-4 text-elvora-purple flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  <div>
+                    <div className="text-sm font-medium text-white">{formatDate(existingBooking.date)}</div>
+                    <div className="text-xs text-elvora-text-dim">{existingBooking.time_slot} Uhr · {existingBooking.duration} Min.</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <svg className="w-4 h-4 text-elvora-purple flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                  <div>
+                    <div className="text-sm font-medium text-white">{existingBooking.name}</div>
+                    {existingBooking.email && <div className="text-xs text-elvora-text-dim">{existingBooking.email}</div>}
+                  </div>
                 </div>
               </div>
-
-              <div className="flex items-start gap-3">
-                <svg className="w-4 h-4 text-elvora-purple mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <div>
-                  <div className="text-sm font-medium text-white">{existingBooking.name}</div>
-                  {existingBooking.email && <div className="text-xs text-elvora-text-dim">{existingBooking.email}</div>}
-                  {existingBooking.phone && <div className="text-xs text-elvora-text-dim">{existingBooking.phone}</div>}
-                </div>
-              </div>
-
-              {existingBooking.message && (
-                <div className="flex items-start gap-3">
-                  <svg className="w-4 h-4 text-elvora-purple mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                  </svg>
-                  <div className="text-sm text-elvora-text-muted">{existingBooking.message}</div>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -271,228 +303,209 @@ export default function BookingPage({ params }: { params: Promise<{ token: strin
     );
   }
 
-  // --- Success view ---
+  // --- Success ---
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="max-w-md w-full">
-          <div className="card rounded-xl p-8 text-center">
-            <div className="w-14 h-14 rounded-full bg-elvora-success/15 flex items-center justify-center mx-auto mb-4">
-              <svg className="w-7 h-7 text-elvora-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
+          <div className="card rounded-xl overflow-hidden">
+            <div className="h-2" style={{ background: `linear-gradient(90deg, ${etColor}, ${etColor}88)` }} />
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 rounded-full bg-elvora-success/15 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-elvora-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+              </div>
+              <h2 className="text-xl font-bold text-white mb-1">Termin gebucht!</h2>
+              <p className="text-sm text-elvora-text-muted">Ihr {etName} wurde erfolgreich reserviert.</p>
             </div>
-            <h2 className="text-xl font-bold text-white mb-2">Termin gebucht!</h2>
-            <p className="text-sm text-elvora-text-dim mb-6">Ihr Termin wurde erfolgreich reserviert.</p>
-
-            <div className="bg-elvora-bg rounded-xl p-4 space-y-2 text-left">
-              <div className="flex justify-between">
-                <span className="text-xs text-elvora-text-dim">Datum</span>
-                <span className="text-sm font-medium text-white">{formatDate(success.date)}</span>
+            <div className="px-8 pb-8">
+              <div className="bg-elvora-bg rounded-xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-elvora-text-dim">Typ</span>
+                  <span className="text-sm font-medium text-white">{etName}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-elvora-text-dim">Datum</span>
+                  <span className="text-sm font-medium text-white">{formatDate(success.date)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-elvora-text-dim">Uhrzeit</span>
+                  <span className="text-sm font-medium text-white">{success.time_slot} Uhr</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-elvora-text-dim">Dauer</span>
+                  <span className="text-sm font-medium text-white">{success.duration} Minuten</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-elvora-text-dim">Ort</span>
+                  <span className="text-sm font-medium text-white">{locationLabel}</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-xs text-elvora-text-dim">Uhrzeit</span>
-                <span className="text-sm font-medium text-white">{success.time_slot} Uhr</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-xs text-elvora-text-dim">Dauer</span>
-                <span className="text-sm font-medium text-white">{success.duration} Minuten</span>
-              </div>
+              <p className="text-xs text-elvora-text-dim/60 mt-4 text-center">
+                Sie erhalten in Kuerze eine Bestaetigung per E-Mail.
+              </p>
             </div>
-
-            <p className="text-xs text-elvora-text-dim mt-4">
-              Sie erhalten in Kürze eine Bestätigung. Bei Fragen können Sie uns jederzeit kontaktieren.
-            </p>
           </div>
         </div>
       </div>
     );
   }
 
-  // --- Booking form ---
-  const title = settings.booking_page_title || 'Termin buchen';
-  const description = settings.booking_page_description || 'Wählen Sie einen passenden Termin für ein unverbindliches Erstgespräch.';
-
+  // --- Booking Form (Calendly-Style) ---
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 py-12">
-      <div className="max-w-lg w-full">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 rounded-xl bg-elvora-gradient flex items-center justify-center mx-auto mb-4">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
+    <div className="min-h-screen flex items-center justify-center p-4 py-8">
+      <div className="w-full max-w-2xl">
+        <div className="card rounded-2xl overflow-hidden shadow-elvora-lg">
+          {/* Color bar */}
+          <div className="h-1.5" style={{ background: `linear-gradient(90deg, ${etColor}, ${etColor}88)` }} />
+
+          <div className="md:flex">
+            {/* Left: Event Info */}
+            <div className="md:w-[220px] p-5 md:border-r border-b md:border-b-0 border-elvora-border flex-shrink-0">
+              <Link href="/booking" className="text-xs text-elvora-text-dim hover:text-elvora-purple-light transition-colors flex items-center gap-1 mb-4">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                Zurueck
+              </Link>
+
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ backgroundColor: etColor + '20' }}>
+                <svg className="w-5 h-5" style={{ color: etColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+
+              <h1 className="text-lg font-bold text-white">{etName}</h1>
+              {eventType?.description && (
+                <p className="text-xs text-elvora-text-muted mt-1.5 leading-relaxed">{eventType.description}</p>
+              )}
+
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-2 text-xs text-elvora-text-dim">
+                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  {duration} Minuten
+                </div>
+                <div className="flex items-center gap-2 text-xs text-elvora-text-dim">
+                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                  {locationLabel}
+                </div>
+                {selectedDate && selectedSlot && (
+                  <div className="flex items-center gap-2 text-xs text-white font-medium pt-1 border-t border-elvora-border mt-2">
+                    <svg className="w-3.5 h-3.5 text-elvora-success flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    {formatDate(selectedDate)}, {selectedSlot} Uhr
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right: Calendar/Form */}
+            <div className="flex-1 p-5">
+              {step === 'calendar' ? (
+                <div>
+                  <h2 className="text-sm font-semibold text-white mb-4">Datum & Uhrzeit waehlen</h2>
+
+                  <MonthCalendar
+                    currentMonth={currentMonth}
+                    selectedDate={selectedDate}
+                    activeDays={activeDays}
+                    blockedDates={blockedDates}
+                    advanceDays={advanceDays}
+                    onSelectDate={setSelectedDate}
+                    onChangeMonth={changeMonth}
+                  />
+
+                  {/* Time Slots */}
+                  {selectedDate && (
+                    <div className="mt-5 pt-5 border-t border-elvora-border">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-xs font-semibold text-elvora-text-muted uppercase tracking-wider">
+                          Verfuegbare Zeiten
+                        </h3>
+                        <span className="text-[11px] text-elvora-text-dim">{formatDate(selectedDate)}</span>
+                      </div>
+
+                      {slotsLoading ? (
+                        <div className="flex items-center justify-center py-6">
+                          <div className="w-5 h-5 border-2 border-elvora-purple border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : availableSlots.length === 0 ? (
+                        <p className="text-sm text-elvora-text-dim text-center py-4">Keine verfuegbaren Zeiten an diesem Tag.</p>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2 max-h-[200px] overflow-y-auto">
+                          {availableSlots.map((slot) => (
+                            <button
+                              key={slot.id}
+                              type="button"
+                              onClick={() => handleSelectSlot(slot.start_time)}
+                              className="py-2.5 px-2 rounded-lg text-sm font-medium transition-all border border-elvora-border hover:border-elvora-purple/40 hover:bg-elvora-purple/10 text-white"
+                              style={selectedSlot === slot.start_time ? { backgroundColor: etColor + '20', borderColor: etColor + '60' } : {}}
+                            >
+                              {slot.start_time}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Contact Form */
+                <div>
+                  <button onClick={goBackToCalendar} className="flex items-center gap-1 text-xs text-elvora-text-dim hover:text-elvora-purple-light transition-colors mb-4">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                    Zurueck zum Kalender
+                  </button>
+
+                  <h2 className="text-sm font-semibold text-white mb-1">Ihre Daten</h2>
+                  <p className="text-xs text-elvora-text-dim mb-4">
+                    {formatDate(selectedDate!)} um {selectedSlot} Uhr · {duration} Min.
+                  </p>
+
+                  <form onSubmit={handleSubmit} className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-elvora-text-dim mb-1">Name *</label>
+                      <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="Ihr vollstaendiger Name"
+                        className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg border border-elvora-border text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-elvora-text-dim mb-1">E-Mail *</label>
+                      <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="ihre@email.de"
+                        className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg border border-elvora-border text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-elvora-text-dim mb-1">Telefon</label>
+                      <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+49 123 456 789"
+                        className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg border border-elvora-border text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-elvora-text-dim mb-1">Nachricht (optional)</label>
+                      <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3} placeholder="Worum geht es?"
+                        className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg border border-elvora-border text-white text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors resize-none" />
+                    </div>
+
+                    {error && (
+                      <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">{error}</div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={submitting || !name.trim() || !email.trim()}
+                      className="w-full py-3 rounded-xl text-white text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110"
+                      style={{ background: `linear-gradient(135deg, ${etColor}, ${etColor}cc)` }}
+                    >
+                      {submitting ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Wird gebucht...
+                        </span>
+                      ) : 'Termin buchen'}
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-white">{title}</h1>
-          <p className="text-sm text-elvora-text-dim mt-2 max-w-sm mx-auto">{description}</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Step 1: Select Date */}
-          <div className="card rounded-xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-6 h-6 rounded-full bg-elvora-primary/20 flex items-center justify-center">
-                <span className="text-xs font-bold text-elvora-primary-light">1</span>
-              </div>
-              <h2 className="text-sm font-semibold text-white">Datum wählen</h2>
-            </div>
-
-            <div className="grid grid-cols-7 gap-1.5">
-              {availableDays.map((day) => {
-                const dateStr = getDateString(day);
-                const jsDay = day.getDay();
-                const dayOfWeek = jsDay === 0 ? 6 : jsDay - 1;
-                const available = isDayAvailable(day);
-                const isSelected = selectedDate === dateStr;
-
-                return (
-                  <button
-                    key={dateStr}
-                    type="button"
-                    disabled={!available}
-                    onClick={() => setSelectedDate(dateStr)}
-                    className={`flex flex-col items-center py-2 px-1 rounded-lg text-center transition-all ${
-                      isSelected
-                        ? 'bg-elvora-primary text-white ring-2 ring-elvora-primary/50'
-                        : available
-                          ? 'bg-elvora-bg hover:bg-elvora-surface text-elvora-text cursor-pointer'
-                          : 'bg-elvora-bg/50 text-elvora-text-dim/40 cursor-not-allowed'
-                    }`}
-                  >
-                    <span className="text-[10px] uppercase font-medium">{DAY_NAMES[dayOfWeek]}</span>
-                    <span className="text-sm font-semibold mt-0.5">{day.getDate()}</span>
-                    <span className="text-[10px] opacity-60">{MONTH_NAMES[day.getMonth()].substring(0, 3)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Step 2: Select Time */}
-          {selectedDate && (
-            <div className="card rounded-xl p-5 animate-fade-in">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-6 h-6 rounded-full bg-elvora-primary/20 flex items-center justify-center">
-                  <span className="text-xs font-bold text-elvora-primary-light">2</span>
-                </div>
-                <h2 className="text-sm font-semibold text-white">Uhrzeit wählen</h2>
-                <span className="text-xs text-elvora-text-dim ml-auto">{formatDate(selectedDate)}</span>
-              </div>
-
-              {slotsLoading ? (
-                <div className="flex items-center justify-center py-6">
-                  <div className="w-5 h-5 border-2 border-elvora-purple border-t-transparent rounded-full animate-spin" />
-                </div>
-              ) : availableSlots.length === 0 ? (
-                <div className="text-center py-6">
-                  <p className="text-sm text-elvora-text-dim">Keine verfügbaren Zeitslots an diesem Tag.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  {availableSlots.map((slot) => (
-                    <button
-                      key={slot.id}
-                      type="button"
-                      onClick={() => setSelectedSlot(slot.start_time)}
-                      className={`py-2.5 px-3 rounded-lg text-sm font-medium transition-all ${
-                        selectedSlot === slot.start_time
-                          ? 'bg-elvora-primary text-white ring-2 ring-elvora-primary/50'
-                          : 'bg-elvora-bg hover:bg-elvora-surface text-elvora-text border border-elvora-border hover:border-elvora-primary/30'
-                      }`}
-                    >
-                      {slot.start_time} Uhr
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Step 3: Contact Info */}
-          {selectedSlot && (
-            <div className="card rounded-xl p-5 animate-fade-in">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-6 h-6 rounded-full bg-elvora-primary/20 flex items-center justify-center">
-                  <span className="text-xs font-bold text-elvora-primary-light">3</span>
-                </div>
-                <h2 className="text-sm font-semibold text-white">Ihre Daten</h2>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs text-elvora-text-dim mb-1.5">Name *</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Ihr vollständiger Name"
-                    required
-                    className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-elvora-text-dim mb-1.5">E-Mail</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ihre@email.de"
-                    className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-elvora-text-dim mb-1.5">Telefon</label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+49 123 456 789"
-                    className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-elvora-text-dim mb-1.5">Nachricht (optional)</label>
-                  <textarea
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    placeholder="Worum geht es bei unserem Gespräch?"
-                    rows={3}
-                    className="w-full px-3 py-2.5 rounded-lg bg-elvora-bg border border-elvora-border text-elvora-text text-sm placeholder-elvora-text-dim focus:outline-none focus:border-elvora-purple/50 transition-colors resize-none"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm animate-fade-in">
-              {error}
-            </div>
-          )}
-
-          {/* Submit */}
-          {selectedSlot && (
-            <button
-              type="submit"
-              disabled={submitting || !name.trim()}
-              className="w-full py-3 rounded-xl bg-elvora-gradient text-white text-sm font-semibold hover:bg-elvora-gradient-hover transition-all disabled:opacity-50 disabled:cursor-not-allowed animate-fade-in"
-            >
-              {submitting ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Wird gebucht...
-                </span>
-              ) : (
-                `Termin buchen - ${selectedSlot} Uhr, ${formatDate(selectedDate!)}`
-              )}
-            </button>
-          )}
-        </form>
-
-        {/* Footer */}
-        <p className="text-center text-[11px] text-elvora-text-dim/50 mt-8">
-          Ihre Daten werden vertraulich behandelt und nur für die Terminvereinbarung verwendet.
+        <p className="text-center text-[11px] text-elvora-text-dim/40 mt-6">
+          Powered by Elvora
         </p>
       </div>
     </div>

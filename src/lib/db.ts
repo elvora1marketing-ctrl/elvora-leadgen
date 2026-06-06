@@ -1225,6 +1225,56 @@ export function getDb(): Database.Database {
       console.error('[DB] Wave 2 settings error:', e);
     }
 
+    // Elvora Calendly: Event Types + Blocked Dates
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS booking_event_types (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          slug TEXT UNIQUE NOT NULL,
+          description TEXT,
+          duration INTEGER DEFAULT 30,
+          color TEXT DEFAULT '#8B5CF6',
+          location TEXT DEFAULT 'Video-Call',
+          is_active INTEGER DEFAULT 1,
+          sort_order INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS booking_blocked_dates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL UNIQUE,
+          reason TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+      `);
+      const etCount = instance.prepare('SELECT COUNT(*) as c FROM booking_event_types').get() as { c: number };
+      if (etCount.c === 0) {
+        instance.prepare(`INSERT INTO booking_event_types (name, slug, description, duration, color, location, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+          'Erstgespräch', 'erstgespraech', 'Kostenloses und unverbindliches Kennenlerngespräch.', 30, '#8B5CF6', 'Video-Call', 0
+        );
+        instance.prepare(`INSERT INTO booking_event_types (name, slug, description, duration, color, location, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+          'Beratung', 'beratung', 'Ausführliche Beratung zu Ihrem Projekt.', 60, '#EC4899', 'Video-Call', 1
+        );
+        instance.prepare(`INSERT INTO booking_event_types (name, slug, description, duration, color, location, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+          'Kurzcall', 'kurzcall', 'Schneller Austausch zu einer konkreten Frage.', 15, '#F97316', 'Telefon', 2
+        );
+      }
+    } catch (e) {
+      console.error('[DB] Booking event types migration error:', e);
+    }
+
+    // Migration: Add event_type_id to bookings
+    try {
+      const bookingCols = instance.prepare("PRAGMA table_info(bookings)").all() as { name: string }[];
+      if (!bookingCols.find(c => c.name === 'event_type_id')) {
+        instance.exec("ALTER TABLE bookings ADD COLUMN event_type_id INTEGER REFERENCES booking_event_types(id)");
+      }
+    } catch (e) {
+      console.error('[DB] Bookings event_type_id migration error:', e);
+    }
+
     // Migration: Projects (Auftragsverfolgung)
     try {
       instance.exec(`
