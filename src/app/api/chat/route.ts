@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Widget-ID fehlt' }, { status: 400 });
       }
       const widget = db.prepare(
-        'SELECT id, name, greeting_message, placeholder_text, color, position, offline_message, auto_replies, is_active FROM chat_widgets WHERE id = ?'
+        'SELECT id, name, greeting_message, placeholder_text, color, position, offline_message, auto_replies, is_active, ai_enabled, knowledge_base, ai_instructions, ai_fallback_message FROM chat_widgets WHERE id = ?'
       ).get(Number(id));
       if (!widget) {
         return NextResponse.json({ error: 'Widget nicht gefunden' }, { status: 404 });
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
 
     if (action === 'widgets') {
       const widgets = db.prepare(
-        'SELECT * FROM chat_widgets ORDER BY created_at DESC'
+        'SELECT id, name, greeting_message, placeholder_text, color, position, offline_message, auto_replies, is_active, ai_enabled, knowledge_base, ai_instructions, ai_fallback_message, created_at FROM chat_widgets ORDER BY created_at DESC'
       ).all();
       return NextResponse.json({ widgets });
     }
@@ -116,36 +116,132 @@ export async function POST(request: NextRequest) {
           'UPDATE chat_conversations SET unread_count = unread_count + 1 WHERE id = ?'
         ).run(conversation_id);
 
-        // Check auto-replies
+        // Check for AI-powered or keyword auto-replies
         const conversation = db.prepare(
           'SELECT widget_id FROM chat_conversations WHERE id = ?'
         ).get(conversation_id) as { widget_id: number } | undefined;
 
         if (conversation) {
           const widget = db.prepare(
-            'SELECT auto_replies FROM chat_widgets WHERE id = ?'
-          ).get(conversation.widget_id) as { auto_replies: string } | undefined;
+            'SELECT auto_replies, ai_enabled, knowledge_base, ai_instructions, ai_fallback_message, name FROM chat_widgets WHERE id = ?'
+          ).get(conversation.widget_id) as { auto_replies: string; ai_enabled: number; knowledge_base: string; ai_instructions: string; ai_fallback_message: string; name: string } | undefined;
 
-          if (widget?.auto_replies) {
-            try {
-              const autoReplies = JSON.parse(widget.auto_replies) as Array<{ q: string; a: string }>;
-              const lowerContent = content.toLowerCase();
+          if (widget) {
+            let aiHandled = false;
 
-              // Find first matching auto-reply
-              const match = autoReplies.find(
-                (entry) => lowerContent.includes(entry.q.toLowerCase())
-              );
+            // Try AI response first if enabled
+            if (widget.ai_enabled) {
+              try {
+                // Get OpenAI API key from settings
+                const apiKeyRow = db.prepare("SELECT value FROM settings WHERE key = 'openai_api_key'").get() as { value: string } | undefined;
+                const modelRow = db.prepare("SELECT value FROM settings WHERE key = 'ai_model'").get() as { value: string } | undefined;
+                const openaiApiKey = apiKeyRow?.value;
+                const aiModel = modelRow?.value || 'gpt-4o-mini';
 
-              if (match) {
-                db.prepare(
-                  'INSERT INTO chat_messages (conversation_id, sender, content) VALUES (?, ?, ?)'
-                ).run(conversation_id, 'bot', match.a);
-                db.prepare(
-                  "UPDATE chat_conversations SET updated_at = datetime('now') WHERE id = ?"
-                ).run(conversation_id);
+                if (openaiApiKey) {
+                  // Build knowledge base context
+                  let knowledgeContext = '';
+                  try {
+                    const kbEntries = JSON.parse(widget.knowledge_base || '[]') as Array<{ q: string; a: string }>;
+                    if (kbEntries.length > 0) {
+                      knowledgeContext = kbEntries.map((entry, i) => `${i + 1}. Frage: ${entry.q}\n   Antwort: ${entry.a}`).join('\n');
+                    }
+                  } catch {
+                    // Invalid JSON in knowledge_base
+                  }
+
+                  // Get conversation history (last 20 messages)
+                  const history = db.prepare(
+                    'SELECT sender, content FROM chat_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 20'
+                  ).all(conversation_id) as Array<{ sender: string; content: string }>;
+                  history.reverse();
+
+                  // Build messages array for OpenAI
+                  const systemMessage = `Du bist ein freundlicher Support-Assistent für ${widget.name}. Antworte auf Deutsch, kurz und hilfreich. Benutze AUSSCHLIESSLICH die folgenden Informationen aus der Wissensbasis:\n\n${knowledgeContext || '(Keine Wissensbasis-Einträge vorhanden)'}\n\n${widget.ai_instructions || ''}\n\nWenn du eine Frage nicht beantworten kannst, sage GENAU: 'HANDOFF'.`;
+
+                  const openaiMessages: Array<{ role: string; content: string }> = [
+                    { role: 'system', content: systemMessage },
+                  ];
+
+                  // Add conversation history
+                  for (const msg of history) {
+                    openaiMessages.push({
+                      role: msg.sender === 'visitor' ? 'user' : 'assistant',
+                      content: msg.content,
+                    });
+                  }
+
+                  // Add the new visitor message as the last user message
+                  openaiMessages.push({ role: 'user', content });
+
+                  // Call OpenAI
+                  const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${openaiApiKey}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: aiModel,
+                      messages: openaiMessages,
+                      temperature: 0.7,
+                      max_tokens: 300,
+                    }),
+                  });
+
+                  if (openaiRes.ok) {
+                    const openaiData = await openaiRes.json() as {
+                      choices: Array<{ message: { content: string } }>;
+                    };
+                    const aiResponse = openaiData.choices?.[0]?.message?.content;
+
+                    if (aiResponse) {
+                      // Check for HANDOFF signal
+                      if (aiResponse.includes('HANDOFF')) {
+                        const fallback = widget.ai_fallback_message || 'Ich leite Ihre Anfrage an einen Mitarbeiter weiter. Einen Moment bitte.';
+                        db.prepare(
+                          'INSERT INTO chat_messages (conversation_id, sender, content) VALUES (?, ?, ?)'
+                        ).run(conversation_id, 'bot', fallback);
+                      } else {
+                        db.prepare(
+                          'INSERT INTO chat_messages (conversation_id, sender, content) VALUES (?, ?, ?)'
+                        ).run(conversation_id, 'bot', aiResponse);
+                      }
+                      db.prepare(
+                        "UPDATE chat_conversations SET updated_at = datetime('now') WHERE id = ?"
+                      ).run(conversation_id);
+                      aiHandled = true;
+                    }
+                  }
+                }
+              } catch (aiError) {
+                console.error('[Chat] AI response error:', aiError);
+                // Fall through to keyword matching
               }
-            } catch {
-              // Invalid JSON in auto_replies, skip
+            }
+
+            // Fallback to keyword auto-replies if AI didn't handle it
+            if (!aiHandled && widget.auto_replies) {
+              try {
+                const autoReplies = JSON.parse(widget.auto_replies) as Array<{ q: string; a: string }>;
+                const lowerContent = content.toLowerCase();
+
+                // Find first matching auto-reply
+                const match = autoReplies.find(
+                  (entry) => lowerContent.includes(entry.q.toLowerCase())
+                );
+
+                if (match) {
+                  db.prepare(
+                    'INSERT INTO chat_messages (conversation_id, sender, content) VALUES (?, ?, ?)'
+                  ).run(conversation_id, 'bot', match.a);
+                  db.prepare(
+                    "UPDATE chat_conversations SET updated_at = datetime('now') WHERE id = ?"
+                  ).run(conversation_id);
+                }
+              } catch {
+                // Invalid JSON in auto_replies, skip
+              }
             }
           }
         }
@@ -292,6 +388,45 @@ export async function POST(request: NextRequest) {
       ).run(conversation_id);
 
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'update_knowledge_base') {
+      const { id, knowledge_base, ai_instructions, ai_fallback_message, ai_enabled } = body;
+      if (!id) {
+        return NextResponse.json({ error: 'Widget-ID fehlt' }, { status: 400 });
+      }
+
+      const updates: string[] = [];
+      const values: (string | number)[] = [];
+
+      if (knowledge_base !== undefined) {
+        updates.push('knowledge_base = ?');
+        values.push(typeof knowledge_base === 'object' ? JSON.stringify(knowledge_base) : knowledge_base);
+      }
+      if (ai_instructions !== undefined) {
+        updates.push('ai_instructions = ?');
+        values.push(ai_instructions);
+      }
+      if (ai_fallback_message !== undefined) {
+        updates.push('ai_fallback_message = ?');
+        values.push(ai_fallback_message);
+      }
+      if (ai_enabled !== undefined) {
+        updates.push('ai_enabled = ?');
+        values.push(ai_enabled ? 1 : 0);
+      }
+
+      if (updates.length === 0) {
+        return NextResponse.json({ error: 'Keine gueltigen Felder zum Aktualisieren' }, { status: 400 });
+      }
+
+      values.push(id);
+      db.prepare(`UPDATE chat_widgets SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+
+      const widget = db.prepare(
+        'SELECT id, name, greeting_message, placeholder_text, color, position, offline_message, auto_replies, is_active, ai_enabled, knowledge_base, ai_instructions, ai_fallback_message FROM chat_widgets WHERE id = ?'
+      ).get(id);
+      return NextResponse.json({ widget });
     }
 
     return NextResponse.json({ error: 'Ungueltige Aktion' }, { status: 400 });

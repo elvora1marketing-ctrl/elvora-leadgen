@@ -1672,9 +1672,81 @@ export function getDb(): Database.Database {
       // Default chat notification setting
       instance.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))").run('chat_notification_email', '');
 
+      // Migration: Add AI fields to chat_widgets
+      try {
+        const chatWidgetCols = instance.prepare("PRAGMA table_info(chat_widgets)").all() as { name: string }[];
+        const chatWidgetColNames = chatWidgetCols.map(c => c.name);
+        if (!chatWidgetColNames.includes('ai_enabled')) {
+          instance.exec("ALTER TABLE chat_widgets ADD COLUMN ai_enabled INTEGER DEFAULT 0");
+        }
+        if (!chatWidgetColNames.includes('knowledge_base')) {
+          instance.exec("ALTER TABLE chat_widgets ADD COLUMN knowledge_base TEXT DEFAULT '[]'");
+        }
+        if (!chatWidgetColNames.includes('ai_instructions')) {
+          instance.exec("ALTER TABLE chat_widgets ADD COLUMN ai_instructions TEXT DEFAULT ''");
+        }
+        if (!chatWidgetColNames.includes('ai_fallback_message')) {
+          instance.exec("ALTER TABLE chat_widgets ADD COLUMN ai_fallback_message TEXT DEFAULT 'Ich leite Ihre Anfrage an einen Mitarbeiter weiter. Einen Moment bitte.'");
+        }
+      } catch (e) {
+        console.error('[DB] Chat AI columns migration error:', e);
+      }
+
       console.log('[DB] Migration: chat widget tables created');
     } catch (e) {
       console.error('[DB] Chat widget tables migration error:', e);
+    }
+
+    // Contact Form Widgets
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS contact_forms (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          slug TEXT UNIQUE NOT NULL,
+          fields TEXT NOT NULL DEFAULT '[]',
+          submit_label TEXT DEFAULT 'Absenden',
+          success_message TEXT DEFAULT 'Vielen Dank! Wir melden uns bei Ihnen.',
+          color TEXT DEFAULT '#8B5CF6',
+          notify_email TEXT,
+          create_lead INTEGER DEFAULT 1,
+          redirect_url TEXT,
+          is_active INTEGER DEFAULT 1,
+          submissions_count INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS contact_submissions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          form_id INTEGER NOT NULL,
+          data TEXT NOT NULL DEFAULT '{}',
+          lead_id INTEGER,
+          page_url TEXT,
+          ip_address TEXT,
+          is_read INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (form_id) REFERENCES contact_forms(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_contact_submissions_form ON contact_submissions(form_id);
+        CREATE INDEX IF NOT EXISTS idx_contact_submissions_read ON contact_submissions(is_read);
+      `);
+      const formCount = instance.prepare('SELECT COUNT(*) as c FROM contact_forms').get() as { c: number };
+      if (formCount.c === 0) {
+        instance.prepare(`INSERT INTO contact_forms (name, slug, fields, submit_label, success_message) VALUES (?, ?, ?, ?, ?)`).run(
+          'Kontaktformular',
+          'kontakt',
+          JSON.stringify([
+            { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Ihr Name' },
+            { name: 'email', label: 'E-Mail', type: 'email', required: true, placeholder: 'ihre@email.de' },
+            { name: 'phone', label: 'Telefon', type: 'tel', required: false, placeholder: '+49 123 456 789' },
+            { name: 'service', label: 'Anliegen', type: 'select', required: true, options: ['Allgemeine Anfrage', 'Angebot anfordern', 'Support', 'Sonstiges'] },
+            { name: 'message', label: 'Nachricht', type: 'textarea', required: true, placeholder: 'Wie koennen wir Ihnen helfen?' },
+          ]),
+          'Anfrage senden',
+          'Vielen Dank fuer Ihre Anfrage! Wir melden uns innerhalb von 24 Stunden bei Ihnen.'
+        );
+      }
+    } catch (e) {
+      console.error('[DB] Contact forms migration error:', e);
     }
 
     // Only set the singleton after ALL initialization succeeds
