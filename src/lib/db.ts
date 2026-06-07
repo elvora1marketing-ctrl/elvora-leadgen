@@ -1608,6 +1608,75 @@ export function getDb(): Database.Database {
       console.error('[DB] Recovery error:', e);
     }
 
+    // Migration: Create chat widget tables (Support Chatbot)
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS chat_widgets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          greeting_message TEXT DEFAULT '',
+          placeholder_text TEXT DEFAULT '',
+          color TEXT DEFAULT '#8B5CF6',
+          position TEXT DEFAULT 'bottom-right' CHECK(position IN ('bottom-right','bottom-left')),
+          offline_message TEXT DEFAULT '',
+          auto_replies TEXT DEFAULT '[]',
+          is_active INTEGER DEFAULT 1,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS chat_conversations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          widget_id INTEGER NOT NULL,
+          visitor_name TEXT DEFAULT '',
+          visitor_email TEXT DEFAULT '',
+          visitor_page TEXT DEFAULT '',
+          status TEXT DEFAULT 'open' CHECK(status IN ('open','resolved','archived')),
+          unread_count INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (widget_id) REFERENCES chat_widgets(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS chat_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          conversation_id INTEGER NOT NULL,
+          sender TEXT NOT NULL CHECK(sender IN ('visitor','agent','bot')),
+          content TEXT NOT NULL,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_chat_conversations_widget ON chat_conversations(widget_id);
+        CREATE INDEX IF NOT EXISTS idx_chat_conversations_status ON chat_conversations(status);
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id);
+      `);
+
+      // Seed default widget if none exists
+      const widgetCount = instance.prepare('SELECT COUNT(*) as count FROM chat_widgets').get() as { count: number };
+      if (widgetCount.count === 0) {
+        instance.prepare(`
+          INSERT INTO chat_widgets (name, greeting_message, placeholder_text, color, position, offline_message, auto_replies, is_active)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+        `).run(
+          'Support Chat',
+          'Hallo! Wie koennen wir Ihnen helfen?',
+          'Schreiben Sie eine Nachricht...',
+          '#8B5CF6',
+          'bottom-right',
+          'Wir sind gerade nicht erreichbar. Hinterlassen Sie uns eine Nachricht und wir melden uns!',
+          JSON.stringify([
+            { q: 'Preis', a: 'Unsere Preise richten sich nach dem Umfang des Projekts. Vereinbaren Sie ein kostenloses Erstgespräch für ein individuelles Angebot.' },
+            { q: 'Kontakt', a: 'Sie erreichen uns unter der auf unserer Website angegebenen Nummer oder per E-Mail.' }
+          ])
+        );
+        console.log('[DB] Migration: seeded default chat widget');
+      }
+
+      // Default chat notification setting
+      instance.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))").run('chat_notification_email', '');
+
+      console.log('[DB] Migration: chat widget tables created');
+    } catch (e) {
+      console.error('[DB] Chat widget tables migration error:', e);
+    }
+
     // Only set the singleton after ALL initialization succeeds
     db = instance;
   }
