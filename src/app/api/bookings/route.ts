@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import crypto from 'crypto';
 import { requireAuth } from '@/lib/auth';
+import { notifyNewLead } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -100,6 +101,16 @@ export async function POST(request: NextRequest) {
     );
 
     const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(result.lastInsertRowid);
+
+    // Speed-to-Lead: notify the agency about the new booking
+    await notifyNewLead({
+      source: 'booking',
+      name,
+      email: email || undefined,
+      phone: phone || undefined,
+      message: message || undefined,
+      extra: { Termin: `${date} ${time_slot}` },
+    });
 
     return NextResponse.json({ booking }, { status: 201 });
   } catch (error) {

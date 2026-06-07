@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
+import { notifyNewLead } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -300,6 +301,14 @@ export async function POST(request: NextRequest) {
       const messages = db.prepare(
         'SELECT * FROM chat_messages WHERE conversation_id = ? ORDER BY created_at ASC'
       ).all(conversationId);
+
+      // Speed-to-Lead: notify the agency about the new chat visitor
+      await notifyNewLead({
+        source: 'chat',
+        name: visitor_name,
+        email: visitor_email,
+        pageUrl: visitor_page,
+      });
 
       return NextResponse.json({ conversation, messages });
     }

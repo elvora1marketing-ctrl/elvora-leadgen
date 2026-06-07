@@ -32,7 +32,57 @@ export async function PATCH(
 
     db.prepare('UPDATE bookings SET status = ? WHERE id = ?').run(status, parseInt(id));
 
-    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(parseInt(id));
+    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(parseInt(id)) as {
+      id: number; lead_id: number | null; name: string; email: string | null; phone: string | null;
+    };
+
+    // Review Autopilot: when a booking is completed, schedule a review request
+    if (status === 'completed') {
+      try {
+        const getSetting = (k: string) =>
+          (db.prepare('SELECT value FROM settings WHERE key = ?').get(k) as { value: string } | undefined)?.value ?? '';
+
+        if (getSetting('review_autopilot_enabled') === '1') {
+          // Don't double-schedule for the same booking
+          const already = db.prepare('SELECT id FROM review_requests WHERE booking_id = ?').get(booking.id);
+
+          // Fall back to the linked lead for contact details if the booking lacks them
+          let email = booking.email || '';
+          let phone = booking.phone || '';
+          if ((!email || !phone) && booking.lead_id) {
+            const lead = db.prepare('SELECT email, phone, phone_normalized FROM leads WHERE id = ?').get(booking.lead_id) as
+              | { email: string; phone: string; phone_normalized: string }
+              | undefined;
+            if (lead) {
+              email = email || lead.email || '';
+              phone = phone || lead.phone_normalized || lead.phone || '';
+            }
+          }
+
+          const channel = getSetting('review_autopilot_channel') || 'email';
+          const hasContact = channel === 'whatsapp' ? !!phone : !!email;
+
+          if (!already && hasContact) {
+            const delayHours = parseInt(getSetting('review_autopilot_delay_hours') || '24', 10) || 24;
+            db.prepare(`
+              INSERT INTO review_requests (booking_id, lead_id, customer_name, customer_email, customer_phone, channel, scheduled_at, status)
+              VALUES (?, ?, ?, ?, ?, ?, datetime('now', ? || ' hours'), 'pending')
+            `).run(
+              booking.id,
+              booking.lead_id || null,
+              booking.name || '',
+              email,
+              phone,
+              channel,
+              String(delayHours)
+            );
+          }
+        }
+      } catch (e) {
+        console.error('[bookings] review request scheduling failed:', e);
+      }
+    }
+
     return NextResponse.json({ booking });
   } catch (error) {
     console.error('Booking update error:', error);

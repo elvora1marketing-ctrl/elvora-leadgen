@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
+import { notifyNewLead } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -182,6 +183,22 @@ export async function POST(request: NextRequest) {
 
       // Increment submissions count
       db.prepare('UPDATE contact_forms SET submissions_count = submissions_count + 1 WHERE id = ?').run(form.id as number);
+
+      // Speed-to-Lead: notify the agency instantly (fire-and-forget, never blocks success)
+      const extra: Record<string, string> = {};
+      for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+        if (['name', 'email', 'phone', 'message'].includes(k)) continue;
+        if (v != null && String(v).trim() !== '') extra[k] = String(v);
+      }
+      await notifyNewLead({
+        source: 'form',
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        message: data.message,
+        pageUrl: page_url,
+        extra,
+      });
 
       return NextResponse.json({
         success: true,

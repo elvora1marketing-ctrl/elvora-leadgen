@@ -687,6 +687,25 @@ export function getDb(): Database.Database {
           created_at TEXT DEFAULT (datetime('now'))
         );
       `);
+
+      // Migration: Live-ROI client dashboard config columns
+      const clientCols = instance.prepare('PRAGMA table_info(clients)').all() as { name: string }[];
+      const clientColNames = clientCols.map(c => c.name);
+      if (!clientColNames.includes('dashboard_enabled')) {
+        instance.exec('ALTER TABLE clients ADD COLUMN dashboard_enabled INTEGER DEFAULT 0');
+      }
+      if (!clientColNames.includes('lead_value')) {
+        instance.exec('ALTER TABLE clients ADD COLUMN lead_value REAL DEFAULT 0');
+      }
+      if (!clientColNames.includes('form_slugs')) {
+        instance.exec("ALTER TABLE clients ADD COLUMN form_slugs TEXT DEFAULT '[]'");
+      }
+      if (!clientColNames.includes('chat_widget_ids')) {
+        instance.exec("ALTER TABLE clients ADD COLUMN chat_widget_ids TEXT DEFAULT '[]'");
+      }
+      if (!clientColNames.includes('track_bookings')) {
+        instance.exec('ALTER TABLE clients ADD COLUMN track_bookings INTEGER DEFAULT 1');
+      }
     } catch (e) {
       console.error('[DB] Clients/MRR tables migration error:', e);
     }
@@ -1781,6 +1800,43 @@ export function getDb(): Database.Database {
       }
     } catch (e) {
       console.error('[DB] Contact forms migration error:', e);
+    }
+
+    // Review Autopilot — scheduled review requests after completed bookings
+    try {
+      instance.exec(`
+        CREATE TABLE IF NOT EXISTS review_requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          booking_id INTEGER,
+          lead_id INTEGER,
+          customer_name TEXT DEFAULT '',
+          customer_email TEXT DEFAULT '',
+          customer_phone TEXT DEFAULT '',
+          channel TEXT DEFAULT 'email',
+          scheduled_at TEXT NOT NULL,
+          sent_at TEXT,
+          status TEXT DEFAULT 'pending' CHECK(status IN ('pending','sent','skipped','failed')),
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_review_requests_due ON review_requests(status, scheduled_at);
+      `);
+
+      // Default settings for the review autopilot
+      const reviewDefaults: Record<string, string> = {
+        review_autopilot_enabled: '0',
+        review_autopilot_delay_hours: '24',
+        review_autopilot_channel: 'email',
+        review_google_url: '',
+        review_autopilot_subject: 'Wie war Ihr Termin bei uns?',
+        review_autopilot_message:
+          'Hallo {{name}},\n\nvielen Dank für Ihren Besuch! Wenn Sie zufrieden waren, würden wir uns riesig über eine kurze Google-Bewertung freuen. Das dauert nur 30 Sekunden:\n\n{{link}}\n\nHerzlichen Dank!',
+      };
+      const insertSetting = instance.prepare(
+        "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))"
+      );
+      for (const [k, v] of Object.entries(reviewDefaults)) insertSetting.run(k, v);
+    } catch (e) {
+      console.error('[DB] Review autopilot migration error:', e);
     }
 
     // Only set the singleton after ALL initialization succeeds

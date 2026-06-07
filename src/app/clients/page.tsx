@@ -19,7 +19,14 @@ interface Client {
   lead_name: string;
   lead_city: string;
   lead_website: string | null;
+  dashboard_enabled?: number;
+  lead_value?: number;
+  form_slugs?: string;
+  chat_widget_ids?: string;
 }
+
+interface FormOption { slug: string; name: string }
+interface WidgetOption { id: number; name: string }
 
 interface MrrData {
   current_mrr: number;
@@ -60,6 +67,11 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [copiedLink, setCopiedLink] = useState<number | null>(null);
+  const [configClient, setConfigClient] = useState<Client | null>(null);
+  const [formOptions, setFormOptions] = useState<FormOption[]>([]);
+  const [widgetOptions, setWidgetOptions] = useState<WidgetOption[]>([]);
+
+  const reloadClients = () => fetch('/api/clients').then(r => r.json()).then(d => setClients(d.clients || [])).catch(() => {});
 
   useEffect(() => {
     Promise.all([
@@ -69,6 +81,14 @@ export default function ClientsPage() {
       setClients(clientsData.clients || []);
       setMrr(mrrData);
     }).catch(() => {}).finally(() => setLoading(false));
+
+    // Load available lead sources for dashboard config
+    fetch('/api/contact-form?action=forms').then(r => r.json())
+      .then(d => setFormOptions((d.forms || []).map((f: { slug: string; name: string }) => ({ slug: f.slug, name: f.name }))))
+      .catch(() => {});
+    fetch('/api/chat?action=widgets').then(r => r.json())
+      .then(d => setWidgetOptions((d.widgets || []).map((w: { id: number; name: string }) => ({ id: w.id, name: w.name }))))
+      .catch(() => {});
   }, []);
 
   const filtered = filter === 'all' ? clients : clients.filter(c => c.status === filter);
@@ -184,12 +204,21 @@ export default function ClientsPage() {
                       <td className="px-4 py-3 text-right text-xs text-white font-mono">{c.project_value ? `${c.project_value.toLocaleString('de-DE')} €` : '-'}</td>
                       <td className="px-4 py-3 text-right text-xs font-mono font-bold text-elvora-success">{c.monthly_value > 0 ? `${c.monthly_value.toLocaleString('de-DE')} €` : '-'}</td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/client/${c.token}`); setCopiedLink(c.id); setTimeout(() => setCopiedLink(null), 2000); }}
-                          className="text-xs text-elvora-purple-light hover:underline"
-                        >
-                          {copiedLink === c.id ? '✓' : 'Link'}
-                        </button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/client/${c.token}`); setCopiedLink(c.id); setTimeout(() => setCopiedLink(null), 2000); }}
+                            className="text-xs text-elvora-purple-light hover:underline"
+                          >
+                            {copiedLink === c.id ? '✓' : 'Link'}
+                          </button>
+                          <button
+                            onClick={() => setConfigClient(c)}
+                            className={`text-xs hover:underline ${c.dashboard_enabled ? 'text-elvora-success' : 'text-elvora-text-dim'}`}
+                            title="Live-ROI Dashboard konfigurieren"
+                          >
+                            {c.dashboard_enabled ? '📊 Aktiv' : '📊 Dashboard'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -199,6 +228,121 @@ export default function ClientsPage() {
           </div>
         </div>
       )}
+
+      {configClient && (
+        <DashboardConfigModal
+          client={configClient}
+          formOptions={formOptions}
+          widgetOptions={widgetOptions}
+          onClose={() => setConfigClient(null)}
+          onSaved={() => { setConfigClient(null); reloadClients(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function parseJsonArr(s: string | undefined): (string | number)[] {
+  try { const v = JSON.parse(s || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+
+function DashboardConfigModal({ client, formOptions, widgetOptions, onClose, onSaved }: {
+  client: Client;
+  formOptions: FormOption[];
+  widgetOptions: WidgetOption[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [enabled, setEnabled] = useState(!!client.dashboard_enabled);
+  const [leadValue, setLeadValue] = useState(String(client.lead_value || 0));
+  const [slugs, setSlugs] = useState<string[]>(parseJsonArr(client.form_slugs) as string[]);
+  const [widgetIds, setWidgetIds] = useState<number[]>(parseJsonArr(client.chat_widget_ids) as number[]);
+  const [saving, setSaving] = useState(false);
+
+  const toggleSlug = (slug: string) => setSlugs(p => p.includes(slug) ? p.filter(s => s !== slug) : [...p, slug]);
+  const toggleWidget = (id: number) => setWidgetIds(p => p.includes(id) ? p.filter(w => w !== id) : [...p, id]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await fetch(`/api/clients/${client.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dashboard_enabled: enabled,
+          lead_value: Number(leadValue) || 0,
+          form_slugs: slugs,
+          chat_widget_ids: widgetIds,
+        }),
+      });
+      onSaved();
+    } catch { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+      <div className="relative card rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold text-white">Live-ROI Dashboard</h2>
+          <button onClick={onClose} className="text-elvora-text-dim hover:text-white text-xl leading-none">×</button>
+        </div>
+        <p className="text-xs text-elvora-text-dim mb-5">{client.company_name}</p>
+
+        <div className="space-y-5">
+          <label className="flex items-center justify-between cursor-pointer">
+            <div>
+              <div className="text-sm font-medium text-elvora-text">Dashboard aktivieren</div>
+              <div className="text-xs text-elvora-text-dim">Kunde sieht Leads & ROI im Portal</div>
+            </div>
+            <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="w-4 h-4 accent-elvora-purple" />
+          </label>
+
+          <div>
+            <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Wert pro Lead (€)</label>
+            <input type="number" min="0" value={leadValue} onChange={e => setLeadValue(e.target.value)}
+              className="w-full h-10 px-3 text-sm bg-elvora-bg-alt border border-elvora-border rounded-lg text-white focus:border-elvora-purple/50 focus:outline-none" />
+            <p className="text-[11px] text-elvora-text-dim mt-1">Geschätzter Umsatzwert eines Leads — für die ROI-Anzeige.</p>
+          </div>
+
+          <div>
+            <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Formulare dieses Kunden</label>
+            {formOptions.length === 0 ? (
+              <p className="text-xs text-elvora-text-dim">Keine Formulare vorhanden.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {formOptions.map(f => (
+                  <label key={f.slug} className="flex items-center gap-2 cursor-pointer text-sm text-elvora-text">
+                    <input type="checkbox" checked={slugs.includes(f.slug)} onChange={() => toggleSlug(f.slug)} className="w-4 h-4 accent-elvora-purple" />
+                    {f.name} <span className="text-elvora-text-dim text-xs">({f.slug})</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Chat-Widgets dieses Kunden</label>
+            {widgetOptions.length === 0 ? (
+              <p className="text-xs text-elvora-text-dim">Keine Chat-Widgets vorhanden.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {widgetOptions.map(w => (
+                  <label key={w.id} className="flex items-center gap-2 cursor-pointer text-sm text-elvora-text">
+                    <input type="checkbox" checked={widgetIds.includes(w.id)} onChange={() => toggleWidget(w.id)} className="w-4 h-4 accent-elvora-purple" />
+                    {w.name}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button onClick={save} disabled={saving}
+            className="w-full h-10 rounded-lg text-sm font-semibold bg-gradient-to-r from-elvora-purple to-elvora-pink text-white hover:brightness-110 disabled:opacity-50 transition-all">
+            {saving ? 'Speichert…' : 'Speichern'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

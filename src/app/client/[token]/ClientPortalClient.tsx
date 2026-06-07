@@ -15,6 +15,23 @@ interface Client {
   questionnaire_data: string | null;
   notes: string | null;
   created_at: string;
+  dashboard_enabled?: number;
+}
+
+interface DashboardData {
+  enabled: boolean;
+  lead_value: number;
+  summary: {
+    total_leads: number;
+    this_month: number;
+    last_month: number;
+    total_value: number;
+    this_month_value: number;
+    form_leads: number;
+    chat_leads: number;
+  };
+  monthly: { month: string; form: number; chat: number; total: number; value: number }[];
+  recent: { name: string; email: string; source: string; created_at: string }[];
 }
 
 interface Message {
@@ -51,7 +68,9 @@ const phases = [
 ];
 
 export default function ClientPortalClient({ client, messages: initialMessages, files: initialFiles, agency, token }: Props) {
-  const [tab, setTab] = useState<'onboarding' | 'progress' | 'messages' | 'files'>('progress');
+  const dashboardOn = !!client.dashboard_enabled;
+  const [tab, setTab] = useState<'dashboard' | 'onboarding' | 'progress' | 'messages' | 'files'>(dashboardOn ? 'dashboard' : 'progress');
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [messages, setMessages] = useState(initialMessages);
   const [files, setFiles] = useState(initialFiles);
   const [msgText, setMsgText] = useState('');
@@ -76,6 +95,21 @@ export default function ClientPortalClient({ client, messages: initialMessages, 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!dashboardOn) return;
+    fetch(`/api/clients/${token}/dashboard`)
+      .then(r => r.json())
+      .then(d => { if (d && d.enabled) setDashboard(d); })
+      .catch(() => { /* silent */ });
+  }, [dashboardOn, token]);
+
+  const fmtEur = (n: number) =>
+    new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n || 0);
+  const monthLabel = (key: string) => {
+    const [y, m] = key.split('-');
+    return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('de-DE', { month: 'short' });
+  };
 
   async function sendMessage() {
     if (!msgText.trim()) return;
@@ -143,6 +177,7 @@ export default function ClientPortalClient({ client, messages: initialMessages, 
   }
 
   const tabs = [
+    ...(dashboardOn ? [{ key: 'dashboard' as const, label: 'Übersicht' }] : []),
     { key: 'progress' as const, label: 'Fortschritt' },
     { key: 'onboarding' as const, label: 'Onboarding' },
     { key: 'messages' as const, label: `Nachrichten (${messages.length})` },
@@ -180,6 +215,102 @@ export default function ClientPortalClient({ client, messages: initialMessages, 
           </button>
         ))}
       </div>
+
+      {/* Dashboard Tab — Live ROI */}
+      {tab === 'dashboard' && (
+        <div className="space-y-4">
+          {!dashboard ? (
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-10 text-center text-sm text-[#8a8f98]">
+              Lädt Ihre Zahlen…
+            </div>
+          ) : (
+            <>
+              {/* KPI cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <div className="text-xs text-[#8a8f98]">Leads diesen Monat</div>
+                  <div className="text-3xl font-bold text-white mt-1">{dashboard.summary.this_month}</div>
+                  {dashboard.summary.last_month > 0 && (
+                    <div className={`text-xs mt-1 ${dashboard.summary.this_month >= dashboard.summary.last_month ? 'text-emerald-400' : 'text-[#8a8f98]'}`}>
+                      {dashboard.summary.this_month >= dashboard.summary.last_month ? '▲' : '▼'} {Math.abs(dashboard.summary.this_month - dashboard.summary.last_month)} ggü. Vormonat
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-xl border border-[#7c5cfc]/30 bg-[#7c5cfc]/[0.08] p-4">
+                  <div className="text-xs text-[#a99cf5]">Geschätzter Wert / Monat</div>
+                  <div className="text-3xl font-bold text-white mt-1">{fmtEur(dashboard.summary.this_month_value)}</div>
+                  <div className="text-xs text-[#8a8f98] mt-1">bei {fmtEur(dashboard.lead_value)} / Lead</div>
+                </div>
+              </div>
+
+              {/* Monthly bar chart */}
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
+                <h2 className="text-sm uppercase tracking-wider text-[#8a8f98] font-semibold mb-5">Leads pro Monat</h2>
+                {(() => {
+                  const max = Math.max(1, ...dashboard.monthly.map(m => m.total));
+                  return (
+                    <div className="flex items-end justify-between gap-2 h-40">
+                      {dashboard.monthly.map((m) => (
+                        <div key={m.month} className="flex-1 flex flex-col items-center justify-end h-full">
+                          <div className="text-[11px] text-[#c8ccd4] mb-1 font-medium">{m.total > 0 ? m.total : ''}</div>
+                          <div
+                            className="w-full max-w-[40px] rounded-t-md bg-gradient-to-t from-[#7c5cfc] to-[#a99cf5] transition-all"
+                            style={{ height: `${(m.total / max) * 100}%`, minHeight: m.total > 0 ? '4px' : '0' }}
+                          />
+                          <div className="text-[10px] text-[#8a8f98] mt-2 capitalize">{monthLabel(m.month)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Totals + sources */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <div className="text-xs text-[#8a8f98]">Leads gesamt</div>
+                  <div className="text-xl font-bold text-white mt-1">{dashboard.summary.total_leads}</div>
+                </div>
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <div className="text-xs text-[#8a8f98]">über Formular</div>
+                  <div className="text-xl font-bold text-white mt-1">{dashboard.summary.form_leads}</div>
+                </div>
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <div className="text-xs text-[#8a8f98]">über Chat</div>
+                  <div className="text-xl font-bold text-white mt-1">{dashboard.summary.chat_leads}</div>
+                </div>
+              </div>
+
+              {/* Recent leads */}
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                <div className="p-4 border-b border-white/[0.06]">
+                  <h2 className="text-sm uppercase tracking-wider text-[#8a8f98] font-semibold">Letzte Anfragen</h2>
+                </div>
+                {dashboard.recent.length === 0 ? (
+                  <p className="text-xs text-[#555] text-center py-8">Noch keine Anfragen erfasst</p>
+                ) : (
+                  <div className="divide-y divide-white/[0.06]">
+                    {dashboard.recent.map((r, i) => (
+                      <div key={i} className="flex items-center justify-between px-4 py-3">
+                        <div className="min-w-0">
+                          <div className="text-sm text-white truncate">{r.name || 'Anonym'}</div>
+                          <div className="text-[11px] text-[#8a8f98] truncate">{r.email || '—'}</div>
+                        </div>
+                        <div className="text-right flex-shrink-0 ml-3">
+                          <div className="text-[11px] text-[#a99cf5]">{r.source}</div>
+                          <div className="text-[10px] text-[#555]">
+                            {new Date(r.created_at + (r.created_at.endsWith('Z') ? '' : 'Z')).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Progress Tab */}
       {tab === 'progress' && (

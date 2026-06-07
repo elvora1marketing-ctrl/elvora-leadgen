@@ -64,6 +64,28 @@ export async function PATCH(
       values.push(body.notes);
     }
 
+    // Live-ROI dashboard config
+    if (body.dashboard_enabled !== undefined) {
+      updates.push('dashboard_enabled = ?');
+      values.push(body.dashboard_enabled ? 1 : 0);
+    }
+    if (body.lead_value !== undefined) {
+      updates.push('lead_value = ?');
+      values.push(Number(body.lead_value) || 0);
+    }
+    if (body.form_slugs !== undefined) {
+      updates.push('form_slugs = ?');
+      values.push(JSON.stringify(Array.isArray(body.form_slugs) ? body.form_slugs : []));
+    }
+    if (body.chat_widget_ids !== undefined) {
+      updates.push('chat_widget_ids = ?');
+      values.push(JSON.stringify(Array.isArray(body.chat_widget_ids) ? body.chat_widget_ids : []));
+    }
+    if (body.track_bookings !== undefined) {
+      updates.push('track_bookings = ?');
+      values.push(body.track_bookings ? 1 : 0);
+    }
+
     if (updates.length === 0) return NextResponse.json({ error: 'Keine Änderungen' }, { status: 400 });
 
     values.push(clientId);
