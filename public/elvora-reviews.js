@@ -13,6 +13,26 @@
   if (!BASE_URL) return;
 
   // ---------------------------------------------------------------------------
+  // GDPR / DSGVO consent handling
+  // ---------------------------------------------------------------------------
+  var CONSENT_MODE = script.getAttribute('data-consent') || '';
+
+  function elvoraHasConsent() {
+    if (document.cookie.split(';').some(function(c) { return c.trim().indexOf('elvora_consent=accepted') === 0; })) return true;
+    if (window.elvora_consent === true) return true;
+    if (typeof window.elvoraConsentGranted === 'function' && window.elvoraConsentGranted()) return true;
+    return false;
+  }
+
+  function elvoraSetConsentCookie() {
+    var d = new Date();
+    d.setFullYear(d.getFullYear() + 1);
+    document.cookie = 'elvora_consent=accepted;expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+  }
+
+  var consentBlocked = (CONSENT_MODE === 'required' && !elvoraHasConsent());
+
+  // ---------------------------------------------------------------------------
   // 2. Helpers
   // ---------------------------------------------------------------------------
   function esc(s) {
@@ -50,18 +70,55 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Fetch data & render
+  // 3. Consent gate & fetch data
   // ---------------------------------------------------------------------------
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', BASE_URL + '/api/reviews?action=widget&slug=' + encodeURIComponent(SLUG));
-  xhr.onload = function() {
-    if (xhr.status !== 200) return;
-    try {
-      var data = JSON.parse(xhr.responseText);
-      render(data.widget, data.reviews || []);
-    } catch(e) { console.error('[ElvoraReviews] Parse error', e); }
-  };
-  xhr.send();
+  function showConsentPlaceholder() {
+    var container = document.getElementById('elvora-reviews');
+    if (!container) return;
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'text-align:center;padding:40px 20px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;';
+    var msg = document.createElement('p');
+    msg.style.cssText = 'font-size:15px;color:#374151;margin:0 0 16px;';
+    msg.textContent = 'Bitte akzeptieren Sie die Cookies, um dieses Element zu laden.';
+    var btn = document.createElement('button');
+    btn.style.cssText = 'padding:10px 24px;font-size:14px;font-weight:600;color:#fff;background:#8B5CF6;border:none;border-radius:8px;cursor:pointer;font-family:inherit;';
+    btn.textContent = 'Cookies akzeptieren';
+    btn.addEventListener('click', function() {
+      elvoraSetConsentCookie();
+      window.dispatchEvent(new CustomEvent('elvora:consent-granted'));
+      container.removeChild(wrap);
+      fetchAndRender();
+    });
+    wrap.appendChild(msg);
+    wrap.appendChild(btn);
+    container.appendChild(wrap);
+  }
+
+  function fetchAndRender() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', BASE_URL + '/api/reviews?action=widget&slug=' + encodeURIComponent(SLUG));
+    xhr.onload = function() {
+      if (xhr.status !== 200) return;
+      try {
+        var data = JSON.parse(xhr.responseText);
+        render(data.widget, data.reviews || []);
+      } catch(e) { console.error('[ElvoraReviews] Parse error', e); }
+    };
+    xhr.send();
+  }
+
+  if (consentBlocked) {
+    showConsentPlaceholder();
+    window.addEventListener('elvora:consent-granted', function onConsent() {
+      window.removeEventListener('elvora:consent-granted', onConsent);
+      consentBlocked = false;
+      var container = document.getElementById('elvora-reviews');
+      if (container) container.innerHTML = '';
+      fetchAndRender();
+    });
+  } else {
+    fetchAndRender();
+  }
 
   function render(widget, reviews) {
     if (!widget || reviews.length === 0) return;

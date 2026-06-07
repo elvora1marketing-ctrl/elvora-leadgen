@@ -12,6 +12,30 @@
   if (!BASE_URL || !WIDGET_ID) return;
 
   // ---------------------------------------------------------------------------
+  // GDPR / DSGVO consent handling
+  // ---------------------------------------------------------------------------
+  var CONSENT_MODE = script.getAttribute('data-consent') || '';
+  var PRIVACY_URL  = script.getAttribute('data-privacy-url') || '';
+
+  function elvoraHasConsent() {
+    // Check cookie
+    if (document.cookie.split(';').some(function(c) { return c.trim().indexOf('elvora_consent=accepted') === 0; })) return true;
+    // Check global flag
+    if (window.elvora_consent === true) return true;
+    // Check global function
+    if (typeof window.elvoraConsentGranted === 'function' && window.elvoraConsentGranted()) return true;
+    return false;
+  }
+
+  function elvoraSetConsentCookie() {
+    var d = new Date();
+    d.setFullYear(d.getFullYear() + 1);
+    document.cookie = 'elvora_consent=accepted;expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+  }
+
+  var consentBlocked = (CONSENT_MODE === 'required' && !elvoraHasConsent());
+
+  // ---------------------------------------------------------------------------
   // 2. Defaults & state
   // ---------------------------------------------------------------------------
   var CONFIG = {
@@ -377,6 +401,20 @@
     wrap.appendChild(nameInput);
     wrap.appendChild(emailInput);
     wrap.appendChild(startBtn);
+
+    // Datenschutz link
+    if (PRIVACY_URL) {
+      var privacyLink = document.createElement('a');
+      privacyLink.href = PRIVACY_URL;
+      privacyLink.target = '_blank';
+      privacyLink.rel = 'noopener';
+      privacyLink.textContent = 'Datenschutz';
+      privacyLink.style.cssText = 'display:block;margin-top:12px;font-size:12px;color:' + T.textMut + ';text-decoration:none;font-family:' + T.font + ';';
+      privacyLink.addEventListener('mouseenter', function() { privacyLink.style.color = T.text; });
+      privacyLink.addEventListener('mouseleave', function() { privacyLink.style.color = T.textMut; });
+      wrap.appendChild(privacyLink);
+    }
+
     body.appendChild(wrap);
   }
 
@@ -459,7 +497,9 @@
       widget_id: WIDGET_ID,
       visitor_name: state.visitorName,
       visitor_email: state.visitorEmail,
-      page_url: window.location.href
+      page_url: window.location.href,
+      consent_given: true,
+      consent_note: 'User has consented to data processing (DSGVO/GDPR)'
     }, function(err, data) {
       if (err || !data || !data.conversation_id) return;
       state.conversationId = data.conversation_id;
@@ -581,10 +621,23 @@
     });
   }
 
-  // Boot when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  // Boot when DOM is ready (only if consent is not blocked)
+  if (consentBlocked) {
+    // Don't show the bubble at all — listen for consent event to activate later
+    window.addEventListener('elvora:consent-granted', function onConsent() {
+      window.removeEventListener('elvora:consent-granted', onConsent);
+      consentBlocked = false;
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    });
   } else {
-    init();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
   }
 })();

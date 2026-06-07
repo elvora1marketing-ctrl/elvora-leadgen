@@ -8,6 +8,27 @@
 
   if (!baseUrl || !slug) return;
 
+  // ---------------------------------------------------------------------------
+  // GDPR / DSGVO consent handling
+  // ---------------------------------------------------------------------------
+  var CONSENT_MODE = script.getAttribute('data-consent') || '';
+  var PRIVACY_URL  = script.getAttribute('data-privacy-url') || '';
+
+  function elvoraHasConsent() {
+    if (document.cookie.split(';').some(function(c) { return c.trim().indexOf('elvora_consent=accepted') === 0; })) return true;
+    if (window.elvora_consent === true) return true;
+    if (typeof window.elvoraConsentGranted === 'function' && window.elvoraConsentGranted()) return true;
+    return false;
+  }
+
+  function elvoraSetConsentCookie() {
+    var d = new Date();
+    d.setFullYear(d.getFullYear() + 1);
+    document.cookie = 'elvora_consent=accepted;expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+  }
+
+  var consentBlocked = (CONSENT_MODE === 'required' && !elvoraHasConsent());
+
   // ── Styles ───────────────────────────────────────────────────────
   var fontStack = '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif';
 
@@ -149,6 +170,31 @@
       formEl.appendChild(group);
     }
 
+    // DSGVO privacy checkbox
+    var privacyGroup = document.createElement('div');
+    privacyGroup.className = 'ef-group';
+    var privacyLabel = document.createElement('label');
+    privacyLabel.style.cssText = 'display:flex;align-items:flex-start;gap:8px;font-size:13px;color:#374151;cursor:pointer;font-family:' + fontStack + ';line-height:1.5;';
+    var privacyCheck = document.createElement('input');
+    privacyCheck.type = 'checkbox';
+    privacyCheck.required = true;
+    privacyCheck.setAttribute('data-field', '_privacy_consent');
+    privacyCheck.style.cssText = 'margin-top:3px;flex-shrink:0;accent-color:' + color + ';';
+    var privacyText = document.createElement('span');
+    if (PRIVACY_URL) {
+      privacyText.innerHTML = 'Ich stimme der Verarbeitung meiner Daten gemäß der <a href="' + escapeHtml(PRIVACY_URL) + '" target="_blank" rel="noopener" style="color:' + color + ';text-decoration:underline;">Datenschutzerklärung</a> zu.';
+    } else {
+      privacyText.textContent = 'Ich stimme der Verarbeitung meiner Daten gemäß der Datenschutzerklärung zu.';
+    }
+    privacyLabel.appendChild(privacyCheck);
+    privacyLabel.appendChild(privacyText);
+    privacyGroup.appendChild(privacyLabel);
+    var privacyErr = document.createElement('div');
+    privacyErr.className = 'ef-error';
+    privacyErr.setAttribute('data-error-for', '_privacy_consent');
+    privacyGroup.appendChild(privacyErr);
+    formEl.appendChild(privacyGroup);
+
     // Submit button
     var btnGroup = document.createElement('div');
     btnGroup.className = 'ef-group';
@@ -204,6 +250,16 @@
           }
           hasError = true;
         }
+      }
+
+      // Validate privacy consent checkbox
+      if (!privacyCheck.checked) {
+        var privErrBox = wrap.querySelector('[data-error-for="_privacy_consent"]');
+        if (privErrBox) {
+          privErrBox.textContent = 'Bitte stimmen Sie der Datenschutzerklärung zu.';
+          privErrBox.classList.add('ef-show');
+        }
+        hasError = true;
       }
 
       if (hasError) return;
@@ -262,12 +318,51 @@
     return d.innerHTML;
   }
 
+  // ── Consent placeholder ──────────────────────────────────────────
+  function showConsentPlaceholder() {
+    var container = document.querySelector(target);
+    if (!container) return;
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'text-align:center;padding:40px 20px;font-family:' + fontStack + ';background:#fff;border:1px solid #e5e7eb;border-radius:12px;max-width:560px;margin:0 auto;';
+    var msg = document.createElement('p');
+    msg.style.cssText = 'font-size:15px;color:#374151;margin:0 0 16px;';
+    msg.textContent = 'Bitte akzeptieren Sie die Cookies, um dieses Element zu laden.';
+    var btn = document.createElement('button');
+    btn.style.cssText = 'padding:10px 24px;font-size:14px;font-weight:600;color:#fff;background:#8B5CF6;border:none;border-radius:8px;cursor:pointer;font-family:inherit;';
+    btn.textContent = 'Cookies akzeptieren';
+    btn.addEventListener('click', function() {
+      elvoraSetConsentCookie();
+      window.dispatchEvent(new CustomEvent('elvora:consent-granted'));
+      container.removeChild(wrap);
+      bootForm();
+    });
+    wrap.appendChild(msg);
+    wrap.appendChild(btn);
+    container.appendChild(wrap);
+  }
+
   // ── Init ─────────────────────────────────────────────────────────
-  fetchForm(function(err, data) {
-    if (err) {
-      console.error('[Elvora Form] Failed to load form:', err);
-      return;
-    }
-    render(data);
-  });
+  function bootForm() {
+    fetchForm(function(err, data) {
+      if (err) {
+        console.error('[Elvora Form] Failed to load form:', err);
+        return;
+      }
+      render(data);
+    });
+  }
+
+  if (consentBlocked) {
+    showConsentPlaceholder();
+    window.addEventListener('elvora:consent-granted', function onConsent() {
+      window.removeEventListener('elvora:consent-granted', onConsent);
+      consentBlocked = false;
+      // Remove placeholder if still present and boot
+      var container = document.querySelector(target);
+      if (container) container.innerHTML = '';
+      bootForm();
+    });
+  } else {
+    bootForm();
+  }
 })();

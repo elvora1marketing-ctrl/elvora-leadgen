@@ -13,6 +13,49 @@
 
   var src = url + (slug ? '/' + slug : '') + '?embed=1';
 
+  // ---------------------------------------------------------------------------
+  // GDPR / DSGVO consent handling
+  // ---------------------------------------------------------------------------
+  var CONSENT_MODE = script.getAttribute('data-consent') || '';
+
+  function elvoraHasConsent() {
+    if (document.cookie.split(';').some(function(c) { return c.trim().indexOf('elvora_consent=accepted') === 0; })) return true;
+    if (window.elvora_consent === true) return true;
+    if (typeof window.elvoraConsentGranted === 'function' && window.elvoraConsentGranted()) return true;
+    return false;
+  }
+
+  function elvoraSetConsentCookie() {
+    var d = new Date();
+    d.setFullYear(d.getFullYear() + 1);
+    document.cookie = 'elvora_consent=accepted;expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+  }
+
+  function elvoraConsentPlaceholder(targetEl) {
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'text-align:center;padding:40px 20px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;';
+    var msg = document.createElement('p');
+    msg.style.cssText = 'font-size:15px;color:#374151;margin:0 0 16px;';
+    msg.textContent = 'Bitte akzeptieren Sie die Cookies, um dieses Element zu laden.';
+    var btn = document.createElement('button');
+    btn.style.cssText = 'padding:10px 24px;font-size:14px;font-weight:600;color:#fff;background:' + color + ';border:none;border-radius:8px;cursor:pointer;font-family:inherit;';
+    btn.textContent = 'Cookies akzeptieren';
+    btn.addEventListener('click', function() {
+      elvoraSetConsentCookie();
+      window.dispatchEvent(new CustomEvent('elvora:consent-granted'));
+      // Replace placeholder with actual widget
+      wrap.parentNode.removeChild(wrap);
+      bootWidget();
+    });
+    wrap.appendChild(msg);
+    wrap.appendChild(btn);
+    targetEl.appendChild(wrap);
+  }
+
+  var consentBlocked = (CONSENT_MODE === 'required' && !elvoraHasConsent());
+
+  function bootWidget() {
+
   var STYLES = {
     overlay: 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:99998;opacity:0;transition:opacity .3s ease;display:none;',
     modal: 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(0.95);width:min(95vw,560px);height:min(90vh,750px);border-radius:16px;overflow:hidden;z-index:99999;opacity:0;transition:all .3s ease;display:none;box-shadow:0 25px 60px rgba(0,0,0,0.5);',
@@ -132,4 +175,27 @@
       }
     } catch(err) {}
   });
+
+  } // end bootWidget
+
+  // ---------------------------------------------------------------------------
+  // Consent gate: show placeholder or boot widget
+  // ---------------------------------------------------------------------------
+  if (consentBlocked) {
+    // For inline type, show placeholder in the target container
+    if (type === 'inline') {
+      var container = document.querySelector(target);
+      if (container) {
+        elvoraConsentPlaceholder(container);
+      }
+    }
+    // For popup/badge types, just don't render the trigger — listen for consent event
+    window.addEventListener('elvora:consent-granted', function onConsent() {
+      window.removeEventListener('elvora:consent-granted', onConsent);
+      consentBlocked = false;
+      bootWidget();
+    });
+  } else {
+    bootWidget();
+  }
 })();
