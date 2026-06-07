@@ -256,7 +256,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'new_conversation') {
-      const { widget_id, visitor_name, visitor_email, visitor_page } = body;
+      const { widget_id, visitor_name, visitor_email, consent_given, consent_note } = body;
+      // The widget sends the URL as page_url; keep visitor_page as fallback for older embeds
+      const visitor_page = body.page_url || body.visitor_page || '';
       if (!widget_id) {
         return NextResponse.json({ error: 'widget_id ist erforderlich' }, { status: 400 });
       }
@@ -270,10 +272,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Widget nicht gefunden oder inaktiv' }, { status: 404 });
       }
 
-      // Create conversation
+      // Create conversation — incl. consent record for Nachweispflicht (Art. 7 Abs. 1 DSGVO)
       const result = db.prepare(
-        'INSERT INTO chat_conversations (widget_id, visitor_name, visitor_email, visitor_page) VALUES (?, ?, ?, ?)'
-      ).run(widget_id, visitor_name || '', visitor_email || '', visitor_page || '');
+        'INSERT INTO chat_conversations (widget_id, visitor_name, visitor_email, visitor_page, consent_given, consent_text, consent_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        widget_id,
+        visitor_name || '',
+        visitor_email || '',
+        visitor_page,
+        consent_given === true ? 1 : 0,
+        typeof consent_note === 'string' ? consent_note : '',
+        consent_given === true ? new Date().toISOString() : ''
+      );
 
       const conversationId = result.lastInsertRowid;
 

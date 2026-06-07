@@ -1692,6 +1692,23 @@ export function getDb(): Database.Database {
         console.error('[DB] Chat AI columns migration error:', e);
       }
 
+      // Migration: DSGVO consent tracking for chat conversations (Nachweispflicht Art. 7 DSGVO)
+      try {
+        const convCols = instance.prepare("PRAGMA table_info(chat_conversations)").all() as { name: string }[];
+        const convColNames = convCols.map(c => c.name);
+        if (!convColNames.includes('consent_given')) {
+          instance.exec("ALTER TABLE chat_conversations ADD COLUMN consent_given INTEGER DEFAULT 0");
+        }
+        if (!convColNames.includes('consent_text')) {
+          instance.exec("ALTER TABLE chat_conversations ADD COLUMN consent_text TEXT DEFAULT ''");
+        }
+        if (!convColNames.includes('consent_at')) {
+          instance.exec("ALTER TABLE chat_conversations ADD COLUMN consent_at TEXT DEFAULT ''");
+        }
+      } catch (e) {
+        console.error('[DB] Chat consent columns migration error:', e);
+      }
+
       console.log('[DB] Migration: chat widget tables created');
     } catch (e) {
       console.error('[DB] Chat widget tables migration error:', e);
@@ -1744,6 +1761,23 @@ export function getDb(): Database.Database {
           'Anfrage senden',
           'Vielen Dank fuer Ihre Anfrage! Wir melden uns innerhalb von 24 Stunden bei Ihnen.'
         );
+      }
+
+      // Migration: DSGVO consent tracking for contact submissions (Nachweispflicht Art. 7 DSGVO)
+      try {
+        const subCols = instance.prepare("PRAGMA table_info(contact_submissions)").all() as { name: string }[];
+        const subColNames = subCols.map(c => c.name);
+        if (!subColNames.includes('consent_given')) {
+          instance.exec("ALTER TABLE contact_submissions ADD COLUMN consent_given INTEGER DEFAULT 0");
+        }
+        if (!subColNames.includes('consent_text')) {
+          instance.exec("ALTER TABLE contact_submissions ADD COLUMN consent_text TEXT DEFAULT ''");
+        }
+        if (!subColNames.includes('consent_at')) {
+          instance.exec("ALTER TABLE contact_submissions ADD COLUMN consent_at TEXT DEFAULT ''");
+        }
+      } catch (e) {
+        console.error('[DB] Contact submission consent columns migration error:', e);
       }
     } catch (e) {
       console.error('[DB] Contact forms migration error:', e);

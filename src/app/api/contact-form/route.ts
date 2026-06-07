@@ -91,9 +91,17 @@ export async function POST(request: NextRequest) {
 
     // ── PUBLIC: submit form ──────────────────────────────────────────
     if (action === 'submit') {
-      const { slug, data, page_url } = body;
+      const { slug, data, page_url, consent_given, consent_text } = body;
       if (!slug || !data) {
         return NextResponse.json({ error: 'slug and data are required' }, { status: 400, headers: corsHeaders() });
+      }
+
+      // DSGVO: Einwilligung ist Pflicht (Art. 6 Abs. 1 lit. a / Art. 7 DSGVO)
+      if (consent_given !== true) {
+        return NextResponse.json(
+          { error: 'Bitte stimmen Sie der Datenschutzerklärung zu, um das Formular abzusenden.' },
+          { status: 400, headers: corsHeaders() }
+        );
       }
 
       const form = db.prepare(
@@ -157,16 +165,19 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Insert submission
+      // Insert submission — incl. consent record for Nachweispflicht (Art. 7 Abs. 1 DSGVO)
       const submissionResult = db.prepare(`
-        INSERT INTO contact_submissions (form_id, data, lead_id, page_url, ip_address)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO contact_submissions (form_id, data, lead_id, page_url, ip_address, consent_given, consent_text, consent_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         form.id as number,
         JSON.stringify(data),
         leadId,
         page_url || null,
-        ip
+        ip,
+        1,
+        typeof consent_text === 'string' ? consent_text : 'Einwilligung zur Datenverarbeitung erteilt.',
+        new Date().toISOString()
       );
 
       // Increment submissions count

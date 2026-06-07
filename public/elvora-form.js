@@ -269,11 +269,17 @@
       var origText = btn.textContent;
       btn.innerHTML = '<span class="ef-spinner"></span> Wird gesendet...';
 
+      var consentText = (PRIVACY_URL
+        ? 'Ich stimme der Verarbeitung meiner Daten gemäß der Datenschutzerklärung (' + PRIVACY_URL + ') zu.'
+        : 'Ich stimme der Verarbeitung meiner Daten gemäß der Datenschutzerklärung zu.');
+
       submitForm({
         action: 'submit',
         slug: slug,
         data: data,
-        page_url: window.location.href
+        page_url: window.location.href,
+        consent_given: true,
+        consent_text: consentText
       }, function(err, res, status) {
         btn.disabled = false;
         btn.textContent = origText;
