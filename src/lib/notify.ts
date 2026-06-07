@@ -1,7 +1,7 @@
 import getDb from '@/lib/db';
 
 // ---------------------------------------------------------------------------
-// Shared notification helpers (WhatsApp via OpenClaw, E-Mail via Resend).
+// Shared notification helpers (E-Mail via Resend).
 // Everything here is fire-and-forget safe — functions never throw, so they
 // can be awaited inside request handlers without risking the main response.
 // ---------------------------------------------------------------------------
@@ -14,36 +14,6 @@ function getSetting(key: string): string {
     return row?.value ?? '';
   } catch {
     return '';
-  }
-}
-
-/** Normalize a phone number to international WhatsApp format (no +). */
-export function normalizePhone(phone: string): string {
-  let p = (phone || '').replace(/[\s\-()]/g, '');
-  if (p.startsWith('00')) p = p.slice(2);
-  else if (p.startsWith('+')) p = p.slice(1);
-  else if (p.startsWith('0')) p = '49' + p.slice(1);
-  return p;
-}
-
-/** Send a WhatsApp message via the configured OpenClaw gateway. Returns success. */
-export async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
-  try {
-    const url = getSetting('openclaw_url').replace(/\/$/, '');
-    if (!url || !phone || !message) return false;
-    const key = getSetting('openclaw_api_key');
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (key) headers['Authorization'] = `Bearer ${key}`;
-
-    const res = await fetch(`${url}/api/whatsapp/send`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ phone: normalizePhone(phone), message }),
-    });
-    return res.ok;
-  } catch (e) {
-    console.error('[notify] WhatsApp send failed:', e);
-    return false;
   }
 }
 
@@ -137,19 +107,6 @@ export async function notifyNewLead(input: NewLeadInput): Promise<void> {
     if (input.message) parts.push(`Nachricht: ${input.message}`);
     if (input.pageUrl) parts.push(`Seite: ${input.pageUrl}`);
 
-    // WhatsApp
-    if (getSetting('speedlead_whatsapp_enabled') === '1') {
-      const phone = getSetting('speedlead_phone');
-      if (phone) {
-        const waMsg =
-          `🔔 Neuer Lead (${label})!\n\n` +
-          parts.join('\n') +
-          `\n\n⚡ Schnell antworten = mehr Abschlüsse.`;
-        await sendWhatsApp(phone, waMsg);
-      }
-    }
-
-    // E-Mail
     if (getSetting('speedlead_email_enabled') === '1') {
       const email = getSetting('speedlead_email');
       if (email) {

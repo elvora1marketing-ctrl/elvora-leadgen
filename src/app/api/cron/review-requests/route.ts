@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
-import { sendEmail, sendWhatsApp } from '@/lib/notify';
+import { sendEmail } from '@/lib/notify';
 import { requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -51,9 +51,7 @@ async function processDue(): Promise<{ processed: number; sent: number; skipped:
     const body = template.replace(/\{\{\s*name\s*\}\}/g, name).replace(/\{\{\s*link\s*\}\}/g, googleUrl);
 
     let ok = false;
-    if (r.channel === 'whatsapp' && r.customer_phone) {
-      ok = await sendWhatsApp(r.customer_phone, body);
-    } else if (r.customer_email) {
+    if (r.customer_email) {
       const html = `
         <div style="font-family:-apple-system,sans-serif;max-width:520px;margin:0 auto;color:#334155;font-size:15px;line-height:1.6;">
           ${escapeHtml(body)

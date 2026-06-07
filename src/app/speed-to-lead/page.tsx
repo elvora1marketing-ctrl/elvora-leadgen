@@ -30,12 +30,9 @@ export default function SpeedToLeadPage() {
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [enabled, setEnabled] = useState(false);
-  const [waEnabled, setWaEnabled] = useState(false);
   const [emailEnabled, setEmailEnabled] = useState(true);
-  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [sources, setSources] = useState<SourceKey[]>(['form', 'chat', 'booking']);
-  const [openclawConfigured, setOpenclawConfigured] = useState(false);
   const [resendConfigured, setResendConfigured] = useState(false);
 
   const load = useCallback(async () => {
@@ -43,14 +40,11 @@ export default function SpeedToLeadPage() {
       const res = await fetch('/api/settings');
       const s = await res.json();
       setEnabled(s.speedlead_enabled === '1');
-      setWaEnabled(s.speedlead_whatsapp_enabled === '1');
       setEmailEnabled(s.speedlead_email_enabled !== '0');
-      setPhone(s.speedlead_phone || '');
       setEmail(s.speedlead_email || '');
       try {
         if (s.speedlead_sources) setSources(JSON.parse(s.speedlead_sources));
       } catch { /* default */ }
-      setOpenclawConfigured(!!s.openclaw_url);
       setResendConfigured(!!s.resend_api_key);
     } catch { /* ignore */ }
     setLoading(false);
@@ -72,9 +66,7 @@ export default function SpeedToLeadPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           speedlead_enabled: enabled ? '1' : '0',
-          speedlead_whatsapp_enabled: waEnabled ? '1' : '0',
           speedlead_email_enabled: emailEnabled ? '1' : '0',
-          speedlead_phone: phone.trim(),
           speedlead_email: email.trim(),
           speedlead_sources: JSON.stringify(sources),
         }),
@@ -99,7 +91,7 @@ export default function SpeedToLeadPage() {
         setTestMsg({ ok: false, text: data.error || 'Test fehlgeschlagen' });
       } else {
         const lines = (data.results || []).map((r: { channel: string; ok: boolean; reason?: string }) =>
-          `${r.channel === 'whatsapp' ? 'WhatsApp' : 'E-Mail'}: ${r.ok ? '✓ gesendet' : '✗ ' + (r.reason || 'Fehler')}`
+          `E-Mail: ${r.ok ? '✓ gesendet' : '✗ ' + (r.reason || 'Fehler')}`
         );
         setTestMsg({ ok: data.success, text: lines.join('  ·  ') });
       }
@@ -129,34 +121,9 @@ export default function SpeedToLeadPage() {
         </div>
       </div>
 
-      {/* Channels */}
+      {/* E-Mail-Kanal */}
       <div className="card rounded-xl p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-white">Kanäle</h2>
-
-        {/* WhatsApp */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-elvora-text">WhatsApp</div>
-              <div className="text-xs text-elvora-text-dim">
-                {openclawConfigured ? 'OpenClaw verbunden' : 'OpenClaw nicht konfiguriert (Einstellungen)'}
-              </div>
-            </div>
-            <Toggle on={waEnabled} onChange={setWaEnabled} />
-          </div>
-          {waEnabled && (
-            <input
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-              placeholder="Deine WhatsApp-Nummer, z.B. 0151 23456789"
-              className="w-full h-10 px-3 text-sm bg-elvora-bg-alt border border-elvora-border rounded-lg text-white placeholder:text-elvora-text-dim focus:border-elvora-purple/50 focus:outline-none"
-            />
-          )}
-        </div>
-
-        <div className="h-px bg-elvora-border" />
-
-        {/* Email */}
+        <h2 className="text-sm font-semibold text-white">Benachrichtigungs-Kanal</h2>
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div>
@@ -219,7 +186,7 @@ export default function SpeedToLeadPage() {
       </div>
 
       <p className="text-xs text-elvora-text-dim">
-        Tipp: Hinterlege deine Kanäle (OpenClaw/Resend) unter <span className="text-elvora-text-muted">Einstellungen</span>.
+        Tipp: Hinterlege deinen Resend API-Key unter <span className="text-elvora-text-muted">Einstellungen → E-Mail</span>.
         Die Benachrichtigungen werden ausgelöst, sobald ein Besucher ein Formular absendet, einen Chat startet oder einen Termin bucht.
       </p>
     </div>

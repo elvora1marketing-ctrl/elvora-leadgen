@@ -1064,7 +1064,6 @@ export default function CrmDetailPage() {
                 <option value="note">Notiz</option>
                 <option value="call">Anruf</option>
                 <option value="meeting">Meeting</option>
-                <option value="whatsapp">WhatsApp</option>
               </select>
             </div>
             <textarea

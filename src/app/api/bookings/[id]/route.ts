@@ -59,21 +59,17 @@ export async function PATCH(
             }
           }
 
-          const channel = getSetting('review_autopilot_channel') || 'email';
-          const hasContact = channel === 'whatsapp' ? !!phone : !!email;
-
-          if (!already && hasContact) {
+          if (!already && email) {
             const delayHours = parseInt(getSetting('review_autopilot_delay_hours') || '24', 10) || 24;
             db.prepare(`
               INSERT INTO review_requests (booking_id, lead_id, customer_name, customer_email, customer_phone, channel, scheduled_at, status)
-              VALUES (?, ?, ?, ?, ?, ?, datetime('now', ? || ' hours'), 'pending')
+              VALUES (?, ?, ?, ?, ?, 'email', datetime('now', ? || ' hours'), 'pending')
             `).run(
               booking.id,
               booking.lead_id || null,
               booking.name || '',
               email,
               phone,
-              channel,
               String(delayHours)
             );
           }

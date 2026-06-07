@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import getDb from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
-import { sendWhatsApp, sendEmail } from '@/lib/notify';
+import { sendEmail } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,19 +24,6 @@ export async function POST(request: NextRequest) {
     }
 
     const results: { channel: string; ok: boolean; reason?: string }[] = [];
-
-    if (getSetting('speedlead_whatsapp_enabled') === '1') {
-      const phone = getSetting('speedlead_phone');
-      if (!phone) {
-        results.push({ channel: 'whatsapp', ok: false, reason: 'Keine Telefonnummer hinterlegt' });
-      } else {
-        const ok = await sendWhatsApp(
-          phone,
-          '🔔 Test: So sieht eine Speed-to-Lead Benachrichtigung aus.\n\nName: Max Mustermann\nE-Mail: max@beispiel.de\nTelefon: 0151 23456789'
-        );
-        results.push({ channel: 'whatsapp', ok, reason: ok ? undefined : 'Versand fehlgeschlagen (OpenClaw prüfen)' });
-      }
-    }
 
     if (getSetting('speedlead_email_enabled') === '1') {
       const email = getSetting('speedlead_email');

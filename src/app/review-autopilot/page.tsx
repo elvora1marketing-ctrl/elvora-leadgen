@@ -48,7 +48,6 @@ export default function ReviewAutopilotPage() {
 
   const [enabled, setEnabled] = useState(false);
   const [delay, setDelay] = useState('24');
-  const [channel, setChannel] = useState('email');
   const [googleUrl, setGoogleUrl] = useState('');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
@@ -62,7 +61,6 @@ export default function ReviewAutopilotPage() {
       const s = await res.json();
       setEnabled(s.review_autopilot_enabled === '1');
       setDelay(s.review_autopilot_delay_hours || '24');
-      setChannel(s.review_autopilot_channel || 'email');
       setGoogleUrl(s.review_google_url || '');
       setSubject(s.review_autopilot_subject || 'Wie war Ihr Termin bei uns?');
       setMessage(s.review_autopilot_message || '');
@@ -92,7 +90,7 @@ export default function ReviewAutopilotPage() {
         body: JSON.stringify({
           review_autopilot_enabled: enabled ? '1' : '0',
           review_autopilot_delay_hours: String(parseInt(delay) || 24),
-          review_autopilot_channel: channel,
+          review_autopilot_channel: 'email',
           review_google_url: googleUrl.trim(),
           review_autopilot_subject: subject,
           review_autopilot_message: message,
@@ -148,20 +146,10 @@ export default function ReviewAutopilotPage() {
       <div className="card rounded-xl p-5 space-y-4">
         <h2 className="text-sm font-semibold text-white">Einstellungen</h2>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Verzögerung (Stunden nach Termin)</label>
-            <input type="number" min="0" value={delay} onChange={e => setDelay(e.target.value)}
-              className="w-full h-10 px-3 text-sm bg-elvora-bg-alt border border-elvora-border rounded-lg text-white focus:border-elvora-purple/50 focus:outline-none" />
-          </div>
-          <div>
-            <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Kanal</label>
-            <select value={channel} onChange={e => setChannel(e.target.value)}
-              className="w-full h-10 px-3 text-sm bg-elvora-bg-alt border border-elvora-border rounded-lg text-white focus:border-elvora-purple/50 focus:outline-none">
-              <option value="email">E-Mail</option>
-              <option value="whatsapp">WhatsApp</option>
-            </select>
-          </div>
+        <div>
+          <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Verzögerung (Stunden nach Termin)</label>
+          <input type="number" min="0" value={delay} onChange={e => setDelay(e.target.value)}
+            className="w-full h-10 px-3 text-sm bg-elvora-bg-alt border border-elvora-border rounded-lg text-white focus:border-elvora-purple/50 focus:outline-none max-w-xs" />
         </div>
 
         <div>
@@ -174,13 +162,11 @@ export default function ReviewAutopilotPage() {
           </p>
         </div>
 
-        {channel === 'email' && (
-          <div>
-            <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Betreff (E-Mail)</label>
-            <input value={subject} onChange={e => setSubject(e.target.value)}
-              className="w-full h-10 px-3 text-sm bg-elvora-bg-alt border border-elvora-border rounded-lg text-white focus:border-elvora-purple/50 focus:outline-none" />
-          </div>
-        )}
+        <div>
+          <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Betreff (E-Mail)</label>
+          <input value={subject} onChange={e => setSubject(e.target.value)}
+            className="w-full h-10 px-3 text-sm bg-elvora-bg-alt border border-elvora-border rounded-lg text-white focus:border-elvora-purple/50 focus:outline-none" />
+        </div>
 
         <div>
           <label className="text-xs text-elvora-text-muted font-medium mb-1.5 block">Nachricht</label>
@@ -220,7 +206,7 @@ export default function ReviewAutopilotPage() {
                 <div className="min-w-0">
                   <div className="text-sm text-elvora-text font-medium truncate">{r.customer_name || 'Unbekannt'}</div>
                   <div className="text-xs text-elvora-text-dim truncate">
-                    {r.channel === 'whatsapp' ? (r.customer_phone || '—') : (r.customer_email || '—')}
+                    {r.customer_email || '—'}
                     {' · '}geplant {fmt(r.scheduled_at)}
                     {r.sent_at && ` · gesendet ${fmt(r.sent_at)}`}
                   </div>

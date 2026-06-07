@@ -172,7 +172,7 @@ export default function SettingsPage() {
 
   // Integration
   const [apiKey, setApiKey] = useState('');
-  const [openclawUrl, setOpenclawUrl] = useState('');
+
 
   // Security
   const [newPassword, setNewPassword] = useState('');
@@ -1018,15 +1018,11 @@ export default function SettingsPage() {
           )}
           {activeTab === 'integration' && (
             <>
-              <SectionCard title="API-Key" badge="ZUGRIFFSKONTROLLE" badgeColor="success" description="Für externe Zugriffe auf das Elvora-System (OpenClaw, Webhooks, etc.)">
+              <SectionCard title="API-Key" badge="ZUGRIFFSKONTROLLE" badgeColor="success" description="Für externe Zugriffe auf das Elvora-System (Webhooks, etc.)">
                 <div className="flex gap-2">
                   <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Sicheren Key eingeben oder generieren..." className={`flex-1 ${inputMonoClass}`} />
                   <button onClick={() => setApiKey(crypto.randomUUID())} className="px-3 py-2 rounded-lg bg-elvora-success/10 text-elvora-success text-xs font-medium hover:bg-elvora-success/20 flex-shrink-0">Generieren</button>
                 </div>
-              </SectionCard>
-
-              <SectionCard title="OpenClaw" badge="WHATSAPP-NACHFASS" badgeColor="success" description="WhatsApp-Nachfass, Lead-Qualifizierung & AI-Conversations">
-                <Field label="OpenClaw Gateway URL"><input type="url" value={openclawUrl} onChange={e => setOpenclawUrl(e.target.value)} placeholder="http://localhost:3100" className={inputClass} /></Field>
               </SectionCard>
 
               <SectionCard title="API-Endpoints" description="Verfügbare Endpoints für externe Integrationen">
@@ -1036,7 +1032,6 @@ export default function SettingsPage() {
                     { method: 'PATCH', color: 'text-elvora-warning bg-elvora-warning/10', path: '/api/leads/:id/status', desc: 'Status ändern' },
                     { method: 'POST', color: 'text-elvora-pink bg-elvora-pink/10', path: '/api/email/send', desc: 'Einzel-Mail senden' },
                     { method: 'POST', color: 'text-elvora-pink bg-elvora-pink/10', path: '/api/email/outreach', desc: 'Bulk-Outreach starten' },
-                    { method: 'POST', color: 'text-elvora-pink bg-elvora-pink/10', path: '/api/webhooks/openclaw', desc: 'OpenClaw Webhook' },
                     { method: 'POST', color: 'text-elvora-purple-light bg-elvora-purple/10', path: '/api/cron/scan', desc: 'Scan + Follow-Ups' },
                     { method: 'POST', color: 'text-elvora-purple-light bg-elvora-purple/10', path: '/api/analyze', desc: 'Website analysieren' },
                   ].map((ep, i) => (

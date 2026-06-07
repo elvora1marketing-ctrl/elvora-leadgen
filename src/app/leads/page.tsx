@@ -91,9 +91,7 @@ export default function LeadsPage() {
   const [noteInput, setNoteInput] = useState('');
   const [noteType, setNoteType] = useState<'note' | 'call' | 'meeting'>('note');
   const [addingNote, setAddingNote] = useState(false);
-  const [sendingWa, setSendingWa] = useState(false);
-  const [waTemplate, setWaTemplate] = useState<'pitch' | 'followup' | 'reminder'>('pitch');
-  const [waResult, setWaResult] = useState<string | null>(null);
+
 
   const loadLeads = useCallback(async () => {
     try {
@@ -236,26 +234,7 @@ export default function LeadsPage() {
     finally { setAddingNote(false); }
   };
 
-  const sendWhatsApp = async (leadId: number) => {
-    setSendingWa(true); setWaResult(null);
-    try {
-      const res = await fetch('/api/whatsapp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lead_id: leadId, template: waTemplate }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setWaResult('Gesendet!');
-        // Refresh activities
-        const actRes = await fetch(`/api/leads/${leadId}/notes`);
-        if (actRes.ok) { const d = await actRes.json(); setActivities(d.activities || []); }
-      } else {
-        setWaResult(data.error || 'Fehler');
-      }
-    } catch { setWaResult('Netzwerkfehler'); }
-    finally { setSendingWa(false); setTimeout(() => setWaResult(null), 4000); }
-  };
+
 
   if (loading) {
     return (
@@ -456,22 +435,6 @@ export default function LeadsPage() {
                             </button>
                           </div>
                         </div>
-
-                        {/* WhatsApp */}
-                        {lead.phone && (
-                          <div className="flex gap-1 items-center">
-                            <select value={waTemplate} onChange={(e) => setWaTemplate(e.target.value as 'pitch' | 'followup' | 'reminder')}
-                              className="flex-1 px-2 py-1 rounded-lg bg-green-500/5 border border-green-500/20 text-green-400 text-[11px] focus:outline-none cursor-pointer">
-                              <option value="pitch">💬 WhatsApp Pitch</option>
-                              <option value="followup">💬 Follow-Up</option>
-                              <option value="reminder">💬 Reminder</option>
-                            </select>
-                            <button onClick={() => sendWhatsApp(lead.id)} disabled={sendingWa}
-                              className="px-2 py-1 rounded-lg bg-green-500/15 border border-green-500/25 text-green-400 text-[11px] font-semibold hover:bg-green-500/25 transition-all disabled:opacity-50">
-                              {sendingWa ? '...' : waResult || 'Senden'}
-                            </button>
-                          </div>
-                        )}
 
                         {/* Activity Log */}
                         {activities.length > 0 && (
