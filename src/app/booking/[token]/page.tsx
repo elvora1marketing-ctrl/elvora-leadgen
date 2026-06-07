@@ -127,6 +127,11 @@ export default function BookingPage({ params }: { params: Promise<{ token: strin
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState<Booking | null>(null);
+  const [isEmbed, setIsEmbed] = useState(false);
+
+  useEffect(() => {
+    setIsEmbed(new URLSearchParams(window.location.search).has('embed'));
+  }, []);
 
   // Resolve token: event type slug, "new", or booking token
   useEffect(() => {
@@ -224,6 +229,7 @@ export default function BookingPage({ params }: { params: Promise<{ token: strin
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Fehler beim Buchen'); return; }
       setSuccess(data.booking);
+      try { window.parent.postMessage({ type: 'elvora-booking-success' }, '*'); } catch {};
     } catch { setError('Netzwerkfehler.'); } finally { setSubmitting(false); }
   }
 
@@ -251,7 +257,7 @@ export default function BookingPage({ params }: { params: Promise<{ token: strin
           </div>
           <h2 className="text-lg font-semibold text-white mb-2">Seite nicht gefunden</h2>
           <p className="text-sm text-elvora-text-dim mb-4">Dieser Buchungslink ist ungueltig.</p>
-          <Link href="/booking" className="text-sm text-elvora-purple-light hover:underline">Zur Terminuebersicht</Link>
+          <Link href={`/booking${isEmbed ? '?embed=1' : ''}`} className="text-sm text-elvora-purple-light hover:underline">Zur Terminuebersicht</Link>
         </div>
       </div>
     );
@@ -361,7 +367,7 @@ export default function BookingPage({ params }: { params: Promise<{ token: strin
           <div className="md:flex">
             {/* Left: Event Info */}
             <div className="md:w-[220px] p-5 md:border-r border-b md:border-b-0 border-elvora-border flex-shrink-0">
-              <Link href="/booking" className="text-xs text-elvora-text-dim hover:text-elvora-purple-light transition-colors flex items-center gap-1 mb-4">
+              <Link href={`/booking${isEmbed ? '?embed=1' : ''}`} className="text-xs text-elvora-text-dim hover:text-elvora-purple-light transition-colors flex items-center gap-1 mb-4">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 Zurueck
               </Link>
@@ -504,9 +510,11 @@ export default function BookingPage({ params }: { params: Promise<{ token: strin
           </div>
         </div>
 
-        <p className="text-center text-[11px] text-elvora-text-dim/40 mt-6">
-          Powered by Elvora
-        </p>
+        {!isEmbed && (
+          <p className="text-center text-[11px] text-elvora-text-dim/40 mt-6">
+            Powered by Elvora
+          </p>
+        )}
       </div>
     </div>
   );

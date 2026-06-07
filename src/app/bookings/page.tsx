@@ -19,6 +19,13 @@ interface Booking {
   lead_city: string | null;
 }
 
+interface EventType {
+  id: number;
+  name: string;
+  slug: string;
+  color: string;
+}
+
 const statusConfig: Record<string, { label: string; color: string }> = {
   confirmed: { label: 'Bestätigt', color: 'bg-elvora-success/15 text-elvora-success' },
   completed: { label: 'Abgeschlossen', color: 'bg-elvora-purple/15 text-elvora-purple-light' },
@@ -47,6 +54,8 @@ export default function BookingsPage() {
   const [filter, setFilter] = useState('all');
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showEmbed, setShowEmbed] = useState(false);
+  const [eventTypes, setEventTypes] = useState<EventType[]>([]);
 
   const today = getTodayString();
 
@@ -64,6 +73,10 @@ export default function BookingsPage() {
 
   useEffect(() => {
     loadBookings();
+    fetch('/api/bookings/event-types?active=1')
+      .then(r => r.json())
+      .then(data => setEventTypes(data.eventTypes || []))
+      .catch(() => {});
   }, [loadBookings]);
 
   async function updateStatus(id: number, status: string) {
@@ -125,15 +138,26 @@ export default function BookingsPage() {
           <h1 className="text-xl font-bold text-white">Termine</h1>
           <p className="text-sm text-elvora-text-dim mt-0.5">Alle gebuchten Termine verwalten</p>
         </div>
-        <button
-          onClick={copyBookingLink}
-          className="px-4 py-2 rounded-lg bg-elvora-primary text-white text-sm font-medium hover:bg-elvora-primary-dark transition-colors flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          {copiedLink ? 'Kopiert!' : 'Buchungslink kopieren'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowEmbed(true)}
+            className="px-4 py-2 rounded-lg bg-elvora-surface text-elvora-text-muted text-sm font-medium hover:text-white border border-elvora-border hover:border-elvora-border-light transition-colors flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            </svg>
+            Einbetten
+          </button>
+          <button
+            onClick={copyBookingLink}
+            className="px-4 py-2 rounded-lg bg-elvora-primary text-white text-sm font-medium hover:bg-elvora-primary-dark transition-colors flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+            {copiedLink ? 'Kopiert!' : 'Buchungslink kopieren'}
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -222,6 +246,14 @@ export default function BookingsPage() {
         </div>
       )}
 
+      {/* Embed Modal */}
+      {showEmbed && (
+        <EmbedModal
+          eventTypes={eventTypes}
+          onClose={() => setShowEmbed(false)}
+        />
+      )}
+
       {/* Empty state */}
       {filtered.length === 0 && (
         <div className="card rounded-xl p-12 text-center">
@@ -237,6 +269,192 @@ export default function BookingsPage() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function EmbedModal({ eventTypes, onClose }: { eventTypes: EventType[]; onClose: () => void }) {
+  const [embedType, setEmbedType] = useState<'inline' | 'popup' | 'badge'>('inline');
+  const [selectedSlug, setSelectedSlug] = useState('');
+  const [btnText, setBtnText] = useState('Termin buchen');
+  const [btnColor, setBtnColor] = useState('#8B5CF6');
+  const [copied, setCopied] = useState(false);
+
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const bookingUrl = selectedSlug ? `${baseUrl}/booking/${selectedSlug}` : `${baseUrl}/booking`;
+
+  function getCode(): string {
+    const slugAttr = selectedSlug ? ` data-slug="${selectedSlug}"` : '';
+    if (embedType === 'inline') {
+      return `<div id="elvora-booking"></div>\n<script src="${baseUrl}/elvora-booking.js" data-url="${baseUrl}/booking"${slugAttr} data-type="inline"></script>`;
+    }
+    if (embedType === 'popup') {
+      return `<script src="${baseUrl}/elvora-booking.js" data-url="${baseUrl}/booking"${slugAttr} data-type="popup" data-text="${btnText}" data-color="${btnColor}"></script>`;
+    }
+    return `<script src="${baseUrl}/elvora-booking.js" data-url="${baseUrl}/booking"${slugAttr} data-type="badge" data-text="${btnText}" data-color="${btnColor}"></script>`;
+  }
+
+  function copyCode() {
+    navigator.clipboard.writeText(getCode());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const types = [
+    { key: 'inline' as const, label: 'Inline', desc: 'Direkt auf der Seite eingebettet', icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z' },
+    { key: 'popup' as const, label: 'Popup-Button', desc: 'Button oeffnet Buchung als Modal', icon: 'M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122' },
+    { key: 'badge' as const, label: 'Floating Badge', desc: 'Schwebendes Badge unten rechts', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative card rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-lg font-bold text-white">Auf Website einbetten</h2>
+              <p className="text-xs text-elvora-text-dim mt-0.5">Buchungssystem auf externen Seiten einbinden</p>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/5 text-elvora-text-dim hover:text-white transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+
+          {/* Embed Type Selection */}
+          <div className="space-y-2 mb-5">
+            {types.map(t => (
+              <button
+                key={t.key}
+                onClick={() => setEmbedType(t.key)}
+                className={`w-full p-3 rounded-xl text-left transition-all flex items-center gap-3 ${
+                  embedType === t.key
+                    ? 'bg-elvora-purple/10 border border-elvora-purple/30'
+                    : 'bg-elvora-bg border border-elvora-border hover:border-elvora-border-light'
+                }`}
+              >
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  embedType === t.key ? 'bg-elvora-purple/20' : 'bg-elvora-surface'
+                }`}>
+                  <svg className={`w-4.5 h-4.5 ${embedType === t.key ? 'text-elvora-purple-light' : 'text-elvora-text-dim'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={t.icon} />
+                  </svg>
+                </div>
+                <div>
+                  <div className={`text-sm font-medium ${embedType === t.key ? 'text-white' : 'text-elvora-text-muted'}`}>{t.label}</div>
+                  <div className="text-[11px] text-elvora-text-dim">{t.desc}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Options */}
+          <div className="space-y-3 mb-5">
+            <div>
+              <label className="block text-xs text-elvora-text-dim mb-1.5">Termintyp</label>
+              <select
+                value={selectedSlug}
+                onChange={e => {
+                  setSelectedSlug(e.target.value);
+                  const et = eventTypes.find(t => t.slug === e.target.value);
+                  if (et) setBtnColor(et.color);
+                }}
+                className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-elvora-border text-white text-sm focus:outline-none focus:border-elvora-purple/50"
+              >
+                <option value="">Alle Termintypen (Auswahl-Seite)</option>
+                {eventTypes.map(et => (
+                  <option key={et.id} value={et.slug}>{et.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {embedType !== 'inline' && (
+              <>
+                <div>
+                  <label className="block text-xs text-elvora-text-dim mb-1.5">Button-Text</label>
+                  <input
+                    type="text"
+                    value={btnText}
+                    onChange={e => setBtnText(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-elvora-bg border border-elvora-border text-white text-sm focus:outline-none focus:border-elvora-purple/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-elvora-text-dim mb-1.5">Button-Farbe</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={btnColor}
+                      onChange={e => setBtnColor(e.target.value)}
+                      className="w-9 h-9 rounded-lg border border-elvora-border cursor-pointer bg-transparent"
+                    />
+                    <input
+                      type="text"
+                      value={btnColor}
+                      onChange={e => setBtnColor(e.target.value)}
+                      className="flex-1 px-3 py-2 rounded-lg bg-elvora-bg border border-elvora-border text-white text-sm font-mono focus:outline-none focus:border-elvora-purple/50"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Preview */}
+          <div className="mb-5">
+            <label className="block text-xs text-elvora-text-dim mb-1.5">Vorschau</label>
+            <div className="rounded-xl bg-white/5 border border-elvora-border p-6 flex items-center justify-center min-h-[80px]">
+              {embedType === 'inline' ? (
+                <div className="w-full rounded-lg border border-dashed border-elvora-border p-4 text-center">
+                  <div className="text-xs text-elvora-text-dim">Inline-Buchungsformular</div>
+                  <div className="text-[10px] text-elvora-text-dim/50 mt-1">{bookingUrl}</div>
+                </div>
+              ) : embedType === 'popup' ? (
+                <button
+                  className="px-5 py-2.5 rounded-lg text-white text-sm font-semibold flex items-center gap-2"
+                  style={{ background: btnColor }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  {btnText}
+                </button>
+              ) : (
+                <div className="relative w-full h-20">
+                  <button
+                    className="absolute bottom-0 right-0 px-5 h-12 rounded-full text-white text-sm font-semibold flex items-center gap-2 shadow-lg"
+                    style={{ background: btnColor }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    {btnText}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Code */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs text-elvora-text-dim">Embed-Code</label>
+              <button
+                onClick={copyCode}
+                className="text-xs text-elvora-purple-light hover:text-white transition-colors flex items-center gap-1"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={copied ? 'M5 13l4 4L19 7' : 'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z'} />
+                </svg>
+                {copied ? 'Kopiert!' : 'Kopieren'}
+              </button>
+            </div>
+            <pre className="bg-elvora-bg rounded-xl p-4 text-xs text-elvora-text-muted font-mono overflow-x-auto border border-elvora-border whitespace-pre-wrap break-all leading-relaxed">
+              {getCode()}
+            </pre>
+          </div>
+
+          <p className="text-[11px] text-elvora-text-dim/50 mt-4">
+            Fuegen Sie diesen Code in den HTML-Body Ihrer Website ein. Das Buchungssystem wird automatisch geladen.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

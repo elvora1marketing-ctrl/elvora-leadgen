@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import CookieBanner from '@/components/CookieBanner';
 import LegalFooter from '@/components/LegalFooter';
+import EmbedWrapper from './embed-wrapper';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -23,9 +24,7 @@ export default function BookingLayout({
 }) {
   return (
     <div className={`min-h-screen bg-elvora-bg ${inter.className}`}>
-      {children}
-      <LegalFooter />
-      <CookieBanner />
+      <EmbedWrapper>{children}</EmbedWrapper>
     </div>
   );
 }

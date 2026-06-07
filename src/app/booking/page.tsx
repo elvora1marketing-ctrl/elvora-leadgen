@@ -18,6 +18,11 @@ export default function BookingLandingPage() {
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [isEmbed, setIsEmbed] = useState(false);
+
+  useEffect(() => {
+    setIsEmbed(new URLSearchParams(window.location.search).has('embed'));
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -72,7 +77,7 @@ export default function BookingLandingPage() {
             {eventTypes.map((et) => (
               <Link
                 key={et.id}
-                href={`/booking/${et.slug}`}
+                href={`/booking/${et.slug}${isEmbed ? '?embed=1' : ''}`}
                 className="block card rounded-xl p-5 transition-all hover:border-elvora-border-light group"
               >
                 <div className="flex items-start gap-4">
@@ -109,9 +114,11 @@ export default function BookingLandingPage() {
           </div>
         )}
 
-        <p className="text-center text-[11px] text-elvora-text-dim/50 mt-8">
-          Powered by Elvora
-        </p>
+        {!isEmbed && (
+          <p className="text-center text-[11px] text-elvora-text-dim/50 mt-8">
+            Powered by Elvora
+          </p>
+        )}
       </div>
     </div>
   );
