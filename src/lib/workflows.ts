@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from 'better-sqlite3-multiple-ciphers';
 
 interface WorkflowAction {
   type: 'send_email' | 'create_task' | 'change_status' | 'add_tag' | 'update_field' | 'send_notification';
