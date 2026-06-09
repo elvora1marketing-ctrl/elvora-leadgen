@@ -918,8 +918,50 @@ const migrations: ((inst: Database.Database) => void)[] = [
     }
   },
 
-  // Future migrations go here — append only
-  // (inst) => { inst.exec(`ALTER TABLE ...`); },
+  // 1: Lead-Funnel-Engine (config-driven multi-step funnels)
+  (inst) => {
+    inst.exec(`
+      CREATE TABLE IF NOT EXISTS funnel_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        config TEXT NOT NULL DEFAULT '{}',
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_funnel_configs_slug ON funnel_configs(slug);
+
+      CREATE TABLE IF NOT EXISTS funnel_leads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        funnel_id INTEGER NOT NULL,
+        answers TEXT NOT NULL DEFAULT '{}',
+        name TEXT DEFAULT '',
+        email TEXT DEFAULT '',
+        phone TEXT DEFAULT '',
+        preferred_time TEXT DEFAULT '',
+        status TEXT DEFAULT 'new' CHECK(status IN ('new','contacted','qualified','lost')),
+        ip_hash TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (funnel_id) REFERENCES funnel_configs(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_funnel_leads_funnel ON funnel_leads(funnel_id);
+      CREATE INDEX IF NOT EXISTS idx_funnel_leads_status ON funnel_leads(status);
+      CREATE INDEX IF NOT EXISTS idx_funnel_leads_created ON funnel_leads(created_at);
+
+      CREATE TABLE IF NOT EXISTS funnel_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        funnel_id INTEGER NOT NULL,
+        session_id TEXT NOT NULL,
+        step TEXT NOT NULL,
+        event_type TEXT NOT NULL CHECK(event_type IN ('view','complete','drop')),
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (funnel_id) REFERENCES funnel_configs(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_funnel_events_funnel ON funnel_events(funnel_id);
+      CREATE INDEX IF NOT EXISTS idx_funnel_events_session ON funnel_events(session_id);
+    `);
+  },
 ];
 
 // ---------------------------------------------------------------------------
